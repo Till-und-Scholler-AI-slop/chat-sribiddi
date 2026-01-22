@@ -1,3 +1,22 @@
 spring:
   application:
     name: chat-sribiddi
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            clientId: ${GOOGLE_CLIENT_ID}
+            clientSecret: ${GOOGLE_CLIENT_SECRET}
+            scope: openid, email, profile
+
+  docker:
+    compose:
+      enabled: true
+      file: compose.yaml
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+
