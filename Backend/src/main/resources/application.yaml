@@ -1,7 +1,8 @@
 spring:
   application:
     name: chat-sribiddi
-
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE}
   security:
     oauth2:
       client:
@@ -19,4 +20,19 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
+
+  ai:
+    chat:
+      client:
+        enabled: false
+    openai:
+      api-key: ${OPENAI_API_KEY}
+
+    google:
+      genai:
+        api-key: ${GOOGLE_API_KEY:}
+        project-id: ${GOOGLE_PROJECT_ID:demo-project}
+        location: ${GOOGLE_LOCATION:us-central1}
+
+
 

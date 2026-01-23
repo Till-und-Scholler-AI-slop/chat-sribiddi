@@ -1,9 +1,12 @@
-package com.rft.chat_sribiddi.authentification.config;
+package com.rft.chat_sribiddi.auth.config;
 
-import com.rft.chat_sribiddi.authentification.CustomOAuth2UserService;
+import com.rft.chat_sribiddi.auth.CustomOAuth2UserService;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -12,10 +15,10 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.List;
-
+@Slf4j
 @Configuration
 @EnableWebSecurity
+@Profile("production")
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -23,17 +26,23 @@ public class SecurityConfig {
 
   @Bean
   SecurityFilterChain securityFilterChain(HttpSecurity http) {
-    return http.cors(Customizer.withDefaults())
-        .authorizeHttpRequests(
-            auth -> {
-              auth.requestMatchers("/", "/login").permitAll();
-              auth.anyRequest().authenticated();
-            })
-        .oauth2Login(
-            oauth2 ->
-                oauth2.userInfoEndpoint(
-                    userInfo -> userInfo.oidcUserService(customOAuth2UserService)))
-        .build();
+    try {
+      return http.cors(Customizer.withDefaults())
+          .authorizeHttpRequests(
+              auth -> {
+                auth.requestMatchers("/", "/login", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
+                    .permitAll();
+                auth.anyRequest().authenticated();
+              })
+          .oauth2Login(
+              oauth2 ->
+                  oauth2.userInfoEndpoint(
+                      userInfo -> userInfo.oidcUserService(customOAuth2UserService)))
+          .build();
+    } catch (Exception e) {
+      log.error("Error in SecurityConfig: {}", e.getMessage());
+      return null;
+    }
   }
 
   @Bean
