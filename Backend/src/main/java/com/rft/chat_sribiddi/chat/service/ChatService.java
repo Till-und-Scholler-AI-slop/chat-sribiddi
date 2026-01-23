@@ -51,9 +51,6 @@ public class ChatService {
   }
 
   public ChatEntity createChat(ChatEntity chatEntity) {
-    if (chatEntity.getCreatedAt() == null) {
-      chatEntity.setCreatedAt(Instant.now());
-    }
     return chatRepository.save(chatEntity);
   }
 

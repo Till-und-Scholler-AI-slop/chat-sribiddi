@@ -1,10 +1,6 @@
 package com.rft.chat_sribiddi.chat.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
@@ -15,14 +11,13 @@ import lombok.Setter;
 @Getter
 @Setter
 public class ChatEntity {
-  @Id
-  @GeneratedValue
-  private UUID chatId;
+  @Id @GeneratedValue private UUID chatId;
 
   private String title;
 
   private Instant createdAt;
 
+  @Column(nullable = false)
   private String userId;
 
   @PrePersist

@@ -6,6 +6,8 @@ import com.rft.chat_sribiddi.chat.service.ChatService;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -20,8 +22,14 @@ public class ChatController {
   private final ChatService chatService;
 
   @PostMapping
-  public ChatEntity createChat(@RequestBody ChatEntity chatEntity) {
-    return chatService.createChat(chatEntity);
+  public ResponseEntity<ChatEntity> createChat(@RequestBody ChatEntity chatEntity) {
+    if (chatEntity.getUserId() == null) {
+      return ResponseEntity.badRequest().build();
+    }
+
+    ChatEntity savedChat = chatService.createChat(chatEntity);
+
+    return ResponseEntity.status(HttpStatus.CREATED).body(savedChat);
   }
 
   @PostMapping("/{chatId}/messages")
