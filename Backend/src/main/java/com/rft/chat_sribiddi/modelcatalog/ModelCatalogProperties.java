@@ -24,7 +24,7 @@ public class ModelCatalogProperties {
   private List<ModelOption> google =
       new ArrayList<>(
           List.of(
-              new ModelOption("gemini-3-flash-preview", "Gemini 2.5 flash"),
+              new ModelOption("gemini-3-flash-preview", "Gemini 3 flash preview"),
               new ModelOption("gemini-1.5-pro", "Gemini 1.5 Pro"),
               new ModelOption(
                   "gemini-2.0-flash-lite-preview-02-05", "Gemini 2.0 Flash Lite (preview)")));

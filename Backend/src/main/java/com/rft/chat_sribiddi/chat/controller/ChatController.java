@@ -5,15 +5,13 @@ import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.service.ChatService;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+@Slf4j
 @RequiredArgsConstructor
 @RequestMapping("/chats")
 @RestController
@@ -23,7 +21,7 @@ public class ChatController {
 
   @PostMapping
   public ResponseEntity<ChatEntity> createChat(@RequestBody ChatEntity chatEntity) {
-    if (chatEntity.getUserId() == null) {
+    if (chatEntity.getUserId().isEmpty()) {
       return ResponseEntity.badRequest().build();
     }
 
@@ -33,7 +31,21 @@ public class ChatController {
   }
 
   @PostMapping("/{chatId}/messages")
-  public ChatResponse sendMessage(@PathVariable UUID chatId, @RequestBody RequestDTO request) {
-    return chatService.sendMessage(chatId, request);
+  public ResponseEntity<ChatResponse> sendMessage(
+      @PathVariable UUID chatId, @RequestBody RequestDTO request) {
+
+    return ResponseEntity.ok(chatService.sendMessage(chatId, request));
+  }
+
+  @DeleteMapping("/{chatId}")
+  public HttpStatus deleteChat(@PathVariable UUID chatId) {
+    try {
+      chatService.deleteChat(chatId);
+      return HttpStatus.OK;
+
+    } catch (Exception e) {
+      log.error("Error in deleting chat: {}", e.getMessage());
+      return HttpStatus.INTERNAL_SERVER_ERROR;
+    }
   }
 }

@@ -12,6 +12,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+
+import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -26,7 +28,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class ChatService {
 
-  private static final String SYSTEM_PROMPT = "You are a helpful assistant.";
+  private static final String SYSTEM_PROMPT = "You are a helpful assistant. Your answer must be structured in markdown.";
   private static final int CONTEXT_MESSAGE_LIMIT = 20;
   private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
@@ -50,6 +52,13 @@ public class ChatService {
     this.googleAiChatClient = googleAiChatClient;
   }
 
+  @Transactional
+  public void deleteChat(UUID chatId) {
+    messageRepository.deleteByChatId(chatId);
+    chatRepository.deleteById(chatId);
+  }
+
+  @Transactional
   public ChatEntity createChat(ChatEntity chatEntity) {
     return chatRepository.save(chatEntity);
   }
@@ -62,7 +71,7 @@ public class ChatService {
     persistMessage(chatId, requestDTO.content(), Role.USER, null);
 
     List<Message> promptMessages = buildPromptMessages(chatId);
-    log.info("Prompt messages: {}", promptMessages);
+    log.debug("Prompt messages: {}", promptMessages);
 
     ChatClient client = selectClient(requestDTO.provider());
 
@@ -74,7 +83,7 @@ public class ChatService {
             .call();
     ChatResponse chatResponse = responseSpec.chatResponse();
 
-    log.info("Chat response: {}", chatResponse);
+    log.debug("Chat response: {}", chatResponse);
 
     String assistantResponse =
         Optional.ofNullable(chatResponse)
@@ -89,7 +98,7 @@ public class ChatService {
         Role.ASSISTANT,
         "Contains last %d messages including system prompt".formatted(promptMessages.size()));
 
-    log.info("Message persisted successfully");
+    log.debug("Message persisted successfully");
 
     return chatResponse;
   }
