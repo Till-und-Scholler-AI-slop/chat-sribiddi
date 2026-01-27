@@ -1,0 +1,58 @@
+:host {
+  display: block;
+  width: 100%;
+}
+
+.page {
+  width: min(960px, 100%);
+  margin: 0 auto;
+}
+
+.page-card {
+  width: min(720px, 100%);
+  margin: 0 auto;
+  background-color: var(--mat-sys-surface-container-low);
+  animation: surface-enter 320ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.page-title {
+  font: var(--mat-sys-headline-medium);
+  margin-bottom: 0.25rem;
+}
+
+.page-subtitle {
+  font: var(--mat-sys-label-large);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mat-sys-primary);
+}
+
+.page-lead {
+  font: var(--mat-sys-body-large);
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0 16px 16px;
+}
+
+@keyframes surface-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-card {
+    animation: none;
+  }
+}
