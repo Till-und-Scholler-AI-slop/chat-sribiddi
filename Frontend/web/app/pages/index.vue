@@ -6,7 +6,7 @@ definePageMeta({
 <template>
   <UDashboardPanel resizable>
     <template #header>
-      <UDashboardNavbar title="Inbox">
+      <UDashboardNavbar title="Chat Sribiddi">
       </UDashboardNavbar>
     </template>
 

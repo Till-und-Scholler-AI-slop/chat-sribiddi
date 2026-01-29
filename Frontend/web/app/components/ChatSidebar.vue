@@ -9,7 +9,8 @@ const emit = defineEmits<(e: 'toggle') => void>()
 const chats = ref([
   { id: 'c1', title: 'DHBW — Theoretische Informatik' },
   { id: 'c2', title: 'Nom-Nom-Now Ideen' },
-  { id: 'c3', title: 'Docker Rootless Debug' }
+  { id: 'c3', title: 'Docker Rootless Debug' },
+  { id: 'c4', title: 'Kleine Projekte'}
 ])
 
 const selectedId = ref('c1')
