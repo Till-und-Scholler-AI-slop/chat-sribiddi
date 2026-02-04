@@ -13,6 +13,7 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.stereotype.Component;
 
+@org.springframework.context.annotation.Primary
 @Component
 public class DefaultProviderClientFactory implements ProviderClientFactory {
 
