@@ -3,7 +3,7 @@
 Spring Boot + Spring AI backend that stores chats, proxies to OpenAI or Google Gemini, and manages per-user API keys.
 
 ## Quick start (local dev)
-1) Prereqs: JDK 21+, Docker, `openssl` (to generate secrets).
+1) Prereqs: JDK 25, Docker, `openssl` (to generate secrets).
 2) Copy `.env.example` to `.env` and set at minimum:
    - OAuth: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
    - Database: `POSTGRES_USER`, `POSTGRES_PASSWORD`
