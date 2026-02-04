@@ -2,8 +2,7 @@
 import type { ModelOption } from '~/composables/useChatApi'
 
 definePageMeta({
-  layout: 'default',
-  middleware: ['auth']
+  layout: 'default'
 })
 
 const {
@@ -40,6 +39,9 @@ const selectedModel = computed<ModelOption | null>({
 
 const status = computed(() => activeConversation.value?.status || 'ready')
 const errorMessage = computed(() => activeConversation.value?.error || modelsError.value)
+
+const firstText = (parts?: Array<{ type: string; text?: string }>) =>
+  parts?.find(part => part.type === 'text' && typeof part.text === 'string')?.text || ''
 
 onMounted(async () => {
   try {
@@ -106,7 +108,7 @@ const handleReload = () => {
 </script>
 
 <template>
-  <UDashboardPanel>
+  <UDashboardPanel class="h-full flex flex-col">
     <template #header>
       <UDashboardNavbar
         title="Chat"
@@ -115,7 +117,7 @@ const handleReload = () => {
     </template>
 
     <template #body>
-      <UContainer class="py-4 space-y-4">
+      <UContainer class="py-4 space-y-4 flex-1 overflow-hidden flex flex-col">
         <UAlert
           v-if="errorMessage"
           color="error"
@@ -141,7 +143,7 @@ const handleReload = () => {
           </UEmptyState>
         </div>
 
-        <div v-else class="space-y-4">
+        <div v-else class="space-y-4 flex-1 min-h-0 flex flex-col">
           <div class="flex items-center justify-between gap-2">
             <div class="text-sm text-gray-500 dark:text-gray-400">
               Chat ID: {{ activeConversation.session.chatId }}
@@ -155,14 +157,31 @@ const handleReload = () => {
             />
           </div>
 
-          <UCard>
-            <UChatMessages
-              :messages="activeConversation.messages"
-              :status="status"
-              :should-scroll-to-bottom="true"
-              :auto-scroll="true"
-            />
-          </UCard>
+          <div class="flex-1 min-h-0">
+            <UCard class="h-full">
+              <UChatMessages
+                class="h-full"
+                :messages="activeConversation.messages"
+                :status="status"
+                :should-scroll-to-bottom="true"
+                :auto-scroll="{ size: 'sm', color: 'neutral', variant: 'outline' }"
+                :spacing-offset="96"
+              >
+                <template #viewport="{ ui, onClick }">
+                  <div
+                    :class="ui.viewport"
+                    class="h-full overflow-auto pr-1"
+                    @click="onClick"
+                  >
+                    <slot />
+                  </div>
+                </template>
+                <template #content="{ parts }">
+                  <MarkdownMessage :text="firstText(parts)" />
+                </template>
+              </UChatMessages>
+            </UCard>
+          </div>
         </div>
       </UContainer>
     </template>

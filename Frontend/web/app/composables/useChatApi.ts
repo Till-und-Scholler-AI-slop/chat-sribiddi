@@ -160,6 +160,7 @@ export function useChatApi() {
 
   return {
     baseUrl,
+    requestJson,
     resolveUserId,
     createChat,
     sendMessage,
