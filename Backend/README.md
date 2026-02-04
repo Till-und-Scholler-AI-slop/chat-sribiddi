@@ -1,7 +1,76 @@
 # Backend
 
-## How to develop
+Spring Boot + Spring AI backend that stores chats, proxies to OpenAI or Google Gemini, and manages per-user API keys.
 
-Have docker installed.
-1. Create .env file. See .env.example for credentials
-2. start the app with `docker-compose up -d` or just over the ide.
+## Quick start (local dev)
+1) Prereqs: JDK 25, Docker, `openssl` (to generate secrets).
+2) Copy `.env.example` to `.env` and set at minimum:
+   - OAuth: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+   - Database: `POSTGRES_USER`, `POSTGRES_PASSWORD`
+   - Model provider defaults (optional for dev now that keys are user-supplied): `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_PROJECT_ID`, `GOOGLE_LOCATION`
+   - CORS: `ALLOWED_ORIGINS=http://localhost:3000`
+   - Encryption: `ENCRYPTION_SECRET=$(openssl rand -base64 32)`  # must decode to 32 bytes
+3) Start Postgres: `docker compose up -d` (uses `compose.yaml`).
+4) Run with dev profile (no auth, CSRF off): `SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun`
+5) Run with production profile (OAuth2 + CSRF): `SPRING_PROFILES_ACTIVE=production ./gradlew bootRun`
+6) Swagger UI: `/swagger-ui.html` (OpenAPI JSON at `/v3/api-docs`).
+
+## Running tests
+`./gradlew test` (ensure `GRADLE_USER_HOME` points to a writable directory if your global `~/.gradle` is locked).
+
+## Deployment checklist
+- Set `SPRING_PROFILES_ACTIVE=production`.
+- Provide real `ALLOWED_ORIGINS` (comma-separated patterns).
+- Provide `ENCRYPTION_SECRET` (32-byte base64) and rotate periodically.
+- Configure external Postgres; Flyway runs migrations at startup (`spring.flyway.baseline-on-migrate=true`, `ddl-auto=none`).
+- Ensure HTTPS termination and secure cookies (CSRF tokens use cookies).
+- Set provider defaults only if you want server-wide fallback keys; otherwise rely on user-stored keys.
+
+## Authentication & CSRF
+- Production profile: OAuth2 login (Google). Public endpoints: `/`, `/login`, `/swagger-ui/**`, `/v3/api-docs/**`. Everything else requires auth.
+- CSRF: enabled with cookie tokens. SPA must read `XSRF-TOKEN` cookie and send it as `X-XSRF-TOKEN` on mutating requests.
+- Dev profile: all requests permitted; CSRF disabled (dev only).
+
+## Per-user API keys (persisted, encrypted)
+- Store/replace: `PUT /apikeys/{provider}` body `{ "apiKey": "..." }`
+- Delete: `DELETE /apikeys/{provider}`
+- Exists check: `GET /apikeys/{provider}/exists`
+- Chat calls may omit `apiKey`; backend will use the stored key for the authenticated user+provider.
+- Keys are encrypted at rest with AES/GCM using `ENCRYPTION_SECRET`.
+
+## Chat API
+- POST `/chats` — create chat. Body: `{"title": "optional"}`. `userId` is set from the authenticated principal.
+- POST `/chats/{chatId}/messages` — send message.
+  ```json
+  {
+    "content": "Hello!",
+    "provider": "OPENAI" | "GOOGLE",
+    "modelId": "gpt-5.2-2025-12-11",
+    "apiKey": "optional override"
+  }
+  ```
+  Uses last 20 messages + system prompt, stores both user and assistant replies.
+- DELETE `/chats/{chatId}` — deletes chat and its messages (per-user scoped).
+
+## Model catalog
+- GET `/models/openai` and `/models/google` — list configured model options (`ai.models.*` in `application.yaml`).
+
+## Data model
+- `chats`: `chat_id` (UUID, PK), `title`, `created_at`, `user_id`
+- `messages`: `id` (PK), `chat_id` (FK), `message` (TEXT), `context`, `role`, `created_at`
+- `users`: `id`, `email` (unique), `provider_id`
+- `api_keys`: `id`, `user_id`, `provider`, `encrypted_key`, timestamps (unique per user+provider)
+- Indexes: `chats(user_id)`, `messages(chat_id, created_at desc)`
+
+## Migrations
+- Flyway enabled; initial schema in `src/main/resources/db/migration/V1__init.sql`.
+- Hibernate `ddl-auto` is disabled in production (`none`).
+
+## Logging
+- Prompt/response bodies only logged at TRACE; default INFO avoids leaking content.
+
+## CORS
+- Configured via `app.cors.allowed-origins` (comma-separated patterns). Defaults to `http://localhost:3000` for dev.
+
+## Notes
+- If Gradle cannot write to `~/.gradle`, set `GRADLE_USER_HOME=/tmp/gradle-cache` (or another writable dir) before running builds or tests.

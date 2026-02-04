@@ -1,4 +1,4 @@
-package com.rft.chat_sribiddi.authentification;
+package com.rft.chat_sribiddi.auth;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;

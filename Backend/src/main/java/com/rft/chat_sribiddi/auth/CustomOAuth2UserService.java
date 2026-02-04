@@ -1,5 +1,4 @@
-
-package com.rft.chat_sribiddi.authentification;
+package com.rft.chat_sribiddi.auth;
 
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
