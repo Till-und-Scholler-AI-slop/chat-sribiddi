@@ -1,64 +1,204 @@
 <script setup lang="ts">
-import { Chat } from '@ai-sdk/vue'
+import type { ModelOption } from '~/composables/useChatApi'
+
+definePageMeta({
+  layout: 'default',
+  middleware: ['auth']
+})
+
+const {
+  activeConversation,
+  activeChatId,
+  conversations,
+  defaultModel,
+  ensureModels,
+  models,
+  modelsError,
+  modelsLoading,
+  sendPrompt,
+  setModelForChat,
+  startChat,
+  stop
+} = useChatStore()
 
 const input = ref('')
+const initializing = ref(true)
+const toast = useToast()
 
-const models = [
-  { label: 'GPT-4o', value: 'gpt-4o' },
-  { label: 'GPT-4o mini', value: 'gpt-4o-mini' },
-  { label: 'GPT-5 Nano', value: 'gpt-5-nano' }
-] as const
-
-const model = ref<(typeof models)[number]>(models[2]) // default: GPT-5 Nano
-
-const chat = new Chat({
-  onError(err) {
-    console.error(err)
+const selectedModel = computed<ModelOption | null>({
+  get: () => {
+    const conversation = activeConversation.value
+    if (conversation?.model) return conversation.model
+    return defaultModel.value
+  },
+  set: value => {
+    if (value && activeConversation.value) {
+      setModelForChat(activeConversation.value.session.chatId, value)
+    }
   }
 })
 
-async function onSubmit() {
+const status = computed(() => activeConversation.value?.status || 'ready')
+const errorMessage = computed(() => activeConversation.value?.error || modelsError.value)
+
+onMounted(async () => {
+  try {
+    await ensureModels()
+    if (conversations.value.length === 0) {
+      await startChat('New chat')
+    }
+
+    if (activeConversation.value && !activeConversation.value.model && defaultModel.value) {
+      setModelForChat(activeConversation.value.session.chatId, defaultModel.value)
+    }
+  } catch (err) {
+    console.error(err)
+    toast.add({
+      title: 'Chat could not start',
+      description: err instanceof Error ? err.message : 'Check if the backend is running.',
+      color: 'error'
+    })
+  } finally {
+    initializing.value = false
+  }
+})
+
+watch(activeChatId, newId => {
+  const conversation = conversations.value.find(c => c.session.chatId === newId)
+  if (conversation && !conversation.model && defaultModel.value) {
+    setModelForChat(conversation.session.chatId, defaultModel.value)
+  }
+})
+
+async function handleSubmit() {
+  if (!input.value.trim()) return
+  if (!activeConversation.value) {
+    await startChat('New chat')
+  }
+
+  const conversation = activeConversation.value
+  const model = selectedModel.value
+  if (!conversation || !model) return
+
   const text = input.value.trim()
-  if (!text) return
-
-  // Wichtig: model dynamisch mitschicken (nicht als "body" beim init, sonst kann es stale werden)
-  // Je nach AI-SDK-Version klappt das als 2. Parameter:
-  await chat.sendMessage(
-      { text },
-      { body: { model: model.value.value } }
-  )
-
   input.value = ''
+  try {
+    await sendPrompt(conversation.session.chatId, text, model)
+  } catch (err) {
+    toast.add({
+      title: 'Message failed',
+      description: err instanceof Error ? err.message : 'Unable to reach backend.',
+      color: 'error'
+    })
+  }
+}
+
+const handleStop = () => {
+  if (activeConversation.value) {
+    stop(activeConversation.value.session.chatId)
+  }
+}
+
+const handleReload = () => {
+  // The backend does not stream; simply stop any ongoing request.
+  handleStop()
 }
 </script>
 
 <template>
   <UDashboardPanel>
+    <template #header>
+      <UDashboardNavbar
+        title="Chat"
+        :badge="modelsLoading ? 'Loading models…' : undefined"
+      />
+    </template>
+
     <template #body>
-      <UContainer class="py-4">
-        <UChatMessages :messages="chat.messages" :status="chat.status" />
+      <UContainer class="py-4 space-y-4">
+        <UAlert
+          v-if="errorMessage"
+          color="error"
+          icon="i-heroicons-exclamation-triangle"
+          :description="errorMessage"
+        />
+
+        <div v-if="initializing" class="space-y-3">
+          <USkeleton class="h-14" />
+          <USkeleton class="h-24" />
+          <USkeleton class="h-14" />
+        </div>
+
+        <div v-else-if="!activeConversation">
+          <UEmptyState
+            icon="i-heroicons-chat-bubble-left-right"
+            title="No chat yet"
+            description="Start a new chat to talk to the backend models."
+          >
+            <UButton color="primary" icon="i-heroicons-plus" @click="startChat('New chat')">
+              Start chat
+            </UButton>
+          </UEmptyState>
+        </div>
+
+        <div v-else class="space-y-4">
+          <div class="flex items-center justify-between gap-2">
+            <div class="text-sm text-gray-500 dark:text-gray-400">
+              Chat ID: {{ activeConversation.session.chatId }}
+            </div>
+            <UBadge
+              v-if="selectedModel"
+              color="primary"
+              variant="soft"
+              :label="selectedModel.label"
+              :ui="{ rounded: 'rounded-full' }"
+            />
+          </div>
+
+          <UCard>
+            <UChatMessages
+              :messages="activeConversation.messages"
+              :status="status"
+              :should-scroll-to-bottom="true"
+              :auto-scroll="true"
+            />
+          </UCard>
+        </div>
       </UContainer>
     </template>
 
     <template #footer>
       <UContainer class="pb-4 sm:pb-6">
-        <UChatPrompt v-model="input" :error="chat.error" @submit="onSubmit">
-          <!-- Dropdown links im Prompt -->
+        <UChatPrompt v-model="input" :error="errorMessage" @submit="handleSubmit">
           <template #header>
             <USelectMenu
-                v-model="model"
-                :items="models"
-                class="w-44"
-                variant="subtle"
-                color="neutral"
-                :ui="{ base: 'text-sm' }"
-            />
+              v-model="selectedModel"
+              :items="models"
+              class="w-56"
+              :loading="modelsLoading"
+              option-attribute="label"
+              value-attribute="value"
+              by="value"
+              placeholder="Pick model"
+              variant="subtle"
+              color="neutral"
+            >
+              <template #leading>
+                <UIcon name="i-heroicons-cpu-chip" />
+              </template>
+              <template #option="{ option }">
+                <div class="flex items-center justify-between">
+                  <span>{{ option.label }}</span>
+                  <UBadge :label="option.provider" variant="soft" color="neutral" />
+                </div>
+              </template>
+            </USelectMenu>
           </template>
 
           <UChatPromptSubmit
-              :status="chat.status"
-              @stop="chat.stop()"
-              @reload="chat.regenerate()"
+            :status="status"
+            @stop="handleStop"
+            @reload="handleReload"
           />
         </UChatPrompt>
       </UContainer>

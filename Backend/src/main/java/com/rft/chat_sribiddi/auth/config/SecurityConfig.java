@@ -4,13 +4,16 @@ import com.rft.chat_sribiddi.auth.CustomOAuth2UserService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -18,16 +21,21 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Slf4j
 @Configuration
 @EnableWebSecurity
-@Profile("production")
+@Profile("!dev")
 @RequiredArgsConstructor
 public class SecurityConfig {
 
   private final CustomOAuth2UserService customOAuth2UserService;
 
+  @Value("${app.frontend-url:http://localhost:5173}")
+  private String frontendUrl;
+
   @Bean
   SecurityFilterChain securityFilterChain(HttpSecurity http) {
     try {
-      return http.cors(Customizer.withDefaults())
+      return http
+          .cors(Customizer.withDefaults())
+          .csrf(AbstractHttpConfigurer::disable)
           .authorizeHttpRequests(
               auth -> {
                 auth.requestMatchers("/", "/login", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
@@ -37,7 +45,9 @@ public class SecurityConfig {
           .oauth2Login(
               oauth2 ->
                   oauth2.userInfoEndpoint(
-                      userInfo -> userInfo.oidcUserService(customOAuth2UserService)))
+                          userInfo -> userInfo.oidcUserService(customOAuth2UserService))
+                      .successHandler(new SimpleUrlAuthenticationSuccessHandler(frontendUrl)))
+          .logout(logout -> logout.logoutSuccessUrl(frontendUrl))
           .build();
     } catch (Exception e) {
       log.error("Error in SecurityConfig: {}", e.getMessage());
