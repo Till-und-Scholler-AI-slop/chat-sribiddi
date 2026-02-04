@@ -1,9 +1,24 @@
 package com.rft.chat_sribiddi.chat.dto;
 
-public record RequestDTO(String content, Provider provider, String modelId) {
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
-    public enum Provider {
-        OPENAI,
-        GOOGLE
-    }
+/**
+ * Payload for sending a chat message.
+ *
+ * @param content user message
+ * @param provider target model provider
+ * @param modelId model identifier for the provider
+ * @param apiKey user-supplied API key for the chosen provider (optional if stored)
+ */
+public record RequestDTO(
+    @NotBlank(message = "content must not be blank") String content,
+    @NotNull(message = "provider is required") Provider provider,
+    @NotBlank(message = "modelId must not be blank") String modelId,
+    String apiKey) {
+
+  public enum Provider {
+    OPENAI,
+    GOOGLE
+  }
 }

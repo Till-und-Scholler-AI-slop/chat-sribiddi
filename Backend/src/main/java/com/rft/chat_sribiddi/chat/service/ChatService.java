@@ -1,27 +1,35 @@
 package com.rft.chat_sribiddi.chat.service;
 
+import com.google.genai.Client;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
+import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
+import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-
-import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.*;
+import org.springframework.ai.chat.messages.AbstractMessage;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.ai.google.genai.GoogleGenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
@@ -34,56 +42,71 @@ public class ChatService {
 
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
-
-  @Qualifier("openAiChatClient")
-  private final ChatClient openAiChatClient;
-
-  @Qualifier("googleAiChatClient")
-  private final ChatClient googleAiChatClient;
+  private final ApiKeyService apiKeyService;
 
   public ChatService(
       ChatRepository chatRepository,
       MessageRepository messageRepository,
-      ChatClient openAiChatClient,
-      ChatClient googleAiChatClient) {
+      ApiKeyService apiKeyService) {
     this.chatRepository = chatRepository;
     this.messageRepository = messageRepository;
-    this.openAiChatClient = openAiChatClient;
-    this.googleAiChatClient = googleAiChatClient;
+    this.apiKeyService = apiKeyService;
   }
 
   @Transactional
-  public void deleteChat(UUID chatId) {
-    messageRepository.deleteByChatId(chatId);
-    chatRepository.deleteById(chatId);
+  public void deleteChat(UUID chatId, String userId) {
+    ChatEntity chat =
+        chatRepository
+            .findByChatIdAndUserId(chatId, userId)
+            .orElseThrow(() -> new ChatNotFoundException(chatId));
+
+    messageRepository.deleteByChatId(chat.getChatId());
+    chatRepository.deleteById(chat.getChatId());
   }
 
   @Transactional
-  public ChatEntity createChat(ChatEntity chatEntity) {
+  public ChatEntity createChat(ChatEntity chatEntity, String userId) {
+    chatEntity.setUserId(userId);
     return chatRepository.save(chatEntity);
   }
 
-  public ChatResponse sendMessage(UUID chatId, RequestDTO requestDTO) {
+  public ChatResponse sendMessage(UUID chatId, String userId, RequestDTO requestDTO) {
     chatRepository
-        .findById(chatId)
-        .orElseThrow(() -> new IllegalArgumentException("Chat not found: " + chatId));
+        .findByChatIdAndUserId(chatId, userId)
+        .orElseThrow(() -> new ChatNotFoundException(chatId));
 
     persistMessage(chatId, requestDTO.content(), Role.USER, null);
 
     List<Message> promptMessages = buildPromptMessages(chatId);
-    log.debug("Prompt messages: {}", promptMessages);
+    if (log.isTraceEnabled()) {
+      log.trace("Prompt messages: {}", promptMessages);
+    }
 
-    ChatClient client = selectClient(requestDTO.provider());
+    String resolvedKey =
+        Optional.ofNullable(requestDTO.apiKey())
+            .filter(key -> !key.isBlank())
+            .or(() -> apiKeyService.getKey(userId, requestDTO.provider()))
+            .orElseThrow(
+                () ->
+                    new IllegalArgumentException(
+                        "No API key supplied and no stored key found for provider %s"
+                            .formatted(requestDTO.provider())));
 
-    ChatClient.CallResponseSpec responseSpec =
-        client
-            .prompt()
-            .options(ChatOptions.builder().model(requestDTO.modelId()).build())
-            .messages(promptMessages)
-            .call();
-    ChatResponse chatResponse = responseSpec.chatResponse();
+    ChatResponse chatResponse;
+    try (ClientHolder clientHolder = selectClient(requestDTO.provider(), resolvedKey)) {
+      ChatClient client = clientHolder.client();
+      ChatClient.CallResponseSpec responseSpec =
+          client
+              .prompt()
+              .options(ChatOptions.builder().model(requestDTO.modelId()).build())
+              .messages(promptMessages)
+              .call();
+      chatResponse = responseSpec.chatResponse();
+    }
 
-    log.debug("Chat response: {}", chatResponse);
+    if (log.isTraceEnabled()) {
+      log.trace("Chat response: {}", chatResponse);
+    }
 
     String assistantResponse =
         Optional.ofNullable(chatResponse)
@@ -133,10 +156,40 @@ public class ChatService {
     messageRepository.save(entity);
   }
 
-  private ChatClient selectClient(Provider provider) {
+  private ClientHolder selectClient(Provider provider, String apiKey) {
+    if (apiKey == null || apiKey.isBlank()) {
+      throw new IllegalArgumentException("API key is required for provider %s".formatted(provider));
+    }
+
     return switch (provider) {
-      case OPENAI -> openAiChatClient;
-      case GOOGLE -> googleAiChatClient;
+      case OPENAI -> {
+        OpenAiApi openAiApi = OpenAiApi.builder().apiKey(apiKey).build();
+        ChatClient client = ChatClient.create(new OpenAiChatModel(openAiApi));
+        yield new ClientHolder(client, null);
+      }
+      case GOOGLE -> {
+        Client googleClient = Client.builder().apiKey(apiKey).build();
+        GoogleGenAiChatModel model =
+            GoogleGenAiChatModel.builder().genAiClient(googleClient).build();
+        ChatClient chatClient = ChatClient.create(model);
+        yield new ClientHolder(chatClient, googleClient);
+      }
     };
+  }
+
+  /** Holds a ChatClient and closes underlying resources (e.g., Google Client) when done. */
+  private record ClientHolder(ChatClient client, AutoCloseable closeable)
+      implements AutoCloseable {
+    @Override
+    public void close() {
+      if (closeable == null) {
+        return;
+      }
+      try {
+        closeable.close();
+      } catch (Exception e) {
+        log.warn("Failed to close provider client", e);
+      }
+    }
   }
 }

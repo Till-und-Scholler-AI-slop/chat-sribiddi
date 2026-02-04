@@ -19,7 +19,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: none
 
   ai:
     chat:
@@ -34,5 +34,13 @@ spring:
         project-id: ${GOOGLE_PROJECT_ID:demo-project}
         location: ${GOOGLE_LOCATION:us-central1}
 
+  flyway:
+    baseline-on-migrate: true
 
+encryption:
+  # Base64-encoded 256-bit secret for encrypting stored user API keys.
+  secret: ${ENCRYPTION_SECRET}
 
+app:
+  cors:
+    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000}
