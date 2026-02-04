@@ -23,7 +23,6 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
-import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
@@ -92,14 +91,13 @@ public class ChatService {
 
     ChatResponse chatResponse;
     try (ClientHolder clientHolder =
-        providerClientFactory.create(requestDTO.provider(), resolvedKey)) {
+        providerClientFactory.getClient(requestDTO.provider(), resolvedKey)) {
+      var options =
+          providerClientFactory.buildOptions(
+              requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
       var responseSpec =
-          client
-              .prompt()
-              .options(ChatOptions.builder().model(requestDTO.modelId()).build())
-              .messages(promptMessages)
-              .call();
+          client.prompt().options(options).messages(promptMessages).call();
       chatResponse = responseSpec.chatResponse();
     }
 

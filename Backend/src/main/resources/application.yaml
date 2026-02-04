@@ -2,7 +2,7 @@ spring:
   application:
     name: chat-sribiddi
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE}
+    active: ${SPRING_PROFILES_ACTIVE:production}
   security:
     oauth2:
       client:

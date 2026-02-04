@@ -66,8 +66,11 @@ class ChatServiceTest {
         .thenReturn(Optional.of("stored-key"));
 
     // stub chat client chain
-    when(providerClientFactory.create(eq(RequestDTO.Provider.OPENAI), eq("stored-key")))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", "stored-key"))
+        .thenReturn(org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2-2025-12-11").build());
     when(chatClient.prompt()).thenReturn(requestSpec);
     when(requestSpec.options(any())).thenReturn(requestSpec);
     when(requestSpec.messages(anyList())).thenReturn(requestSpec);
