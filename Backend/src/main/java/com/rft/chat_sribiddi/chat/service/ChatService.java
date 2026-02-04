@@ -1,8 +1,6 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import com.google.genai.Client;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
-import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
@@ -18,7 +16,6 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AbstractMessage;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -27,30 +24,31 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
-import org.springframework.ai.google.genai.GoogleGenAiChatModel;
-import org.springframework.ai.openai.OpenAiChatModel;
-import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 @Service
 public class ChatService {
 
-  private static final String SYSTEM_PROMPT = "You are a helpful assistant. Your answer must be structured in markdown.";
+  private static final String SYSTEM_PROMPT =
+      "You are a helpful assistant. Your answer must be structured in markdown.";
   private static final int CONTEXT_MESSAGE_LIMIT = 20;
   private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
   private final ApiKeyService apiKeyService;
+  private final ProviderClientFactory providerClientFactory;
 
   public ChatService(
       ChatRepository chatRepository,
       MessageRepository messageRepository,
-      ApiKeyService apiKeyService) {
+      ApiKeyService apiKeyService,
+      ProviderClientFactory providerClientFactory) {
     this.chatRepository = chatRepository;
     this.messageRepository = messageRepository;
     this.apiKeyService = apiKeyService;
+    this.providerClientFactory = providerClientFactory;
   }
 
   @Transactional
@@ -93,9 +91,10 @@ public class ChatService {
                             .formatted(requestDTO.provider())));
 
     ChatResponse chatResponse;
-    try (ClientHolder clientHolder = selectClient(requestDTO.provider(), resolvedKey)) {
-      ChatClient client = clientHolder.client();
-      ChatClient.CallResponseSpec responseSpec =
+    try (ClientHolder clientHolder =
+        providerClientFactory.create(requestDTO.provider(), resolvedKey)) {
+      var client = clientHolder.client();
+      var responseSpec =
           client
               .prompt()
               .options(ChatOptions.builder().model(requestDTO.modelId()).build())
@@ -156,29 +155,8 @@ public class ChatService {
     messageRepository.save(entity);
   }
 
-  private ClientHolder selectClient(Provider provider, String apiKey) {
-    if (apiKey == null || apiKey.isBlank()) {
-      throw new IllegalArgumentException("API key is required for provider %s".formatted(provider));
-    }
-
-    return switch (provider) {
-      case OPENAI -> {
-        OpenAiApi openAiApi = OpenAiApi.builder().apiKey(apiKey).build();
-        ChatClient client = ChatClient.create(new OpenAiChatModel(openAiApi));
-        yield new ClientHolder(client, null);
-      }
-      case GOOGLE -> {
-        Client googleClient = Client.builder().apiKey(apiKey).build();
-        GoogleGenAiChatModel model =
-            GoogleGenAiChatModel.builder().genAiClient(googleClient).build();
-        ChatClient chatClient = ChatClient.create(model);
-        yield new ClientHolder(chatClient, googleClient);
-      }
-    };
-  }
-
-  /** Holds a ChatClient and closes underlying resources (e.g., Google Client) when done. */
-  private record ClientHolder(ChatClient client, AutoCloseable closeable)
+  public record ClientHolder(
+      org.springframework.ai.chat.client.ChatClient client, AutoCloseable closeable)
       implements AutoCloseable {
     @Override
     public void close() {
