@@ -158,28 +158,21 @@ const handleReload = () => {
           </div>
 
           <div class="flex-1 min-h-0">
-            <UCard class="h-full">
-              <UChatMessages
-                class="h-full"
-                :messages="activeConversation.messages"
-                :status="status"
-                :should-scroll-to-bottom="true"
-                :auto-scroll="{ size: 'sm', color: 'neutral', variant: 'outline' }"
-                :spacing-offset="96"
-              >
-                <template #viewport="{ ui, onClick }">
-                  <div
-                    :class="ui.viewport"
-                    class="h-full overflow-auto pr-1"
-                    @click="onClick"
-                  >
-                    <slot />
-                  </div>
-                </template>
-                <template #content="{ parts }">
-                  <MarkdownMessage :text="firstText(parts)" />
-                </template>
-              </UChatMessages>
+            <UCard class="h-full" :ui="{ body: 'h-full overflow-hidden' }">
+              <div class="h-full overflow-y-auto pr-1">
+                <UChatMessages
+                  class="h-full"
+                  :messages="activeConversation.messages"
+                  :status="status"
+                  :should-scroll-to-bottom="true"
+                  :auto-scroll="{ size: 'sm', color: 'neutral', variant: 'outline' }"
+                  :spacing-offset="96"
+                >
+                  <template #content="{ parts }">
+                    <MarkdownMessage :text="firstText(parts)" />
+                  </template>
+                </UChatMessages>
+              </div>
             </UCard>
           </div>
         </div>
