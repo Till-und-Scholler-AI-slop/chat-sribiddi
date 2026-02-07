@@ -1,31 +1,76 @@
 # Backend
 
-Spring Boot + Spring AI service that stores chats and proxies to OpenAI or Google Gemini models.
+Spring Boot + Spring AI backend that stores chats, proxies to OpenAI or Google Gemini, and manages per-user API keys.
 
-## Run it
-- Prereqs: Docker, JDK 21+, and environment variables. Copy `.env.example` to `.env` and fill `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_PROJECT_ID` (used as `spring.ai.google.genai.project-id`), `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `OPENAI_API_KEY`.
-  - Google GenAI needs `GOOGLE_LOCATION` (e.g., `us-central1`) and credentials.
-    - Provide `GOOGLE_API_KEY` (GenAI API key)
-- Start Postgres: `docker-compose up -d` (or let Spring start via `compose.yaml`).
-- Run the app: `./gradlew bootRun` or use your IDE.
-- Auth: only `/` and `/login` are public; everything else requires OAuth2 login (Google). `/secured` is a simple check endpoint.
-- Docs: Swagger UI at `/swagger-ui.html` (OpenAPI JSON at `/v3/api-docs`).
-- Local testing without login: start with `SPRING_PROFILES_ACTIVE=dev` to disable auth (dev-only).
+## Quick start (local dev)
+1) Prereqs: JDK 25, Docker, `openssl` (to generate secrets).
+2) Copy `.env.example` to `.env` and set at minimum:
+   - OAuth: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+   - Database: `POSTGRES_USER`, `POSTGRES_PASSWORD`
+   - Model provider defaults (optional for dev now that keys are user-supplied): `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_PROJECT_ID`, `GOOGLE_LOCATION`
+   - CORS: `ALLOWED_ORIGINS=http://localhost:3000`
+   - Encryption: `ENCRYPTION_SECRET=$(openssl rand -base64 32)`  # must decode to 32 bytes
+3) Start Postgres: `docker compose up -d` (uses `compose.yaml`).
+4) Run with dev profile (no auth, CSRF off): `SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun`
+5) Run with production profile (OAuth2 + CSRF): `SPRING_PROFILES_ACTIVE=production ./gradlew bootRun`
+6) Swagger UI: `/swagger-ui.html` (OpenAPI JSON at `/v3/api-docs`).
 
-## API endpoints
-- GET `/` — Health check, returns `"Hello World"` (public).
-- GET `/secured` — Simple string, requires authentication.
-- GET `/models/openai` — Lists configured OpenAI models (`ai.models.openai` in `application.yaml`).
-- GET `/models/google` — Lists configured Google models (`ai.models.google`).
-- POST `/chats` — Create a chat. Body: `{"title": "string?", "userId": "string?"}`. Response includes generated `chatId` (UUID) and timestamps.
-- POST `/chats/{chatId}/messages` — Send a message in a chat.
-  - Body: `{"content": "Hello!", "provider": "OPENAI|GOOGLE", "modelId": "gpt-5.2"}`.
-  - Behavior: appends user message, builds a prompt with the last 20 stored messages plus a system prompt `"You are a helpful assistant."`, then calls the chosen LLM.
-  - Response: Spring AI `ChatResponse` from the provider; assistant reply is persisted with role `ASSISTANT`.
+## Running tests
+`./gradlew test` (ensure `GRADLE_USER_HOME` points to a writable directory if your global `~/.gradle` is locked).
 
-## Data model (JPA)
-- `ChatEntity` (`chats` table): `chatId` (UUID, PK), `title`, `createdAt` (auto-set), `userId`.
-- `MessageEntity` (`message` table): `id` (PK), `chatId` (UUID FK reference), `message` (TEXT), `context` (TEXT, optional note on context used), `role` (`SYSTEM|USER|ASSISTANT`), `createdAt` (auto-set).
-  - Messages are stored in reverse-chronological order and trimmed to the latest 20 when building a prompt.
-- `User` (`users` table): `id`, `email` (unique), `providerId` (OIDC subject).
+## Deployment checklist
+- Set `SPRING_PROFILES_ACTIVE=production`.
+- Provide real `ALLOWED_ORIGINS` (comma-separated patterns).
+- Provide `ENCRYPTION_SECRET` (32-byte base64) and rotate periodically.
+- Configure external Postgres; Flyway runs migrations at startup (`spring.flyway.baseline-on-migrate=true`, `ddl-auto=none`).
+- Ensure HTTPS termination and secure cookies (CSRF tokens use cookies).
+- Set provider defaults only if you want server-wide fallback keys; otherwise rely on user-stored keys.
 
+## Authentication & CSRF
+- Production profile: OAuth2 login (Google). Public endpoints: `/`, `/login`, `/swagger-ui/**`, `/v3/api-docs/**`. Everything else requires auth.
+- CSRF: enabled with cookie tokens. SPA must read `XSRF-TOKEN` cookie and send it as `X-XSRF-TOKEN` on mutating requests.
+- Dev profile: all requests permitted; CSRF disabled (dev only).
+
+## Per-user API keys (persisted, encrypted)
+- Store/replace: `PUT /apikeys/{provider}` body `{ "apiKey": "..." }`
+- Delete: `DELETE /apikeys/{provider}`
+- Exists check: `GET /apikeys/{provider}/exists`
+- Chat calls may omit `apiKey`; backend will use the stored key for the authenticated user+provider.
+- Keys are encrypted at rest with AES/GCM using `ENCRYPTION_SECRET`.
+
+## Chat API
+- POST `/chats` — create chat. Body: `{"title": "optional"}`. `userId` is set from the authenticated principal.
+- POST `/chats/{chatId}/messages` — send message.
+  ```json
+  {
+    "content": "Hello!",
+    "provider": "OPENAI" | "GOOGLE",
+    "modelId": "gpt-5.2-2025-12-11",
+    "apiKey": "optional override"
+  }
+  ```
+  Uses last 20 messages + system prompt, stores both user and assistant replies.
+- DELETE `/chats/{chatId}` — deletes chat and its messages (per-user scoped).
+
+## Model catalog
+- GET `/models/openai` and `/models/google` — list configured model options (`ai.models.*` in `application.yaml`).
+
+## Data model
+- `chats`: `chat_id` (UUID, PK), `title`, `created_at`, `user_id`
+- `messages`: `id` (PK), `chat_id` (FK), `message` (TEXT), `context`, `role`, `created_at`
+- `users`: `id`, `email` (unique), `provider_id`
+- `api_keys`: `id`, `user_id`, `provider`, `encrypted_key`, timestamps (unique per user+provider)
+- Indexes: `chats(user_id)`, `messages(chat_id, created_at desc)`
+
+## Migrations
+- Flyway enabled; initial schema in `src/main/resources/db/migration/V1__init.sql`.
+- Hibernate `ddl-auto` is disabled in production (`none`).
+
+## Logging
+- Prompt/response bodies only logged at TRACE; default INFO avoids leaking content.
+
+## CORS
+- Configured via `app.cors.allowed-origins` (comma-separated patterns). Defaults to `http://localhost:3000` for dev.
+
+## Notes
+- If Gradle cannot write to `~/.gradle`, set `GRADLE_USER_HOME=/tmp/gradle-cache` (or another writable dir) before running builds or tests.
