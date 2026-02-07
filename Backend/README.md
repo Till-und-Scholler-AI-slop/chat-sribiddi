@@ -8,6 +8,7 @@ Spring Boot + Spring AI backend that stores chats, proxies to OpenAI or Google G
    - OAuth: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
    - Database: `POSTGRES_USER`, `POSTGRES_PASSWORD`
    - Model provider defaults (optional for dev now that keys are user-supplied): `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_PROJECT_ID`, `GOOGLE_LOCATION`
+   - Optional OpenAI HTTP tuning for long reasoning requests: `OPENAI_CONNECT_TIMEOUT=10s`, `OPENAI_READ_TIMEOUT=180s`
    - CORS: `ALLOWED_ORIGINS=http://localhost:3000`
    - Encryption: `ENCRYPTION_SECRET=$(openssl rand -base64 32)`  # must decode to 32 bytes
    - Optional rotation settings:

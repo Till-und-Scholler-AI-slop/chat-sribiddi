@@ -13,4 +13,6 @@ public interface MessageRepository extends JpaRepository<MessageEntity, Long> {
   void deleteByChatId(UUID chatId);
 
   List<MessageEntity> findByChatIdOrderByCreatedAtDesc(UUID chatId, Pageable pageable);
+
+  List<MessageEntity> findByChatIdOrderByCreatedAtAsc(UUID chatId);
 }

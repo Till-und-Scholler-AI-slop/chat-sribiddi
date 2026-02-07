@@ -2,6 +2,7 @@ package com.rft.chat_sribiddi.chat.service;
 
 import com.google.genai.Client;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
+import java.net.http.HttpClient;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.ai.chat.client.ChatClient;
@@ -11,14 +12,21 @@ import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
 
 @org.springframework.context.annotation.Primary
 @Component
 public class DefaultProviderClientFactory implements ProviderClientFactory {
 
+  private final OpenAiProviderProperties openAiProperties;
   private final Map<String, ChatService.ClientHolder> openAiCache = new ConcurrentHashMap<>();
   private final Map<String, ChatService.ClientHolder> googleCache = new ConcurrentHashMap<>();
+
+  public DefaultProviderClientFactory(OpenAiProviderProperties openAiProperties) {
+    this.openAiProperties = openAiProperties;
+  }
 
   @Override
   public ChatService.ClientHolder getClient(Provider provider, String apiKey) {
@@ -31,7 +39,16 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
         yield openAiCache.computeIfAbsent(
             apiKey,
             key -> {
-              OpenAiApi openAiApi = OpenAiApi.builder().apiKey(key).build();
+              HttpClient httpClient =
+                  HttpClient.newBuilder().connectTimeout(openAiProperties.getConnectTimeout()).build();
+              JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
+              requestFactory.setReadTimeout(openAiProperties.getReadTimeout());
+
+              OpenAiApi openAiApi =
+                  OpenAiApi.builder()
+                      .apiKey(key)
+                      .restClientBuilder(RestClient.builder().requestFactory(requestFactory))
+                      .build();
               ChatClient client =
                   ChatClient.create(OpenAiChatModel.builder().openAiApi(openAiApi).build());
               return new ChatService.ClientHolder(client, null);
@@ -57,7 +74,6 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
       case OPENAI ->
           OpenAiChatOptions.builder()
               .model(modelId)
-              .httpHeaders(Map.of("Authorization", "Bearer " + apiKey))
               .build();
       case GOOGLE ->
           GoogleGenAiChatOptions.builder()
