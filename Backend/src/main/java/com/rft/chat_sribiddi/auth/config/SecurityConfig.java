@@ -15,7 +15,6 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.web.cors.CorsConfiguration;
@@ -41,15 +40,11 @@ public class SecurityConfig {
   SecurityFilterChain securityFilterChain(HttpSecurity http) {
     try {
       return http.cors(Customizer.withDefaults())
-          .csrf(
-              csrf ->
-                  csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()))
-      return http
-          .cors(Customizer.withDefaults())
           .csrf(AbstractHttpConfigurer::disable)
           .authorizeHttpRequests(
               auth -> {
-                auth.requestMatchers("/", "/login", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
+                auth.requestMatchers(
+                        "/", "/login", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
                     .permitAll();
                 auth.anyRequest().authenticated();
               })
@@ -57,7 +52,8 @@ public class SecurityConfig {
               session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
           .oauth2Login(
               oauth2 ->
-                  oauth2.userInfoEndpoint(
+                  oauth2
+                      .userInfoEndpoint(
                           userInfo -> userInfo.oidcUserService(customOAuth2UserService))
                       .successHandler(new SimpleUrlAuthenticationSuccessHandler(frontendUrl)))
           .logout(logout -> logout.logoutSuccessUrl(frontendUrl))

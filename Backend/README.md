@@ -10,6 +10,9 @@ Spring Boot + Spring AI backend that stores chats, proxies to OpenAI or Google G
    - Model provider defaults (optional for dev now that keys are user-supplied): `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_PROJECT_ID`, `GOOGLE_LOCATION`
    - CORS: `ALLOWED_ORIGINS=http://localhost:3000`
    - Encryption: `ENCRYPTION_SECRET=$(openssl rand -base64 32)`  # must decode to 32 bytes
+   - Optional rotation settings:
+     - `ENCRYPTION_ACTIVE_KEY_VERSION=1`
+     - `ENCRYPTION_DECRYPTION_SECRETS=1:<base64>,2:<base64>`
 3) Start Postgres: `docker compose up -d` (uses `compose.yaml`).
 4) Run with dev profile (no auth, CSRF off): `SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun`
 5) Run with production profile (OAuth2 + CSRF): `SPRING_PROFILES_ACTIVE=production ./gradlew bootRun`
@@ -22,6 +25,7 @@ Spring Boot + Spring AI backend that stores chats, proxies to OpenAI or Google G
 - Set `SPRING_PROFILES_ACTIVE=production`.
 - Provide real `ALLOWED_ORIGINS` (comma-separated patterns).
 - Provide `ENCRYPTION_SECRET` (32-byte base64) and rotate periodically.
+- If rotating keys, bump `ENCRYPTION_ACTIVE_KEY_VERSION` and keep old versions in `ENCRYPTION_DECRYPTION_SECRETS` until data is re-encrypted.
 - Configure external Postgres; Flyway runs migrations at startup (`spring.flyway.baseline-on-migrate=true`, `ddl-auto=none`).
 - Ensure HTTPS termination and secure cookies (CSRF tokens use cookies).
 - Set provider defaults only if you want server-wide fallback keys; otherwise rely on user-stored keys.
@@ -36,7 +40,9 @@ Spring Boot + Spring AI backend that stores chats, proxies to OpenAI or Google G
 - Delete: `DELETE /apikeys/{provider}`
 - Exists check: `GET /apikeys/{provider}/exists`
 - Chat calls may omit `apiKey`; backend will use the stored key for the authenticated user+provider.
-- Keys are encrypted at rest with AES/GCM using `ENCRYPTION_SECRET`.
+- Keys are encrypted at rest via a JPA AttributeConverter backed by Spring Security crypto.
+- Stored ciphertext is versioned (`v<version>:...`) and each row stores `key_version` for rotation tracking.
+- Stored keys are automatically re-encrypted on read when `key_version` is older than `ENCRYPTION_ACTIVE_KEY_VERSION`.
 
 ## Chat API
 - POST `/chats` — create chat. Body: `{"title": "optional"}`. `userId` is set from the authenticated principal.
@@ -59,7 +65,7 @@ Spring Boot + Spring AI backend that stores chats, proxies to OpenAI or Google G
 - `chats`: `chat_id` (UUID, PK), `title`, `created_at`, `user_id`
 - `messages`: `id` (PK), `chat_id` (FK), `message` (TEXT), `context`, `role`, `created_at`
 - `users`: `id`, `email` (unique), `provider_id`
-- `api_keys`: `id`, `user_id`, `provider`, `encrypted_key`, timestamps (unique per user+provider)
+- `api_keys`: `id`, `user_id`, `provider`, `encrypted_key`, `key_version`, timestamps (unique per user+provider)
 - Indexes: `chats(user_id)`, `messages(chat_id, created_at desc)`
 
 ## Migrations

@@ -12,7 +12,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class ApiKeyServiceTest {
@@ -24,16 +23,15 @@ class ApiKeyServiceTest {
 
   @BeforeEach
   void setUp() {
-    cryptoService = new CryptoService();
-    ReflectionTestUtils.setField(
-        cryptoService, "secret", "c2VjdXJlLXNlY3JldC1zZWN1cmUtc2VjcmV0LXNlY3JldA=="); // base64 32 bytes
+    KeyringEncryptionProperties properties = new KeyringEncryptionProperties();
+    properties.setSecret("MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="); // base64 32 bytes
+    cryptoService = new CryptoService(properties);
     cryptoService.init();
-
     apiKeyService = new ApiKeyService(repository, cryptoService);
   }
 
   @Test
-  void saveAndRetrieveKey_roundTripsEncrypted() {
+  void saveAndRetrieveKey_roundTripsThroughService() {
     ApiKeyEntity entity = new ApiKeyEntity();
     when(repository.findByUserIdAndProvider("u1", RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of(entity));
@@ -43,7 +41,8 @@ class ApiKeyServiceTest {
 
     apiKeyService.saveKey("u1", RequestDTO.Provider.OPENAI, "sk-test");
 
-    assertThat(entity.getEncryptedKey()).isNotEqualTo("sk-test");
+    assertThat(entity.getApiKey()).isEqualTo("sk-test");
+    assertThat(entity.getKeyVersion()).isEqualTo(1);
 
     when(repository.findByUserIdAndProvider("u1", RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of(entity));
@@ -55,7 +54,7 @@ class ApiKeyServiceTest {
   @Test
   void saveKey_overwritesExisting() {
     ApiKeyEntity existing = new ApiKeyEntity();
-    existing.setEncryptedKey("old");
+    existing.setApiKey("old");
     when(repository.findByUserIdAndProvider("u1", RequestDTO.Provider.GOOGLE))
         .thenReturn(Optional.of(existing));
     when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -64,6 +63,46 @@ class ApiKeyServiceTest {
 
     ArgumentCaptor<ApiKeyEntity> captor = ArgumentCaptor.forClass(ApiKeyEntity.class);
     verify(repository).save(captor.capture());
-    assertThat(captor.getValue().getEncryptedKey()).isNotEqualTo("new-key"); // encrypted
+    assertThat(captor.getValue().getApiKey()).isEqualTo("new-key");
+    assertThat(captor.getValue().getKeyVersion()).isEqualTo(1);
+  }
+
+  @Test
+  void getKey_rotatesWhenStoredVersionIsOlder() {
+    KeyringEncryptionProperties properties = new KeyringEncryptionProperties();
+    properties.setSecret("MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="); // base64 32 bytes
+    properties.setActiveKeyVersion(2);
+    CryptoService rotatingCryptoService = new CryptoService(properties);
+    rotatingCryptoService.init();
+    ApiKeyService rotatingService = new ApiKeyService(repository, rotatingCryptoService);
+
+    ApiKeyEntity entity = new ApiKeyEntity();
+    entity.setApiKey("stored-key");
+    entity.setKeyVersion(1);
+    when(repository.findByUserIdAndProvider("u1", RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of(entity));
+    when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Optional<String> key = rotatingService.getKey("u1", RequestDTO.Provider.OPENAI);
+
+    assertThat(key).contains("stored-key");
+    ArgumentCaptor<ApiKeyEntity> captor = ArgumentCaptor.forClass(ApiKeyEntity.class);
+    verify(repository).save(captor.capture());
+    assertThat(captor.getValue().getKeyVersion()).isEqualTo(2);
+    assertThat(captor.getValue().getApiKey()).isEqualTo("stored-key");
+  }
+
+  @Test
+  void getKey_doesNotRotateWhenVersionIsCurrent() {
+    ApiKeyEntity entity = new ApiKeyEntity();
+    entity.setApiKey("stored-key");
+    entity.setKeyVersion(1);
+    when(repository.findByUserIdAndProvider("u1", RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of(entity));
+
+    Optional<String> key = apiKeyService.getKey("u1", RequestDTO.Provider.OPENAI);
+
+    assertThat(key).contains("stored-key");
+    verify(repository, never()).save(any());
   }
 }

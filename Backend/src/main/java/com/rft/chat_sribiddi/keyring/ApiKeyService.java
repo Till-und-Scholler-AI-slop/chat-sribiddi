@@ -19,16 +19,28 @@ public class ApiKeyService {
         repository.findByUserIdAndProvider(userId, provider).orElseGet(ApiKeyEntity::new);
     entity.setUserId(userId);
     entity.setProvider(provider);
-    entity.setEncryptedKey(cryptoService.encrypt(apiKey));
+    entity.setApiKey(apiKey);
+    entity.setKeyVersion(cryptoService.activeVersion());
     repository.save(entity);
   }
 
-  @Transactional(readOnly = true)
+  @Transactional
   public Optional<String> getKey(String userId, Provider provider) {
-    return repository
-        .findByUserIdAndProvider(userId, provider)
-        .map(ApiKeyEntity::getEncryptedKey)
-        .map(cryptoService::decrypt);
+    Optional<ApiKeyEntity> entityOpt = repository.findByUserIdAndProvider(userId, provider);
+    if (entityOpt.isEmpty()) {
+      return Optional.empty();
+    }
+
+    ApiKeyEntity entity = entityOpt.get();
+    String apiKey = entity.getApiKey();
+
+    if (needsRotation(entity)) {
+      entity.setApiKey(apiKey);
+      entity.setKeyVersion(cryptoService.activeVersion());
+      repository.save(entity);
+    }
+
+    return Optional.of(apiKey);
   }
 
   @Transactional
@@ -39,5 +51,10 @@ public class ApiKeyService {
   @Transactional(readOnly = true)
   public boolean hasKey(String userId, Provider provider) {
     return repository.existsByUserIdAndProvider(userId, provider);
+  }
+
+  private boolean needsRotation(ApiKeyEntity entity) {
+    Integer currentVersion = entity.getKeyVersion();
+    return currentVersion == null || currentVersion < cryptoService.activeVersion();
   }
 }

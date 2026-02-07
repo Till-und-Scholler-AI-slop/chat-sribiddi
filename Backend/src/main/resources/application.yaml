@@ -37,6 +37,10 @@ spring:
 encryption:
   # Base64-encoded 256-bit secret for encrypting stored user API keys.
   secret: ${ENCRYPTION_SECRET}
+  # Version assigned to newly stored keys.
+  active-key-version: ${ENCRYPTION_ACTIVE_KEY_VERSION:1}
+  # Optional comma-separated `version:base64Secret` entries for decrypting older versions.
+  decryption-secrets: ${ENCRYPTION_DECRYPTION_SECRETS:}
 
 app:
   cors:

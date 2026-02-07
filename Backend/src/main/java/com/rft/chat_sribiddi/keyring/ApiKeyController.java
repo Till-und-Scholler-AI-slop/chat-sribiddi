@@ -1,6 +1,9 @@
 package com.rft.chat_sribiddi.keyring;
 
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,13 +23,9 @@ public class ApiKeyController {
   public ResponseEntity<Void> upsertApiKey(
       @AuthenticationPrincipal OidcUser principal,
       @PathVariable String provider,
-      @RequestBody ApiKeyPayload payload) {
+      @Valid @RequestBody ApiKeyPayload payload) {
     OidcUser user = requireUser(principal);
-    Provider providerEnum = parseProvider(provider);
-    if (payload.apiKey() == null || payload.apiKey().isBlank()) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "apiKey must not be empty");
-    }
-    apiKeyService.saveKey(user.getSubject(), providerEnum, payload.apiKey());
+    apiKeyService.saveKey(user.getSubject(), parseProvider(provider), payload.apiKey());
     return ResponseEntity.noContent().build();
   }
 
@@ -55,11 +54,11 @@ public class ApiKeyController {
 
   private Provider parseProvider(String provider) {
     try {
-      return Provider.valueOf(provider.toUpperCase());
+      return Provider.valueOf(provider.toUpperCase(Locale.ROOT));
     } catch (IllegalArgumentException e) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown provider: " + provider);
     }
   }
 
-  public record ApiKeyPayload(String apiKey) {}
+  public record ApiKeyPayload(@NotBlank(message = "apiKey must not be empty") String apiKey) {}
 }

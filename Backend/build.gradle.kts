@@ -35,6 +35,7 @@ dependencies {
     implementation("io.github.cdimascio:dotenv-java:3.2.0")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-oauth2-client")
+    implementation("org.springframework.security:spring-security-crypto")
     implementation("org.springframework.ai:spring-ai-starter-model-google-genai")
     implementation("org.springframework.ai:spring-ai-starter-model-openai")
     compileOnly("org.projectlombok:lombok")
