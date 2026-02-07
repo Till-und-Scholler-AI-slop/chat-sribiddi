@@ -1,5 +1,5 @@
 import type { ChatStatus, UIMessage } from 'ai'
-import type { ChatSession, ModelOption } from '~/composables/useChatApi'
+import type { BackendMessage, ChatSession, ModelOption } from '~/composables/useChatApi'
 import { useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
 
@@ -10,6 +10,7 @@ type Conversation = {
   error: string | null
   activeRequest?: AbortController
   model?: ModelOption | null
+  lastPrompt: string | null
 }
 
 const messageId = () =>
@@ -63,7 +64,15 @@ function extractAssistantText(response: any): string {
 }
 
 export function useChatStore() {
-  const { createChat, sendMessage, fetchModels } = useChatApi()
+  const {
+    createChat,
+    fetchChats,
+    fetchChatMessages,
+    sendMessage,
+    fetchModels,
+    updateChat,
+    deleteChat
+  } = useChatApi()
   const { settings } = useUserSettings()
 
   const conversations = useState<Conversation[]>('chat-conversations', () => [])
@@ -77,6 +86,21 @@ export function useChatStore() {
   )
 
   const defaultModel = computed<ModelOption | null>(() => models.value[0] || null)
+
+  const toUiMessage = (message: BackendMessage): UIMessage => {
+    const role =
+      message.role === 'ASSISTANT'
+        ? 'assistant'
+        : message.role === 'SYSTEM'
+          ? 'system'
+          : 'user'
+
+    return {
+      id: message.id ? `msg-${message.id}` : messageId(),
+      role,
+      parts: [{ type: 'text', text: message.message || '' }]
+    }
+  }
 
   watch(
     () => settings.value.backendBaseUrl,
@@ -112,6 +136,39 @@ export function useChatStore() {
     return models.value
   }
 
+  const loadChatsFromBackend = async () => {
+    const chats = await fetchChats()
+
+    const previousActiveId = activeChatId.value
+    const existingSelectedId =
+      previousActiveId && chats.some(chat => chat.chatId === previousActiveId)
+        ? previousActiveId
+        : null
+
+    const loadedConversations: Conversation[] = await Promise.all(
+      chats.map(async session => {
+        const messages = await fetchChatMessages(session.chatId)
+        const uiMessages = messages.map(toUiMessage)
+        const lastUserMessage =
+          [...messages].reverse().find(message => message.role === 'USER')?.message || null
+
+        return {
+          session,
+          messages: uiMessages,
+          status: 'ready',
+          error: null,
+          model: defaultModel.value,
+          lastPrompt: lastUserMessage
+        } satisfies Conversation
+      })
+    )
+
+    conversations.value = loadedConversations
+    activeChatId.value = existingSelectedId || loadedConversations[0]?.session.chatId || null
+
+    return loadedConversations
+  }
+
   const startChat = async (title?: string) => {
     const session = await createChat(title ? { title } : {})
     const conversation: Conversation = {
@@ -119,7 +176,8 @@ export function useChatStore() {
       messages: [],
       status: 'ready',
       error: null,
-      model: defaultModel.value
+      model: defaultModel.value,
+      lastPrompt: null
     }
 
     conversations.value = [
@@ -138,6 +196,32 @@ export function useChatStore() {
     const conversation = conversations.value.find(c => c.session.chatId === chatId)
     if (conversation) {
       conversation.model = model
+    }
+  }
+
+  const renameChat = async (chatId: string, title: string) => {
+    const trimmedTitle = title.trim()
+    if (!trimmedTitle) {
+      throw new Error('Chat title must not be empty.')
+    }
+
+    const updatedChat = await updateChat(chatId, { title: trimmedTitle })
+    const conversation = conversations.value.find(c => c.session.chatId === chatId)
+    if (conversation) {
+      conversation.session.title = updatedChat.title || trimmedTitle
+    }
+    return updatedChat
+  }
+
+  const removeChat = async (chatId: string) => {
+    const wasActive = activeChatId.value === chatId
+    stop(chatId)
+
+    await deleteChat(chatId)
+    conversations.value = conversations.value.filter(c => c.session.chatId !== chatId)
+
+    if (wasActive) {
+      activeChatId.value = conversations.value[0]?.session.chatId || null
     }
   }
 
@@ -161,24 +245,33 @@ export function useChatStore() {
   const sendPrompt = async (
     chatId: string,
     text: string,
-    model: ModelOption
+    model: ModelOption,
+    options?: {
+      appendUserMessage?: boolean
+    }
   ): Promise<UIMessage | null> => {
     const conversation = conversations.value.find(c => c.session.chatId === chatId)
     if (!conversation) {
       throw new Error('No chat selected')
     }
 
+    const appendUserMessage = options?.appendUserMessage ?? true
+
     stop(chatId) // cancel any ongoing request
 
-    const userMessage: UIMessage = {
-      id: messageId(),
-      role: 'user',
-      parts: [{ type: 'text', text }]
+    if (appendUserMessage) {
+      const userMessage: UIMessage = {
+        id: messageId(),
+        role: 'user',
+        parts: [{ type: 'text', text }]
+      }
+      conversation.messages.push(userMessage)
     }
-    conversation.messages.push(userMessage)
+
     conversation.status = 'submitted'
     conversation.error = null
     conversation.model = model
+    conversation.lastPrompt = text
 
     const controller = new AbortController()
     conversation.activeRequest = controller
@@ -218,6 +311,20 @@ export function useChatStore() {
     }
   }
 
+  const retryLastPrompt = async (chatId: string, model: ModelOption): Promise<UIMessage | null> => {
+    const conversation = conversations.value.find(c => c.session.chatId === chatId)
+    if (!conversation) {
+      throw new Error('No chat selected')
+    }
+
+    const lastPrompt = conversation.lastPrompt?.trim()
+    if (!lastPrompt) {
+      throw new Error('No previous prompt available for retry.')
+    }
+
+    return sendPrompt(chatId, lastPrompt, model, { appendUserMessage: false })
+  }
+
   return {
     conversations,
     activeChatId,
@@ -227,10 +334,14 @@ export function useChatStore() {
     modelsError,
     defaultModel,
     ensureModels,
+    loadChatsFromBackend,
     startChat,
     selectChat,
     setModelForChat,
+    renameChat,
+    removeChat,
     sendPrompt,
+    retryLastPrompt,
     stop
   }
 }

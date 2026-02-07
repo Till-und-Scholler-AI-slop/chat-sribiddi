@@ -1,7 +1,8 @@
 export default defineNuxtRouteMiddleware(async to => {
   if (import.meta.server) return
-  // Allow the login page without checks
-  if (to.path === '/login') return
+  // Allow public pages without auth checks.
+  const normalizedPath = to.path.replace(/\/+$/, '') || '/'
+  if (['/login', '/impressum', '/datenschutz'].includes(normalizedPath)) return
 
   const { ensureAuthenticated } = useAuth()
   const ok = await ensureAuthenticated()

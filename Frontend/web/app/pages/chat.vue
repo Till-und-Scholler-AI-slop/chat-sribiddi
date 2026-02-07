@@ -11,9 +11,11 @@ const {
   conversations,
   defaultModel,
   ensureModels,
+  loadChatsFromBackend,
   models,
   modelsError,
   modelsLoading,
+  retryLastPrompt,
   sendPrompt,
   setModelForChat,
   startChat,
@@ -46,6 +48,7 @@ const firstText = (parts?: Array<{ type: string; text?: string }>) =>
 onMounted(async () => {
   try {
     await ensureModels()
+    await loadChatsFromBackend()
     if (conversations.value.length === 0) {
       await startChat('New chat')
     }
@@ -101,9 +104,20 @@ const handleStop = () => {
   }
 }
 
-const handleReload = () => {
-  // The backend does not stream; simply stop any ongoing request.
-  handleStop()
+const handleReload = async () => {
+  const conversation = activeConversation.value
+  const model = selectedModel.value
+  if (!conversation || !model) return
+
+  try {
+    await retryLastPrompt(conversation.session.chatId, model)
+  } catch (err) {
+    toast.add({
+      title: 'Retry failed',
+      description: err instanceof Error ? err.message : 'Unable to retry request.',
+      color: 'error'
+    })
+  }
 }
 </script>
 

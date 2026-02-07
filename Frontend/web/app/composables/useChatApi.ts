@@ -13,8 +13,21 @@ export type ChatSession = {
   userId?: string | null
 }
 
+export type BackendMessage = {
+  id?: number | null
+  chatId: string
+  message: string
+  context?: string | null
+  role: 'USER' | 'ASSISTANT' | 'SYSTEM'
+  createdAt?: string | null
+}
+
 type CreateChatInput = {
   title?: string
+}
+
+type UpdateChatInput = {
+  title: string
 }
 
 type SendMessageInput = {
@@ -133,6 +146,14 @@ export function useChatApi() {
     })
   }
 
+  const fetchChats = async () => {
+    return requestJson<ChatSession[]>('/chats', { method: 'GET' })
+  }
+
+  const fetchChatMessages = async (chatId: string) => {
+    return requestJson<BackendMessage[]>(`/chats/${chatId}/messages`, { method: 'GET' })
+  }
+
   const sendMessage = async (
     chatId: string,
     input: SendMessageInput,
@@ -143,6 +164,33 @@ export function useChatApi() {
       body: JSON.stringify(input),
       signal
     })
+  }
+
+  const updateChat = async (chatId: string, input: UpdateChatInput) => {
+    return requestJson<ChatSession>(`/chats/${chatId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title: input.title })
+    })
+  }
+
+  const deleteChat = async (chatId: string) => {
+    const response = await fetch(buildUrl(`/chats/${chatId}`), {
+      credentials: 'include',
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Not authenticated. Please log in via the Login page.')
+      }
+      const errorText = await readErrorText(response)
+      throw new Error(
+        errorText || `Request failed (${response.status} ${response.statusText})`
+      )
+    }
   }
 
   const fetchModels = async (provider: Provider) => {
@@ -163,7 +211,11 @@ export function useChatApi() {
     requestJson,
     resolveUserId,
     createChat,
+    fetchChats,
+    fetchChatMessages,
     sendMessage,
+    updateChat,
+    deleteChat,
     fetchModels
   }
 }

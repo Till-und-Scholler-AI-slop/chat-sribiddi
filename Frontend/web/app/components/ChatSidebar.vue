@@ -8,13 +8,19 @@ const emit = defineEmits<(e: 'toggle') => void>()
 const router = useRouter()
 const route = useRoute()
 const toast = useToast()
-const { status, ensureAuthenticated } = useAuth()
+const { ensureAuthenticated } = useAuth()
 const {
   conversations,
   activeChatId,
   selectChat,
-  startChat
+  startChat,
+  renameChat,
+  removeChat
 } = useChatStore()
+
+const editingChatId = ref<string | null>(null)
+const titleDraft = ref('')
+const processingChatId = ref<string | null>(null)
 
 const handleNewChat = async () => {
   try {
@@ -47,12 +53,72 @@ const handleSelect = (chatId: string) => {
   }
 }
 
-const goToSettings = () => {
-  router.push('/settings')
+const startEditing = (chatId: string, currentTitle?: string | null) => {
+  editingChatId.value = chatId
+  titleDraft.value = (currentTitle || '').trim() || 'New chat'
 }
 
-const goToLogin = () => {
-  router.push('/login')
+const cancelEditing = () => {
+  editingChatId.value = null
+  titleDraft.value = ''
+}
+
+const saveTitle = async (chatId: string) => {
+  const title = titleDraft.value.trim()
+  if (!title) {
+    toast.add({
+      title: 'Titel fehlt',
+      description: 'Bitte gib einen Chat-Titel ein.',
+      color: 'warning'
+    })
+    return
+  }
+
+  processingChatId.value = chatId
+  try {
+    await renameChat(chatId, title)
+    toast.add({
+      title: 'Chat umbenannt',
+      color: 'primary'
+    })
+    cancelEditing()
+  } catch (err) {
+    toast.add({
+      title: 'Chat konnte nicht umbenannt werden',
+      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      color: 'error'
+    })
+  } finally {
+    processingChatId.value = null
+  }
+}
+
+const handleDelete = async (chatId: string) => {
+  if (!window.confirm('Diesen Chat wirklich löschen?')) return
+
+  processingChatId.value = chatId
+  try {
+    await removeChat(chatId)
+    toast.add({
+      title: 'Chat gelöscht',
+      color: 'neutral'
+    })
+  } catch (err) {
+    toast.add({
+      title: 'Chat konnte nicht gelöscht werden',
+      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      color: 'error'
+    })
+  } finally {
+    if (editingChatId.value === chatId) {
+      cancelEditing()
+    }
+    processingChatId.value = null
+  }
+}
+
+const goToSettings = () => {
+  router.push('/settings')
 }
 </script>
 
@@ -91,28 +157,77 @@ const goToLogin = () => {
           v-for="conversation in conversations"
           :key="conversation.session.chatId"
         >
-          <button
-            class="w-full rounded-lg text-left px-2 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition flex items-center gap-2"
-            :class="activeChatId === conversation.session.chatId ? 'bg-gray-100 dark:bg-gray-900' : ''"
-            @click="handleSelect(conversation.session.chatId)"
+          <div
+            class="rounded-lg transition"
+            :class="activeChatId === conversation.session.chatId ? 'bg-gray-100 dark:bg-gray-900' : 'hover:bg-gray-100 dark:hover:bg-gray-900'"
           >
-            <span v-if="!collapsed" class="truncate">
-              {{ conversation.session.title || 'New chat' }}
-            </span>
-          </button>
+            <div
+              v-if="editingChatId === conversation.session.chatId && !collapsed"
+              class="p-2 space-y-2"
+            >
+              <UInput
+                v-model="titleDraft"
+                autofocus
+                @keydown.enter.prevent="saveTitle(conversation.session.chatId)"
+                @keydown.esc.prevent="cancelEditing"
+              />
+              <div class="flex items-center gap-2">
+                <UButton
+                  size="xs"
+                  color="primary"
+                  label="Speichern"
+                  :loading="processingChatId === conversation.session.chatId"
+                  @click="saveTitle(conversation.session.chatId)"
+                />
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  label="Abbrechen"
+                  :disabled="processingChatId === conversation.session.chatId"
+                  @click="cancelEditing"
+                />
+              </div>
+            </div>
+
+            <div v-else class="flex items-center gap-1 p-1">
+              <button
+                class="flex-1 rounded-md text-left px-2 py-2 flex items-center gap-2 min-w-0"
+                @click="handleSelect(conversation.session.chatId)"
+              >
+                <span v-if="!collapsed" class="truncate">
+                  {{ conversation.session.title || 'New chat' }}
+                </span>
+              </button>
+
+              <div v-if="!collapsed" class="flex items-center gap-1 pr-1">
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="neutral"
+                  icon="i-heroicons-pencil-square"
+                  aria-label="Chat umbenennen"
+                  :disabled="processingChatId === conversation.session.chatId"
+                  @click.stop="startEditing(conversation.session.chatId, conversation.session.title)"
+                />
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  icon="i-heroicons-trash"
+                  aria-label="Chat löschen"
+                  :loading="processingChatId === conversation.session.chatId"
+                  @click.stop="handleDelete(conversation.session.chatId)"
+                />
+              </div>
+            </div>
+          </div>
         </li>
       </ul>
     </nav>
 
     <!-- Footer -->
     <div class="border-t border-gray-200 dark:border-gray-800 p-2 space-y-2">
-      <UButton
-        variant="ghost"
-        icon="i-heroicons-arrow-right-on-rectangle"
-        :label="collapsed ? '' : 'Login'"
-        class="w-full justify-start"
-        @click="goToLogin"
-      />
       <UButton
         variant="ghost"
         icon="i-heroicons-cog-6-tooth"

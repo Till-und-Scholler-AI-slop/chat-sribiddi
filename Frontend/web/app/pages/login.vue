@@ -1,12 +1,14 @@
 <script setup lang="ts">
 definePageMeta({
-  layout: 'default'
+  layout: 'auth'
 })
 
 const { settings } = useUserSettings()
-const { status, checkAuth } = useAuth()
+const { checkAuth } = useAuth()
 const router = useRouter()
-const toast = useToast()
+const checking = ref(true)
+const authState = ref<'unknown' | 'authenticated' | 'unauthenticated'>('unknown')
+const checkError = ref<string | null>(null)
 
 const normalizeBaseUrl = (value: string) => {
   const trimmed = value.trim()
@@ -17,72 +19,80 @@ const normalizeBaseUrl = (value: string) => {
 const loginUrl = computed(() => `${normalizeBaseUrl(settings.value.backendBaseUrl)}/oauth2/authorization/google`)
 
 onMounted(async () => {
-  const state = await checkAuth()
-  if (state === 'authenticated') {
-    toast.add({ title: 'You are already signed in', color: 'primary' })
-    router.push('/chat')
+  try {
+    const state = await checkAuth()
+    authState.value = state
+    if (state === 'authenticated') {
+      await router.replace('/chat')
+      return
+    }
+  } catch (err) {
+    checkError.value = err instanceof Error ? err.message : 'Could not verify session.'
+    authState.value = 'unauthenticated'
+  } finally {
+    checking.value = false
   }
 })
 </script>
 
 <template>
-  <UDashboardPanel>
-    <template #header>
-      <UDashboardNavbar title="Login" />
-    </template>
+  <div class="mx-auto mt-8 max-w-md">
+    <UCard>
+      <div class="space-y-6">
+        <div class="space-y-2 text-center">
+          <h1 class="text-2xl font-semibold">Login</h1>
+          <p class="text-sm text-gray-600 dark:text-gray-400">
+            Sign in with your Google account to continue.
+          </p>
+        </div>
 
-    <template #body>
-      <UContainer class="py-8">
-        <div class="max-w-xl space-y-6">
-          <UCard>
-            <div class="space-y-4">
-              <div class="space-y-2">
-                <div class="text-lg font-semibold">Sign in with Google</div>
-                <p class="text-sm text-gray-600 dark:text-gray-400">
-                  Authentication is handled by the Spring backend. You will be redirected
-                  to Google OAuth2. Make sure the backend URL matches your running instance.
-                </p>
-              </div>
+        <div v-if="checking" class="space-y-2">
+          <USkeleton class="h-11 w-full" />
+          <p class="text-center text-xs text-gray-500 dark:text-gray-400">
+            Checking current session...
+          </p>
+        </div>
 
-              <div class="space-y-2 text-sm">
-                <div class="flex items-center gap-2">
-                  <UBadge color="primary" variant="soft">Backend</UBadge>
-                  <span class="truncate">{{ normalizeBaseUrl(settings.backendBaseUrl) }}</span>
-                </div>
-                <div class="flex items-center gap-2">
-                  <UBadge color="neutral" variant="soft">Endpoint</UBadge>
-                  <code class="text-xs">{{ loginUrl }}</code>
-                </div>
-              </div>
-
-              <div class="flex gap-3">
-                <UButton
-                  color="primary"
-                  icon="i-heroicons-arrow-right-circle"
-                  :href="loginUrl"
-                  external
-                  size="lg"
-                  label="Continue with Google"
-                />
-                <UButton
-                  color="neutral"
-                  variant="outline"
-                  icon="i-heroicons-cog-6-tooth"
-                  to="/settings"
-                  label="Edit backend URL"
-                />
-              </div>
-            </div>
-          </UCard>
+        <div v-else class="space-y-3">
+          <UButton
+            block
+            color="primary"
+            icon="i-heroicons-arrow-right-circle"
+            :href="loginUrl"
+            size="lg"
+            label="Continue with Google"
+          />
 
           <UAlert
-            color="neutral"
-            icon="i-heroicons-information-circle"
-            title="After login"
-            description="You'll be sent back to the backend. Keep the same browser session and open the chat page to use the authenticated cookies."
+            color="warning"
+            variant="soft"
+            icon="i-heroicons-exclamation-triangle"
+            title="If you see 404 on OAuth URL"
+            description="Backend is likely running with SPRING_PROFILES_ACTIVE=dev. Switch backend to production profile to enable /oauth2/authorization/google."
           />
         </div>
-      </UContainer>
-    </template>
-  </UDashboardPanel>
+
+        <UAlert
+          v-if="checkError"
+          color="error"
+          variant="soft"
+          icon="i-heroicons-x-circle"
+          title="Session check failed"
+          :description="checkError"
+        />
+
+        <div class="rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900 dark:text-gray-300">
+          <div class="font-medium">Backend</div>
+          <code class="break-all">{{ normalizeBaseUrl(settings.backendBaseUrl) }}</code>
+        </div>
+
+        <p class="text-center text-xs text-gray-500 dark:text-gray-400">
+          Legal:
+          <NuxtLink to="/impressum" class="underline underline-offset-2">Impressum</NuxtLink>
+          and
+          <NuxtLink to="/datenschutz" class="underline underline-offset-2">Datenschutz</NuxtLink>.
+        </p>
+      </div>
+    </UCard>
+  </div>
 </template>

@@ -3,32 +3,36 @@ type KeyStatus = {
   google: boolean
 }
 
-type KeyPayload = {
-  openAiApiKey?: string
-  googleApiKey?: string
-}
+type Provider = 'OPENAI' | 'GOOGLE'
+
+const providerPath = (provider: Provider) => `/apikeys/${provider.toLowerCase()}`
 
 export function useKeyApi() {
   const { requestJson } = useChatApi()
 
   const getStatus = async () => {
-    return requestJson<KeyStatus>('/user/keys', { method: 'GET' })
+    const [openai, google] = await Promise.all([
+      requestJson<boolean>(`${providerPath('OPENAI')}/exists`, { method: 'GET' }),
+      requestJson<boolean>(`${providerPath('GOOGLE')}/exists`, { method: 'GET' })
+    ])
+
+    return { openai, google } satisfies KeyStatus
   }
 
-  const saveKeys = async (payload: KeyPayload) => {
-    return requestJson<void>('/user/keys', {
-      method: 'POST',
-      body: JSON.stringify(payload)
+  const saveKey = async (provider: Provider, apiKey: string) => {
+    return requestJson<void>(providerPath(provider), {
+      method: 'PUT',
+      body: JSON.stringify({ apiKey })
     })
   }
 
-  const deleteKeys = async () => {
-    return requestJson<void>('/user/keys', { method: 'DELETE' })
+  const deleteKey = async (provider: Provider) => {
+    return requestJson<void>(providerPath(provider), { method: 'DELETE' })
   }
 
   return {
     getStatus,
-    saveKeys,
-    deleteKeys
+    saveKey,
+    deleteKey
   }
 }
