@@ -1,11 +1,13 @@
 package com.rft.chat_sribiddi.config;
 
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
+import java.net.http.HttpTimeoutException;
 import java.util.HashMap;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -37,5 +39,33 @@ public class GlobalExceptionHandler {
       errors.put(fieldError.getField(), fieldError.getDefaultMessage());
     }
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors);
+  }
+
+  @ExceptionHandler(ResourceAccessException.class)
+  public ResponseEntity<Map<String, String>> handleResourceAccess(ResourceAccessException ex) {
+    if (isTimeout(ex)) {
+      return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
+          .body(
+              Map.of(
+                  "message",
+                  "The AI provider timed out while processing the request. Try a shorter prompt or retry."));
+    }
+
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+        .body(Map.of("message", "Failed to reach the AI provider. Please retry."));
+  }
+
+  private boolean isTimeout(Throwable throwable) {
+    Throwable current = throwable;
+    while (current != null) {
+      if (current instanceof HttpTimeoutException) {
+        return true;
+      }
+      if ("io.netty.handler.timeout.ReadTimeoutException".equals(current.getClass().getName())) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
   }
 }

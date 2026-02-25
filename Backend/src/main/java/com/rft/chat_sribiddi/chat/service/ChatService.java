@@ -67,6 +67,28 @@ public class ChatService {
     return chatRepository.save(chatEntity);
   }
 
+  public List<ChatEntity> listChats(String userId) {
+    return chatRepository.findByUserIdOrderByCreatedAtDesc(userId);
+  }
+
+  public List<MessageEntity> listMessages(UUID chatId, String userId) {
+    chatRepository
+        .findByChatIdAndUserId(chatId, userId)
+        .orElseThrow(() -> new ChatNotFoundException(chatId));
+    return messageRepository.findByChatIdOrderByCreatedAtAsc(chatId);
+  }
+
+  @Transactional
+  public ChatEntity updateChatTitle(UUID chatId, String userId, String title) {
+    ChatEntity chat =
+        chatRepository
+            .findByChatIdAndUserId(chatId, userId)
+            .orElseThrow(() -> new ChatNotFoundException(chatId));
+
+    chat.setTitle(title.trim());
+    return chatRepository.save(chat);
+  }
+
   public ChatResponse sendMessage(UUID chatId, String userId, RequestDTO requestDTO) {
     chatRepository
         .findByChatIdAndUserId(chatId, userId)
