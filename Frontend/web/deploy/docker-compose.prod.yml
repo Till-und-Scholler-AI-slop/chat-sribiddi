@@ -1,0 +1,13 @@
+name: chat_sribiddi_frontend
+
+services:
+  frontend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: chat-sribiddi-frontend:latest
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    ports:
+      - "80:3000"
