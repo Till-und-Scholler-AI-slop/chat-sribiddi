@@ -1,0 +1,99 @@
+name: Deploy App To VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build deploy bundles
+        run: |
+          set -eu
+          mkdir -p dist
+          tar -czf dist/backend.tar.gz Backend
+          tar -czf dist/frontend-web.tar.gz -C Frontend/Web .
+
+      - name: Prepare remote staging directory
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          script_stop: true
+          script: |
+            set -eu
+            mkdir -p /tmp/chat-sribiddi-deploy
+
+      - name: Upload backend bundle
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          source: dist/backend.tar.gz
+          target: /tmp/chat-sribiddi-deploy
+
+      - name: Upload frontend bundle
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          source: dist/frontend-web.tar.gz
+          target: /tmp/chat-sribiddi-deploy
+
+      - name: Deploy on VPS
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          BACKEND_ENV_FILE: ${{ secrets.BACKEND_ENV_FILE }}
+          FRONTEND_ENV_FILE: ${{ secrets.FRONTEND_ENV_FILE }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          script_stop: true
+          command_timeout: 40m
+          envs: BACKEND_ENV_FILE,FRONTEND_ENV_FILE
+          script: |
+            set -eu
+            APP_DIR=/opt/chat-sribiddi
+            STAGE_DIR=/tmp/chat-sribiddi-deploy
+
+            BACKEND_ARCHIVE=$(find "$STAGE_DIR" -type f -name backend.tar.gz | head -n 1)
+            FRONTEND_ARCHIVE=$(find "$STAGE_DIR" -type f -name frontend-web.tar.gz | head -n 1)
+
+            if [ -z "$BACKEND_ARCHIVE" ] || [ -z "$FRONTEND_ARCHIVE" ]; then
+              echo "Deployment bundle missing in $STAGE_DIR"
+              exit 1
+            fi
+
+            rm -rf "$APP_DIR/Backend" "$APP_DIR/Frontend-web"
+            mkdir -p "$APP_DIR/Frontend-web"
+
+            tar -xzf "$BACKEND_ARCHIVE" -C "$APP_DIR"
+            tar -xzf "$FRONTEND_ARCHIVE" -C "$APP_DIR/Frontend-web"
+
+            printf '%s\n' "$BACKEND_ENV_FILE" > "$APP_DIR/Backend/.env"
+            printf '%s\n' "$FRONTEND_ENV_FILE" > "$APP_DIR/Frontend-web/.env"
+            chmod 600 "$APP_DIR/Backend/.env" "$APP_DIR/Frontend-web/.env"
+
+            cd "$APP_DIR/Backend"
+            docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build --remove-orphans
+
+            cd "$APP_DIR/Frontend-web"
+            docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build --remove-orphans
+
+            rm -rf "$STAGE_DIR"
