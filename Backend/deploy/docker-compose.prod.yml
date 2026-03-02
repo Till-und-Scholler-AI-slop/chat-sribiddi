@@ -2,7 +2,7 @@ name: chat_sribiddi_backend
 
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine3.22
     restart: unless-stopped
     env_file:
       - ../.env
