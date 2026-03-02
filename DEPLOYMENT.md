@@ -1,4 +1,4 @@
-# Deployment Runbook
+# Deployment Runbook (germinai.de)
 
 Diese Repo nutzt eine GitHub-Action:
 
@@ -6,97 +6,109 @@ Diese Repo nutzt eine GitHub-Action:
 2. Trigger: jeder `push` auf Branch `main` (inkl. Merge in `main`)
 3. Zielserver: `root@45.81.235.217`
 
-## 1) Was auf dem Server abgelegt wird
+## 1) Zielarchitektur
 
-Deploy-Zielpfad ist immer:
+1. Caddy läuft auf dem Host und terminiert TLS (Let's Encrypt) für `germinai.de`.
+2. Frontend-Container lauscht nur lokal auf `127.0.0.1:3000`.
+3. Backend-Container lauscht nur lokal auf `127.0.0.1:8080`.
+4. Caddy-Routing:
+   - `https://germinai.de/` -> Frontend (`127.0.0.1:3000`)
+   - `https://germinai.de/api/*` -> Backend (`127.0.0.1:8080`)
 
-1. `/opt/chat-sribiddi/Backend` (Spring Boot + Postgres Compose Stack)
-2. `/opt/chat-sribiddi/Frontend-web` (Nuxt Compose Stack)
+## 2) Was auf dem Server abgelegt wird
 
-Quellpfad -> Zielpfad:
+Deploy-Zielpfade:
 
-1. `Backend/*` -> `/opt/chat-sribiddi/Backend/*`
-2. `Frontend/web/*` -> `/opt/chat-sribiddi/Frontend-web/*`
+1. `/opt/chat-sribiddi/Backend`
+2. `/opt/chat-sribiddi/Frontend-web`
 
-Wichtige Dateien auf dem Server:
+Wichtige Dateien:
 
 1. Backend Env: `/opt/chat-sribiddi/Backend/.env`
 2. Frontend Env: `/opt/chat-sribiddi/Frontend-web/.env`
-3. Backend Compose: `/opt/chat-sribiddi/Backend/deploy/docker-compose.prod.yml`
-4. Frontend Compose: `/opt/chat-sribiddi/Frontend-web/deploy/docker-compose.prod.yml`
+3. Caddy config: `/etc/caddy/Caddyfile`
+4. Caddy cert data: `/var/lib/caddy/.local/share/caddy`
 
-Temporärer Upload-Pfad während eines Deployments:
+Temporärer Upload-Pfad beim CI-Deploy:
 
-1. `/tmp/chat-sribiddi-deploy` (wird am Ende wieder gelöscht)
+1. `/tmp/chat-sribiddi-deploy`
 
-## 2) Was du in GitHub machen musst
+## 3) GitHub-Secrets
 
-Öffne:
+Pfad:
 
 1. `GitHub -> Repository -> Settings -> Secrets and variables -> Actions`
 
-Lege diese Repository-Secrets an:
+Repository Secrets:
 
-1. `VPS_HOST` = `45.81.235.217`
-2. `VPS_USER` = `root`
-3. `VPS_PASSWORD` = `<dein Server-Passwort>`
-4. `BACKEND_ENV_FILE` = kompletter Inhalt der Backend-`.env`
-5. `FRONTEND_ENV_FILE` = kompletter Inhalt der Frontend-`.env`
+1. `VPS_HOST=45.81.235.217`
+2. `VPS_USER=root`
+3. `VPS_PASSWORD=<server-passwort>`
+4. `BACKEND_ENV_FILE=<kompletter Backend-.env Inhalt>`
+5. `FRONTEND_ENV_FILE=<kompletter Frontend-.env Inhalt>`
 
-## 3) Inhalte für die Env-Secrets
+## 4) Env-Inhalte (Domain-Betrieb)
 
-Backend-Vorlage liegt in:
-
-1. `Backend/.env.example`
-
-Frontend-Vorlage liegt in:
-
-1. `Frontend/web/deploy/.env.example`
-
-Minimaler Frontend-Inhalt:
+Frontend (`FRONTEND_ENV_FILE`):
 
 ```dotenv
-NUXT_PUBLIC_BACKEND_BASE_URL=http://45.81.235.217:8080
+NUXT_PUBLIC_BACKEND_BASE_URL=https://germinai.de/api
 ```
 
-Wichtiger Backend-Hinweis:
+Backend (`BACKEND_ENV_FILE`) wichtige Felder:
 
-1. `ENCRYPTION_SECRET` muss ein Base64-Secret mit 32 Bytes sein.
-2. Erzeugen mit `openssl rand -base64 32`.
+```dotenv
+SPRING_PROFILES_ACTIVE=production
+APP_FRONTEND_URL=https://germinai.de
+ALLOWED_ORIGINS=https://germinai.de
+OPENAI_API_KEY=not-configured
+GOOGLE_API_KEY=not-configured
+ENCRYPTION_SECRET=<openssl rand -base64 32>
+ENCRYPTION_ACTIVE_KEY_VERSION=1
+ENCRYPTION_DECRYPTION_SECRETS=
+```
 
-## 4) Was der Workflow automatisch macht
+Hinweis:
+
+1. Nutzer können ihre Modell-API-Keys später selbst in der App speichern.
+2. `ENCRYPTION_SECRET` ist Pflicht und muss auf 32 Bytes dekodieren.
+
+## 5) Google OAuth (für Login)
+
+In Google Cloud Console (OAuth Client, Typ `Webanwendung`):
+
+1. Autorisierte JavaScript-Quelle: `https://germinai.de`
+2. Autorisierte Weiterleitungs-URI: `https://germinai.de/api/login/oauth2/code/google`
+
+Dann `GOOGLE_CLIENT_ID` und `GOOGLE_CLIENT_SECRET` in `BACKEND_ENV_FILE` setzen.
+
+## 6) Caddy + Let's Encrypt
+
+Caddyfile-Vorlage in Repo:
+
+1. `infra/caddy/Caddyfile`
+
+## 7) CI-Deploy-Ablauf
 
 Bei Push auf `main`:
 
-1. baut zwei Archive (`Backend` und `Frontend/web`)
-2. lädt sie auf den Server (`/tmp/chat-sribiddi-deploy`)
-3. schreibt `.env` aus `BACKEND_ENV_FILE` und `FRONTEND_ENV_FILE`
-4. startet Backend-Stack neu:
-   `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build --remove-orphans`
-5. startet Frontend-Stack neu:
-   `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build --remove-orphans`
+1. Archive bauen (`Backend`, `Frontend/web`, `infra/caddy`)
+2. Auf Server nach `/tmp/chat-sribiddi-deploy` hochladen
+3. `.env` Dateien aus Secrets schreiben
+4. Backend/Frontend per Docker Compose neu bauen/starten
+5. Caddyfile nach `/etc/caddy/Caddyfile` kopieren und Caddy reloaden
 
-Hinweis zu Bun:
+## 8) Verifikation
 
-1. Bun muss nicht auf dem Server installiert sein.
-2. Der Frontend-Build nutzt Bun im Docker-Build-Container (`oven/bun`).
+1. `https://germinai.de` lädt Frontend
+2. `https://germinai.de/api/login` antwortet (Backend erreichbar über Proxy)
+3. `docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"` zeigt laufende Container
 
-## 5) Erster Lauf / Verifikation
+## 9) Offene manuelle To-dos
 
-1. Commit + Push nach `main` ausführen.
-2. In GitHub `Actions -> Deploy App To VPS` öffnen.
-3. Nach Erfolg prüfen:
-   - Frontend: `http://45.81.235.217`
-   - Backend: `http://45.81.235.217:8080`
-
-Server-Check:
-
-```bash
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-```
-
-## 6) Sicherheits- und Betriebs-Hinweise
-
-1. Root-Passwort sollte nach Einrichtung rotiert werden.
-2. Besser auf SSH-Key-Deploy umstellen (statt Passwort in Secret).
-3. Optional später TLS/Reverse-Proxy vorschalten (Caddy/Nginx + Domain).
+1. DNS A-Record `germinai.de` auf `45.81.235.217` setzen.
+2. Optional DNS A-Record `www.germinai.de` auf `45.81.235.217` setzen.
+3. Falls ein AAAA-Record gesetzt ist: auf die korrekte IPv6 dieses Servers ändern oder entfernen.
+4. Google OAuth Consent Screen finalisieren (falls noch nicht publiziert/konfiguriert).
+5. Repository Secrets in GitHub mit Domain-Werten aktualisieren.
+6. SSH-Key-basiertes Deploy statt Root-Passwort einrichten.

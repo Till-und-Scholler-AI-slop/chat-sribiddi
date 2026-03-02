@@ -24,6 +24,7 @@ jobs:
           set -eu
           mkdir -p dist
           tar -czf dist/backend.tar.gz Backend
+          tar -czf dist/caddy.tar.gz -C infra/caddy .
           if [ -d Frontend/web ]; then
             FRONTEND_DIR=Frontend/web
           elif [ -d Frontend/Web ]; then
@@ -63,6 +64,15 @@ jobs:
           source: dist/frontend-web.tar.gz
           target: /tmp/chat-sribiddi-deploy
 
+      - name: Upload caddy bundle
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          source: dist/caddy.tar.gz
+          target: /tmp/chat-sribiddi-deploy
+
       - name: Deploy on VPS
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -82,6 +92,7 @@ jobs:
 
             BACKEND_ARCHIVE=$(find "$STAGE_DIR" -type f -name backend.tar.gz | head -n 1)
             FRONTEND_ARCHIVE=$(find "$STAGE_DIR" -type f -name frontend-web.tar.gz | head -n 1)
+            CADDY_ARCHIVE=$(find "$STAGE_DIR" -type f -name caddy.tar.gz | head -n 1)
 
             if [ -z "$BACKEND_ARCHIVE" ] || [ -z "$FRONTEND_ARCHIVE" ]; then
               echo "Deployment bundle missing in $STAGE_DIR"
@@ -90,9 +101,13 @@ jobs:
 
             rm -rf "$APP_DIR/Backend" "$APP_DIR/Frontend-web"
             mkdir -p "$APP_DIR/Frontend-web"
+            mkdir -p "$APP_DIR/infra/caddy"
 
             tar -xzf "$BACKEND_ARCHIVE" -C "$APP_DIR"
             tar -xzf "$FRONTEND_ARCHIVE" -C "$APP_DIR/Frontend-web"
+            if [ -n "$CADDY_ARCHIVE" ]; then
+              tar -xzf "$CADDY_ARCHIVE" -C "$APP_DIR/infra/caddy"
+            fi
 
             printf '%s\n' "$BACKEND_ENV_FILE" > "$APP_DIR/Backend/.env"
             printf '%s\n' "$FRONTEND_ENV_FILE" > "$APP_DIR/Frontend-web/.env"
@@ -103,5 +118,10 @@ jobs:
 
             cd "$APP_DIR/Frontend-web"
             docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build --remove-orphans
+
+            if [ -f "$APP_DIR/infra/caddy/Caddyfile" ]; then
+              cp "$APP_DIR/infra/caddy/Caddyfile" /etc/caddy/Caddyfile
+              systemctl reload caddy || systemctl restart caddy
+            fi
 
             rm -rf "$STAGE_DIR"
