@@ -76,6 +76,11 @@ Bei Push auf `main`:
 5. startet Frontend-Stack neu:
    `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build --remove-orphans`
 
+Hinweis zu Bun:
+
+1. Bun muss nicht auf dem Server installiert sein.
+2. Der Frontend-Build nutzt Bun im Docker-Build-Container (`oven/bun`).
+
 ## 5) Erster Lauf / Verifikation
 
 1. Commit + Push nach `main` ausführen.
