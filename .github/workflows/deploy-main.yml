@@ -24,7 +24,15 @@ jobs:
           set -eu
           mkdir -p dist
           tar -czf dist/backend.tar.gz Backend
-          tar -czf dist/frontend-web.tar.gz -C Frontend/Web .
+          if [ -d Frontend/web ]; then
+            FRONTEND_DIR=Frontend/web
+          elif [ -d Frontend/Web ]; then
+            FRONTEND_DIR=Frontend/Web
+          else
+            echo "Frontend directory not found (expected Frontend/web or Frontend/Web)"
+            exit 1
+          fi
+          tar -czf dist/frontend-web.tar.gz -C "$FRONTEND_DIR" .
 
       - name: Prepare remote staging directory
         uses: appleboy/ssh-action@v1.2.0

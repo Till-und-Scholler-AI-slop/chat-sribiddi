@@ -16,7 +16,7 @@ Deploy-Zielpfad ist immer:
 Quellpfad -> Zielpfad:
 
 1. `Backend/*` -> `/opt/chat-sribiddi/Backend/*`
-2. `Frontend/Web/*` -> `/opt/chat-sribiddi/Frontend-web/*`
+2. `Frontend/web/*` -> `/opt/chat-sribiddi/Frontend-web/*`
 
 Wichtige Dateien auf dem Server:
 
@@ -51,7 +51,7 @@ Backend-Vorlage liegt in:
 
 Frontend-Vorlage liegt in:
 
-1. `Frontend/Web/deploy/.env.example`
+1. `Frontend/web/deploy/.env.example`
 
 Minimaler Frontend-Inhalt:
 
@@ -68,7 +68,7 @@ Wichtiger Backend-Hinweis:
 
 Bei Push auf `main`:
 
-1. baut zwei Archive (`Backend` und `Frontend/Web`)
+1. baut zwei Archive (`Backend` und `Frontend/web`)
 2. lädt sie auf den Server (`/tmp/chat-sribiddi-deploy`)
 3. schreibt `.env` aus `BACKEND_ENV_FILE` und `FRONTEND_ENV_FILE`
 4. startet Backend-Stack neu:
