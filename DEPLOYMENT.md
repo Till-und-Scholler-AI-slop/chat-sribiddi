@@ -14,6 +14,7 @@ Diese Repo nutzt eine GitHub-Action:
 4. Caddy-Routing:
    - `https://germinai.de/` -> Frontend (`127.0.0.1:3000`)
    - `https://germinai.de/api/*` -> Backend (`127.0.0.1:8080`)
+   - `https://germinai.de/login/oauth2/*` -> Backend (`127.0.0.1:8080`)
 
 ## 2) Was auf dem Server abgelegt wird
 
@@ -78,7 +79,7 @@ Hinweis:
 In Google Cloud Console (OAuth Client, Typ `Webanwendung`):
 
 1. Autorisierte JavaScript-Quelle: `https://germinai.de`
-2. Autorisierte Weiterleitungs-URI: `https://germinai.de/api/login/oauth2/code/google`
+2. Autorisierte Weiterleitungs-URI: `https://germinai.de/login/oauth2/code/google`
 
 Dann `GOOGLE_CLIENT_ID` und `GOOGLE_CLIENT_SECRET` in `BACKEND_ENV_FILE` setzen.
 
