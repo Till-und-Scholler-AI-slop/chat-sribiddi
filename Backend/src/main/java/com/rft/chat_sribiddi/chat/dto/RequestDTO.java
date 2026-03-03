@@ -1,7 +1,10 @@
 package com.rft.chat_sribiddi.chat.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import java.util.List;
 
 /**
  * Payload for sending a chat message.
@@ -15,10 +18,17 @@ public record RequestDTO(
     @NotBlank(message = "content must not be blank") String content,
     @NotNull(message = "provider is required") Provider provider,
     @NotBlank(message = "modelId must not be blank") String modelId,
-    String apiKey) {
+    String apiKey,
+    @Size(max = 5, message = "media supports up to 5 attachments")
+        List<@NotNull(message = "media items must not be null") @Valid MediaAttachment> media) {
+
+  public record MediaAttachment(
+      @NotBlank(message = "mimeType must not be blank") String mimeType,
+      @NotBlank(message = "data must not be blank") String data) {}
 
   public enum Provider {
     OPENAI,
-    GOOGLE
+    GOOGLE,
+    CLAUDE
   }
 }

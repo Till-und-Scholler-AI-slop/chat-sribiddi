@@ -17,4 +17,8 @@ public class ModelCatalogService {
   public List<ModelCatalogProperties.ModelOption> listGoogleModels() {
     return List.copyOf(properties.getGoogle());
   }
+
+  public List<ModelCatalogProperties.ModelOption> listClaudeModels() {
+    return List.copyOf(properties.getClaude());
+  }
 }

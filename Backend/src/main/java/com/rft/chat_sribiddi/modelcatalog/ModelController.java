@@ -23,4 +23,9 @@ public class ModelController {
   public ResponseEntity<List<ModelCatalogProperties.ModelOption>> googleModels() {
     return ResponseEntity.ok(modelCatalogService.listGoogleModels());
   }
+
+  @GetMapping("/claude")
+  public ResponseEntity<List<ModelCatalogProperties.ModelOption>> claudeModels() {
+    return ResponseEntity.ok(modelCatalogService.listClaudeModels());
+  }
 }

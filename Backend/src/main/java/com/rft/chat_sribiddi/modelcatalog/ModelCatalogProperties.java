@@ -29,6 +29,12 @@ public class ModelCatalogProperties {
               new ModelOption(
                   "gemini-2.0-flash-lite-preview-02-05", "Gemini 2.0 Flash Lite (preview)")));
 
+  private List<ModelOption> claude =
+      new ArrayList<>(
+          List.of(
+              new ModelOption("claude-sonnet-4-5", "Claude Sonnet 4.5"),
+              new ModelOption("claude-opus-4-1", "Claude Opus 4.1")));
+
   @Getter
   @Setter
   @AllArgsConstructor

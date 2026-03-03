@@ -12,61 +12,94 @@ const toast = useToast()
 type KeyProviderStatus = {
   openai: boolean
   google: boolean
+  claude: boolean
 }
+
+type ProviderCard = {
+  provider: Provider
+  key: keyof KeyProviderStatus
+  title: string
+  label: string
+  placeholder: string
+  description: string
+}
+
+const providerCards: ProviderCard[] = [
+  {
+    provider: 'OPENAI',
+    key: 'openai',
+    title: 'OpenAI',
+    label: 'OpenAI API key',
+    placeholder: 'sk-...',
+    description: 'Used for OpenAI models.'
+  },
+  {
+    provider: 'GOOGLE',
+    key: 'google',
+    title: 'Google Gemini',
+    label: 'Google API key',
+    placeholder: 'AIza...',
+    description: 'Used for Google Gemini models.'
+  },
+  {
+    provider: 'CLAUDE',
+    key: 'claude',
+    title: 'Claude (Anthropic)',
+    label: 'Claude API key',
+    placeholder: 'sk-ant-...',
+    description: 'Used for Claude models.'
+  }
+]
 
 const loadingStatus = ref(true)
 const status = ref<KeyProviderStatus | null>(null)
 
-const form = reactive({
-  openAiApiKey: '',
-  googleApiKey: ''
+const form = reactive<Record<Provider, string>>({
+  OPENAI: '',
+  GOOGLE: '',
+  CLAUDE: ''
 })
 
-const reveal = reactive({
-  openai: false,
-  google: false
-})
-
-const savingProvider = reactive({
+const reveal = reactive<Record<Provider, boolean>>({
   OPENAI: false,
-  GOOGLE: false
+  GOOGLE: false,
+  CLAUDE: false
 })
 
-const deletingProvider = reactive({
+const savingProvider = reactive<Record<Provider, boolean>>({
   OPENAI: false,
-  GOOGLE: false
+  GOOGLE: false,
+  CLAUDE: false
 })
+
+const deletingProvider = reactive<Record<Provider, boolean>>({
+  OPENAI: false,
+  GOOGLE: false,
+  CLAUDE: false
+})
+
+const providerDisplay = (provider: Provider) =>
+  provider === 'OPENAI' ? 'OpenAI' : provider === 'GOOGLE' ? 'Google' : 'Claude'
+
+const statusByProvider = (provider: Provider) => {
+  if (!status.value) return false
+  return provider === 'OPENAI'
+    ? status.value.openai
+    : provider === 'GOOGLE'
+      ? status.value.google
+      : status.value.claude
+}
 
 const statusLabel = (provider: Provider) => {
   if (loadingStatus.value) {
-    return 'Checking...'
+    return `${providerDisplay(provider)} status loading...`
   }
-  if (!status.value) {
-    return 'Unknown'
-  }
-
-  return provider === 'OPENAI'
-    ? status.value.openai ? 'OpenAI key set' : 'OpenAI key missing'
-    : status.value.google ? 'Google key set' : 'Google key missing'
+  return statusByProvider(provider)
+    ? `${providerDisplay(provider)} key set`
+    : `${providerDisplay(provider)} key missing`
 }
 
-const inputValue = (provider: Provider) => {
-  return provider === 'OPENAI' ? form.openAiApiKey : form.googleApiKey
-}
-
-const keyPresent = (provider: Provider) => {
-  return inputValue(provider).trim().length > 0
-}
-
-const setInputValue = (provider: Provider, value: string) => {
-  if (provider === 'OPENAI') {
-    form.openAiApiKey = value
-    return
-  }
-  form.googleApiKey = value
-}
-
-const providerDisplay = (provider: Provider) => provider === 'OPENAI' ? 'OpenAI' : 'Google'
+const keyPresent = (provider: Provider) => form[provider].trim().length > 0
 
 const isProviderBusy = (provider: Provider) => {
   return savingProvider[provider] || deletingProvider[provider]
@@ -95,7 +128,7 @@ onMounted(async () => {
 })
 
 async function handleSave(provider: Provider) {
-  const key = inputValue(provider).trim()
+  const key = form[provider].trim()
   if (!key) {
     toast.add({
       title: 'Missing API key',
@@ -108,7 +141,7 @@ async function handleSave(provider: Provider) {
   savingProvider[provider] = true
   try {
     await saveKey(provider, key)
-    setInputValue(provider, '')
+    form[provider] = ''
     await refreshStatus()
     toast.add({
       title: `${providerDisplay(provider)} key saved`,
@@ -195,70 +228,77 @@ async function handleDelete(provider: Provider) {
           </UCard>
 
           <UCard>
-            <div class="flex items-center justify-between gap-3 mb-4">
+            <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
               <div class="space-y-1">
                 <div class="font-semibold">Model API keys</div>
                 <p class="text-sm text-gray-600 dark:text-gray-400">
                   Save keys per provider. Each key is stored encrypted in the backend.
                 </p>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
                 <UBadge
+                  v-for="item in providerCards"
+                  :key="item.provider"
                   color="primary"
                   variant="soft"
-                  :label="statusLabel('OPENAI')"
-                />
-                <UBadge
-                  color="primary"
-                  variant="soft"
-                  :label="statusLabel('GOOGLE')"
+                  :label="statusLabel(item.provider)"
                 />
               </div>
             </div>
 
             <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <UCard>
+              <UCard v-for="item in providerCards" :key="item.provider">
                 <div class="space-y-4">
                   <div class="flex items-center justify-between gap-2">
-                    <div class="font-semibold">OpenAI</div>
+                    <div class="font-semibold">{{ item.title }}</div>
                     <UBadge
                       variant="soft"
-                      :color="status?.openai ? 'primary' : 'neutral'"
-                      :label="status?.openai ? 'Stored' : 'Not stored'"
+                      :color="statusByProvider(item.provider) ? 'primary' : 'neutral'"
+                      :label="statusByProvider(item.provider) ? 'Stored' : 'Not stored'"
                     />
                   </div>
 
                   <UFormGroup
-                    label="OpenAI API key"
-                    description="Used for OpenAI models."
-                    name="openai"
+                    :label="item.label"
+                    :description="item.description"
+                    :name="item.provider.toLowerCase()"
                   >
                     <UInput
-                      v-model="form.openAiApiKey"
-                      :type="reveal.openai ? 'text' : 'password'"
-                      placeholder="sk-..."
+                      v-model="form[item.provider]"
+                      :type="reveal[item.provider] ? 'text' : 'password'"
+                      :placeholder="item.placeholder"
                       icon="i-heroicons-lock-closed"
                       autocomplete="off"
                     />
                   </UFormGroup>
+
+                  <div v-if="item.provider === 'GOOGLE'">
+                    <UAlert
+                      color="neutral"
+                      variant="soft"
+                      icon="i-heroicons-information-circle"
+                      title="Google Project ID"
+                      description="Configured in backend env (`GOOGLE_PROJECT_ID`). It is not part of the per-user key API contract."
+                    />
+                  </div>
 
                   <div class="flex flex-wrap gap-2">
                     <UButton
                       type="button"
                       variant="ghost"
                       color="neutral"
-                      :icon="reveal.openai ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
-                      :label="reveal.openai ? 'Hide key' : 'Show key'"
-                      @click="reveal.openai = !reveal.openai"
+                      :icon="reveal[item.provider] ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
+                      :label="reveal[item.provider] ? 'Hide key' : 'Show key'"
+                      @click="reveal[item.provider] = !reveal[item.provider]"
                     />
                     <UButton
                       type="button"
                       color="primary"
                       icon="i-heroicons-check-circle"
                       label="Save key"
-                      :loading="savingProvider.OPENAI"
-                      :disabled="!keyPresent('OPENAI') || isProviderBusy('OPENAI')"
-                      @click="handleSave('OPENAI')"
+                      :loading="savingProvider[item.provider]"
+                      :disabled="!keyPresent(item.provider) || isProviderBusy(item.provider)"
+                      @click="handleSave(item.provider)"
                     />
                     <UButton
                       type="button"
@@ -266,74 +306,9 @@ async function handleDelete(provider: Provider) {
                       color="neutral"
                       icon="i-heroicons-trash"
                       label="Remove stored key"
-                      :loading="deletingProvider.OPENAI"
-                      :disabled="isProviderBusy('OPENAI')"
-                      @click="handleDelete('OPENAI')"
-                    />
-                  </div>
-                </div>
-              </UCard>
-
-              <UCard>
-                <div class="space-y-4">
-                  <div class="flex items-center justify-between gap-2">
-                    <div class="font-semibold">Google Gemini</div>
-                    <UBadge
-                      variant="soft"
-                      :color="status?.google ? 'primary' : 'neutral'"
-                      :label="status?.google ? 'Stored' : 'Not stored'"
-                    />
-                  </div>
-
-                  <UFormGroup
-                    label="Google API key"
-                    description="Used for Google Gemini models."
-                    name="google"
-                  >
-                    <UInput
-                      v-model="form.googleApiKey"
-                      :type="reveal.google ? 'text' : 'password'"
-                      placeholder="AIza..."
-                      icon="i-heroicons-lock-closed"
-                      autocomplete="off"
-                    />
-                  </UFormGroup>
-
-                  <UAlert
-                    color="neutral"
-                    variant="soft"
-                    icon="i-heroicons-information-circle"
-                    title="Google Project ID"
-                    description="Configured in backend env (`GOOGLE_PROJECT_ID`). It is not part of the per-user key API contract."
-                  />
-
-                  <div class="flex flex-wrap gap-2">
-                    <UButton
-                      type="button"
-                      variant="ghost"
-                      color="neutral"
-                      :icon="reveal.google ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
-                      :label="reveal.google ? 'Hide key' : 'Show key'"
-                      @click="reveal.google = !reveal.google"
-                    />
-                    <UButton
-                      type="button"
-                      color="primary"
-                      icon="i-heroicons-check-circle"
-                      label="Save key"
-                      :loading="savingProvider.GOOGLE"
-                      :disabled="!keyPresent('GOOGLE') || isProviderBusy('GOOGLE')"
-                      @click="handleSave('GOOGLE')"
-                    />
-                    <UButton
-                      type="button"
-                      variant="outline"
-                      color="neutral"
-                      icon="i-heroicons-trash"
-                      label="Remove stored key"
-                      :loading="deletingProvider.GOOGLE"
-                      :disabled="isProviderBusy('GOOGLE')"
-                      @click="handleDelete('GOOGLE')"
+                      :loading="deletingProvider[item.provider]"
+                      :disabled="isProviderBusy(item.provider)"
+                      @click="handleDelete(item.provider)"
                     />
                   </div>
                 </div>

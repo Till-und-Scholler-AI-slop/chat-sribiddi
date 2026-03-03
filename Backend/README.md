@@ -1,13 +1,13 @@
 # Backend
 
-Spring Boot + Spring AI backend that stores chats, proxies to OpenAI or Google Gemini, and manages per-user API keys.
+Spring Boot + Spring AI backend that stores chats, proxies to OpenAI, Google Gemini, or Claude, and manages per-user API keys.
 
 ## Quick start (local dev)
 1) Prereqs: JDK 25, Docker, `openssl` (to generate secrets).
 2) Copy `.env.example` to `.env` and set at minimum:
    - OAuth: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
    - Database: `POSTGRES_USER`, `POSTGRES_PASSWORD`
-   - Model provider defaults (optional for dev now that keys are user-supplied): `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_PROJECT_ID`, `GOOGLE_LOCATION`
+   - Model provider defaults (optional for dev now that keys are user-supplied): `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `CLAUDE_API_KEY`, `GOOGLE_PROJECT_ID`, `GOOGLE_LOCATION`
    - Optional OpenAI HTTP tuning for long reasoning requests: `OPENAI_CONNECT_TIMEOUT=10s`, `OPENAI_READ_TIMEOUT=180s`
    - CORS: `ALLOWED_ORIGINS=http://localhost:3000`
    - Encryption: `ENCRYPTION_SECRET=$(openssl rand -base64 32)`  # must decode to 32 bytes
@@ -51,16 +51,19 @@ Spring Boot + Spring AI backend that stores chats, proxies to OpenAI or Google G
   ```json
   {
     "content": "Hello!",
-    "provider": "OPENAI" | "GOOGLE",
+    "provider": "OPENAI" | "GOOGLE" | "CLAUDE",
     "modelId": "gpt-5.2-2025-12-11",
-    "apiKey": "optional override"
+    "apiKey": "optional override",
+    "media": [
+      { "mimeType": "image/png", "data": "<base64-or-data-url>" }
+    ]
   }
   ```
-  Uses last 20 messages + system prompt, stores both user and assistant replies.
+  Uses last 20 messages + system prompt, stores both user and assistant replies. For multimodal requests, attachments are only sent with the current user turn.
 - DELETE `/chats/{chatId}` — deletes chat and its messages (per-user scoped).
 
 ## Model catalog
-- GET `/models/openai` and `/models/google` — list configured model options (`ai.models.*` in `application.yaml`).
+- GET `/models/openai`, `/models/google`, and `/models/claude` — list configured model options (`ai.models.*` in `application.yaml`).
 
 ## Data model
 - `chats`: `chat_id` (UUID, PK), `title`, `created_at`, `user_id`
