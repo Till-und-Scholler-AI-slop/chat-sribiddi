@@ -7,6 +7,7 @@ import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -53,6 +54,18 @@ public class GlobalExceptionHandler {
 
     return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
         .body(Map.of("message", "Failed to reach the AI provider. Please retry."));
+  }
+
+  @ExceptionHandler(RestClientResponseException.class)
+  public ResponseEntity<Map<String, String>> handleProviderResponse(RestClientResponseException ex) {
+    HttpStatus mappedStatus =
+        ex.getStatusCode().is4xxClientError() ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY;
+    String responseBody = ex.getResponseBodyAsString();
+    String message =
+        (responseBody == null || responseBody.isBlank())
+            ? "AI provider rejected the request. Check your model and API key."
+            : responseBody;
+    return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
   }
 
   private boolean isTimeout(Throwable throwable) {
