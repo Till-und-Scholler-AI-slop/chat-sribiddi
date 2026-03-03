@@ -1,5 +1,6 @@
 package com.rft.chat_sribiddi.chat.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
@@ -17,7 +18,7 @@ public record RequestDTO(
     @NotNull(message = "provider is required") Provider provider,
     @NotBlank(message = "modelId must not be blank") String modelId,
     String apiKey,
-    List<MediaAttachment> media) {
+    List<@NotNull(message = "media items must not be null") @Valid MediaAttachment> media) {
 
   public record MediaAttachment(
       @NotBlank(message = "mimeType must not be blank") String mimeType,

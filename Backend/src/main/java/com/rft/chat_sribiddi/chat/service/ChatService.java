@@ -99,14 +99,16 @@ public class ChatService {
         .findByChatIdAndUserId(chatId, userId)
         .orElseThrow(() -> new ChatNotFoundException(chatId));
 
+    List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
+
     String userContext =
-        Optional.ofNullable(requestDTO.media())
+        Optional.of(validatedMedia)
             .filter(media -> !media.isEmpty())
             .map(media -> "attachments=%d".formatted(media.size()))
             .orElse(null);
     persistMessage(chatId, requestDTO.content(), Role.USER, userContext);
 
-    List<Message> promptMessages = buildPromptMessages(chatId, requestDTO.media());
+    List<Message> promptMessages = buildPromptMessages(chatId, validatedMedia);
     if (log.isTraceEnabled()) {
       log.trace("Prompt messages: {}", promptMessages);
     }
@@ -175,6 +177,22 @@ public class ChatService {
       messages.add(toChatMessage(entity));
     }
     return messages;
+  }
+
+
+  private List<MediaAttachment> validateMediaAttachments(List<MediaAttachment> mediaAttachments) {
+    if (mediaAttachments == null || mediaAttachments.isEmpty()) {
+      return List.of();
+    }
+
+    for (int i = 0; i < mediaAttachments.size(); i++) {
+      MediaAttachment attachment = mediaAttachments.get(i);
+      if (attachment == null) {
+        throw new IllegalArgumentException("media[%d] must not be null".formatted(i));
+      }
+    }
+
+    return mediaAttachments;
   }
 
   private Message toChatMessage(MessageEntity entity) {

@@ -136,6 +136,30 @@ class ChatServiceTest {
     assertThat(((UserMessage) lastMessage).getMedia()).hasSize(1);
   }
 
+
+  @Test
+  void sendMessage_withNullMediaEntry_throwsBadRequest_andSkipsPersistence() {
+    RequestDTO request =
+        new RequestDTO(
+            "describe image",
+            RequestDTO.Provider.CLAUDE,
+            "claude-sonnet-4-5",
+            "claude-key",
+            java.util.Arrays.asList((RequestDTO.MediaAttachment) null));
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+
+    assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("media[0] must not be null");
+
+    verify(messageRepository, never()).save(any());
+    verify(providerClientFactory, never()).getClient(any(), anyString());
+  }
+
   @Test
   void sendMessage_missingChat_throwsNotFound() {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.empty());
