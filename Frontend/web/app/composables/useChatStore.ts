@@ -1,5 +1,5 @@
 import type { ChatStatus, UIMessage } from 'ai'
-import type { BackendMessage, ChatSession, ModelOption } from '~/composables/useChatApi'
+import type { BackendMessage, ChatSession, MediaAttachment, ModelOption } from '~/composables/useChatApi'
 import { useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
 
@@ -119,11 +119,12 @@ export function useChatStore() {
 
     modelsLoading.value = true
     try {
-      const [openAiModels, googleModels] = await Promise.all([
+      const [openAiModels, googleModels, claudeModels] = await Promise.all([
         fetchModels('OPENAI'),
-        fetchModels('GOOGLE')
+        fetchModels('GOOGLE'),
+        fetchModels('CLAUDE')
       ])
-      models.value = [...openAiModels, ...googleModels]
+      models.value = [...openAiModels, ...googleModels, ...claudeModels]
       modelsError.value = null
     } catch (err) {
       console.error(err)
@@ -248,6 +249,7 @@ export function useChatStore() {
     model: ModelOption,
     options?: {
       appendUserMessage?: boolean
+      media?: MediaAttachment[]
     }
   ): Promise<UIMessage | null> => {
     const conversation = conversations.value.find(c => c.session.chatId === chatId)
@@ -282,7 +284,8 @@ export function useChatStore() {
         {
           content: text,
           provider: model.provider,
-          modelId: model.value
+          modelId: model.value,
+          media: options?.media?.map(item => ({ mimeType: item.mimeType, data: item.data }))
         },
         controller.signal
       )

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ModelOption } from '~/composables/useChatApi'
+import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
 
 definePageMeta({
   layout: 'default'
@@ -23,6 +23,8 @@ const {
 } = useChatStore()
 
 const input = ref('')
+const attachments = ref<MediaAttachment[]>([])
+const fileInput = ref<HTMLInputElement | null>(null)
 const initializing = ref(true)
 const toast = useToast()
 
@@ -44,6 +46,51 @@ const errorMessage = computed(() => activeConversation.value?.error || modelsErr
 
 const firstText = (parts?: Array<{ type: string; text?: string }>) =>
   parts?.find(part => part.type === 'text' && typeof part.text === 'string')?.text || ''
+
+const toDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(new Error(`Unable to read ${file.name}`))
+    reader.readAsDataURL(file)
+  })
+
+const clearAttachments = () => {
+  attachments.value = []
+  if (fileInput.value) {
+    fileInput.value.value = ''
+  }
+}
+
+const removeAttachment = (index: number) => {
+  attachments.value.splice(index, 1)
+}
+
+const handleFiles = async (event: Event) => {
+  const inputNode = event.target as HTMLInputElement
+  const files = Array.from(inputNode.files || [])
+  if (files.length === 0) return
+
+  try {
+    const loaded = await Promise.all(
+      files.map(async file => ({
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        data: await toDataUrl(file)
+      }))
+    )
+
+    attachments.value.push(...loaded)
+  } catch (err) {
+    toast.add({
+      title: 'Upload failed',
+      description: err instanceof Error ? err.message : 'Could not read attachment.',
+      color: 'error'
+    })
+  } finally {
+    inputNode.value = ''
+  }
+}
 
 onMounted(async () => {
   try {
@@ -76,7 +123,7 @@ watch(activeChatId, newId => {
 })
 
 async function handleSubmit() {
-  if (!input.value.trim()) return
+  if (!input.value.trim() && attachments.value.length === 0) return
   if (!activeConversation.value) {
     await startChat('New chat')
   }
@@ -85,10 +132,15 @@ async function handleSubmit() {
   const model = selectedModel.value
   if (!conversation || !model) return
 
-  const text = input.value.trim()
+  const text = input.value.trim() || 'Please analyze the attachment.'
+  const media = [...attachments.value]
   input.value = ''
+  clearAttachments()
+
   try {
-    await sendPrompt(conversation.session.chatId, text, model)
+    await sendPrompt(conversation.session.chatId, text, model, {
+      media
+    })
   } catch (err) {
     toast.add({
       title: 'Message failed',
@@ -194,7 +246,53 @@ const handleReload = async () => {
     </template>
 
     <template #footer>
-      <UContainer class="pb-4 sm:pb-6">
+      <UContainer class="pb-4 sm:pb-6 space-y-2">
+        <div class="flex items-center gap-2 flex-wrap">
+          <label class="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+            <UIcon name="i-heroicons-photo" />
+            <span>Add attachments</span>
+            <input
+              ref="fileInput"
+              type="file"
+              class="hidden"
+              accept="image/*"
+              multiple
+              @change="handleFiles"
+            >
+          </label>
+          <UButton
+            size="xs"
+            variant="ghost"
+            color="neutral"
+            icon="i-heroicons-paper-clip"
+            label="Choose files"
+            @click="fileInput?.click()"
+          />
+          <UButton
+            v-if="attachments.length"
+            size="xs"
+            variant="ghost"
+            color="neutral"
+            icon="i-heroicons-x-mark"
+            label="Clear"
+            @click="clearAttachments"
+          />
+        </div>
+
+        <div v-if="attachments.length" class="flex flex-wrap gap-2">
+          <UBadge
+            v-for="(item, index) in attachments"
+            :key="`${item.name || item.mimeType}-${index}`"
+            variant="soft"
+            color="neutral"
+          >
+            <span class="mr-1">{{ item.name || item.mimeType }}</span>
+            <button class="inline-flex" @click="removeAttachment(index)">
+              <UIcon name="i-heroicons-x-mark" class="size-3" />
+            </button>
+          </UBadge>
+        </div>
+
         <UChatPrompt v-model="input" :error="errorMessage" @submit="handleSubmit">
           <template #header>
             <USelectMenu

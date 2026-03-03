@@ -1,9 +1,15 @@
-export type Provider = 'OPENAI' | 'GOOGLE'
+export type Provider = 'OPENAI' | 'GOOGLE' | 'CLAUDE'
 
 export type ModelOption = {
   label: string
   value: string
   provider: Provider
+}
+
+export type MediaAttachment = {
+  mimeType: string
+  data: string
+  name?: string
 }
 
 export type ChatSession = {
@@ -34,6 +40,7 @@ type SendMessageInput = {
   content: string
   provider: Provider
   modelId: string
+  media?: Array<Pick<MediaAttachment, 'mimeType' | 'data'>>
 }
 
 const DEFAULT_BACKEND_BASE_URL = 'http://localhost:8080'
@@ -194,7 +201,12 @@ export function useChatApi() {
   }
 
   const fetchModels = async (provider: Provider) => {
-    const path = provider === 'OPENAI' ? '/models/openai' : '/models/google'
+    const path =
+      provider === 'OPENAI'
+        ? '/models/openai'
+        : provider === 'GOOGLE'
+          ? '/models/google'
+          : '/models/claude'
     const models = await requestJson<Array<{ id: string; label: string }>>(path, {
       method: 'GET'
     })

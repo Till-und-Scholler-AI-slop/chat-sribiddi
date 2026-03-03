@@ -1,9 +1,10 @@
 type KeyStatus = {
   openai: boolean
   google: boolean
+  claude: boolean
 }
 
-type Provider = 'OPENAI' | 'GOOGLE'
+type Provider = 'OPENAI' | 'GOOGLE' | 'CLAUDE'
 
 const providerPath = (provider: Provider) => `/apikeys/${provider.toLowerCase()}`
 
@@ -11,12 +12,13 @@ export function useKeyApi() {
   const { requestJson } = useChatApi()
 
   const getStatus = async () => {
-    const [openai, google] = await Promise.all([
+    const [openai, google, claude] = await Promise.all([
       requestJson<boolean>(`${providerPath('OPENAI')}/exists`, { method: 'GET' }),
-      requestJson<boolean>(`${providerPath('GOOGLE')}/exists`, { method: 'GET' })
+      requestJson<boolean>(`${providerPath('GOOGLE')}/exists`, { method: 'GET' }),
+      requestJson<boolean>(`${providerPath('CLAUDE')}/exists`, { method: 'GET' })
     ])
 
-    return { openai, google } satisfies KeyStatus
+    return { openai, google, claude } satisfies KeyStatus
   }
 
   const saveKey = async (provider: Provider, apiKey: string) => {
