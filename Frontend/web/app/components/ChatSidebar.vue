@@ -14,6 +14,7 @@ const {
   activeChatId,
   selectChat,
   startChat,
+  loadChatsFromBackend,
   renameChat,
   removeChat
 } = useChatStore()
@@ -21,6 +22,21 @@ const {
 const editingChatId = ref<string | null>(null)
 const titleDraft = ref('')
 const processingChatId = ref<string | null>(null)
+
+onMounted(async () => {
+  try {
+    const ok = await ensureAuthenticated()
+    if (!ok) return
+    await loadChatsFromBackend()
+  } catch (err) {
+    console.error(err)
+    toast.add({
+      title: 'Chats konnten nicht aktualisiert werden',
+      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      color: 'error'
+    })
+  }
+})
 
 const handleNewChat = async () => {
   try {
@@ -143,11 +159,6 @@ const goToSettings = () => {
           label="Neu"
           @click="handleNewChat"
       />
-    </div>
-
-    <!-- Search -->
-    <div v-if="!collapsed" class="px-2 pb-2">
-      <UInput icon="i-heroicons-magnifying-glass" placeholder="Search (not yet wired)" disabled />
     </div>
 
     <!-- List -->
