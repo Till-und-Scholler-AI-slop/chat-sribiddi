@@ -4,8 +4,16 @@ export default defineNuxtConfig({
     devtools: {enabled: true},
     modules: ['@nuxt/ui'],
     css: ['~/assets/css/main.css'],
+    icon: {
+        provider: 'none',
+        mode: 'css',
+        clientBundle: {
+            scan: true,
+            icons: ['lucide:menu', 'lucide:chevron-down', 'lucide:arrow-up']
+        }
+    },
     ui: {
-        icons: ['heroicons']
+        icons: ['heroicons', 'lucide']
     },
     runtimeConfig: {
         public: {
