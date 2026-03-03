@@ -210,10 +210,7 @@ const handleReload = async () => {
         </div>
 
         <div v-else class="space-y-4 flex-1 min-h-0 flex flex-col">
-          <div class="flex items-center justify-between gap-2">
-            <div class="text-sm text-gray-500 dark:text-gray-400">
-              Chat ID: {{ activeConversation.session.chatId }}
-            </div>
+          <div class="flex items-center justify-end gap-2">
             <UBadge
               v-if="selectedModel"
               color="primary"
