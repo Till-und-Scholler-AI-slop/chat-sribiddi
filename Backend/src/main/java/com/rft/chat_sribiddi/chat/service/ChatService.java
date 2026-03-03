@@ -37,6 +37,9 @@ public class ChatService {
   private static final String SYSTEM_PROMPT =
       "You are a helpful assistant. Your answer must be structured in markdown.";
   private static final int CONTEXT_MESSAGE_LIMIT = 20;
+  private static final int MAX_MEDIA_ATTACHMENTS = 5;
+  private static final long MAX_MEDIA_ATTACHMENT_BYTES = 5L * 1024 * 1024;
+  private static final long MAX_MEDIA_TOTAL_BYTES = 20L * 1024 * 1024;
   private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
   private final ChatRepository chatRepository;
@@ -102,13 +105,13 @@ public class ChatService {
     List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
 
     String userContext =
-        Optional.of(validatedMedia)
-            .filter(media -> !media.isEmpty())
-            .map(media -> "attachments=%d".formatted(media.size()))
-            .orElse(null);
-    persistMessage(chatId, requestDTO.content(), Role.USER, userContext);
+        validatedMedia.isEmpty() ? null : "attachments=%d".formatted(validatedMedia.size());
 
-    List<Message> promptMessages = buildPromptMessages(chatId, validatedMedia);
+    MessageEntity persistedUserMessage =
+        persistMessage(chatId, requestDTO.content(), Role.USER, userContext);
+
+    List<Message> promptMessages =
+        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId());
     if (log.isTraceEnabled()) {
       log.trace("Prompt messages: {}", promptMessages);
     }
@@ -130,8 +133,7 @@ public class ChatService {
           providerClientFactory.buildOptions(
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
-      var responseSpec =
-          client.prompt().options(options).messages(promptMessages).call();
+      var responseSpec = client.prompt().options(options).messages(promptMessages).call();
       chatResponse = responseSpec.chatResponse();
     }
 
@@ -157,7 +159,8 @@ public class ChatService {
     return chatResponse;
   }
 
-  private List<Message> buildPromptMessages(UUID chatId, List<MediaAttachment> mediaAttachments) {
+  private List<Message> buildPromptMessages(
+      UUID chatId, List<MediaAttachment> mediaAttachments, Long targetUserMessageId) {
     List<MessageEntity> latestMessages =
         new ArrayList<>(
             messageRepository.findByChatIdOrderByCreatedAtDesc(
@@ -167,10 +170,11 @@ public class ChatService {
     messages.add(new SystemMessage(SYSTEM_PROMPT));
 
     List<MessageEntity> ordered = latestMessages.reversed();
-    int mediaTargetIndex = mediaAttachments == null || mediaAttachments.isEmpty() ? -1 : ordered.size() - 1;
-    for (int i = 0; i < ordered.size(); i++) {
-      MessageEntity entity = ordered.get(i);
-      if (i == mediaTargetIndex && entity.getRole() == Role.USER) {
+    for (MessageEntity entity : ordered) {
+      if (!mediaAttachments.isEmpty()
+          && targetUserMessageId != null
+          && entity.getRole() == Role.USER
+          && targetUserMessageId.equals(entity.getId())) {
         messages.add(toUserMessage(entity, mediaAttachments));
         continue;
       }
@@ -179,10 +183,14 @@ public class ChatService {
     return messages;
   }
 
-
   private List<MediaAttachment> validateMediaAttachments(List<MediaAttachment> mediaAttachments) {
     if (mediaAttachments == null || mediaAttachments.isEmpty()) {
       return List.of();
+    }
+
+    if (mediaAttachments.size() > MAX_MEDIA_ATTACHMENTS) {
+      throw new IllegalArgumentException(
+          "media supports up to %d attachments".formatted(MAX_MEDIA_ATTACHMENTS));
     }
 
     for (int i = 0; i < mediaAttachments.size(); i++) {
@@ -204,32 +212,79 @@ public class ChatService {
   }
 
   private UserMessage toUserMessage(MessageEntity entity, List<MediaAttachment> mediaAttachments) {
-    List<Media> media =
-        mediaAttachments.stream()
-            .map(this::toMedia)
-            .toList();
+    List<Media> media = toMediaPayload(mediaAttachments);
     return UserMessage.builder().text(entity.getMessage()).media(media).build();
   }
 
-  private Media toMedia(MediaAttachment attachment) {
-    String encodedData = attachment.data();
-    int commaIndex = encodedData.indexOf(',');
-    if (encodedData.startsWith("data:") && commaIndex > 0) {
-      encodedData = encodedData.substring(commaIndex + 1);
+  private List<Media> toMediaPayload(List<MediaAttachment> mediaAttachments) {
+    long totalBytes = 0;
+    List<Media> media = new ArrayList<>(mediaAttachments.size());
+
+    for (int i = 0; i < mediaAttachments.size(); i++) {
+      MediaAttachment attachment = mediaAttachments.get(i);
+      String normalized = normalizeEncodedData(attachment.data());
+      long estimatedDecodedBytes = estimateDecodedBytes(normalized);
+
+      if (estimatedDecodedBytes > MAX_MEDIA_ATTACHMENT_BYTES) {
+        throw new IllegalArgumentException(
+            "media[%d] exceeds %d bytes"
+                .formatted(i, MAX_MEDIA_ATTACHMENT_BYTES));
+      }
+
+      totalBytes += estimatedDecodedBytes;
+      if (totalBytes > MAX_MEDIA_TOTAL_BYTES) {
+        throw new IllegalArgumentException(
+            "combined media size exceeds %d bytes".formatted(MAX_MEDIA_TOTAL_BYTES));
+      }
+
+      byte[] content;
+      try {
+        content = Base64.getDecoder().decode(normalized);
+      } catch (IllegalArgumentException e) {
+        throw new IllegalArgumentException("media[%d].data is not valid base64".formatted(i), e);
+      }
+
+      if (content.length > MAX_MEDIA_ATTACHMENT_BYTES) {
+        throw new IllegalArgumentException(
+            "media[%d] exceeds %d bytes".formatted(i, MAX_MEDIA_ATTACHMENT_BYTES));
+      }
+
+      media.add(
+          new Media(
+              MimeTypeUtils.parseMimeType(attachment.mimeType()), new ByteArrayResource(content)));
     }
-    byte[] content = Base64.getDecoder().decode(encodedData);
-    return new Media(
-        MimeTypeUtils.parseMimeType(attachment.mimeType()), new ByteArrayResource(content));
+
+    return media;
   }
 
-  private void persistMessage(UUID chatId, String message, Role role, String context) {
+  private String normalizeEncodedData(String encodedData) {
+    int commaIndex = encodedData.indexOf(',');
+    if (encodedData.startsWith("data:") && commaIndex > 0) {
+      return encodedData.substring(commaIndex + 1);
+    }
+    return encodedData;
+  }
+
+  private long estimateDecodedBytes(String normalizedBase64) {
+    int length = normalizedBase64.length();
+    int padding = 0;
+    if (length > 0 && normalizedBase64.charAt(length - 1) == '=') {
+      padding++;
+      if (length > 1 && normalizedBase64.charAt(length - 2) == '=') {
+        padding++;
+      }
+    }
+    return ((long) length * 3 / 4) - padding;
+  }
+
+  private MessageEntity persistMessage(UUID chatId, String message, Role role, String context) {
     MessageEntity entity = new MessageEntity();
     entity.setChatId(chatId);
     entity.setMessage(message);
     entity.setRole(role);
     entity.setContext(context);
     entity.setCreatedAt(Instant.now());
-    messageRepository.save(entity);
+    return messageRepository.save(entity);
   }
 
   public record ClientHolder(

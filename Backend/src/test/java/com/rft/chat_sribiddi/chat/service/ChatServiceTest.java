@@ -13,10 +13,11 @@ import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
-import java.util.List;
 import java.util.Base64;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,11 +53,21 @@ class ChatServiceTest {
         new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory);
     chatId = UUID.randomUUID();
     userId = "user-123";
+
+    AtomicLong ids = new AtomicLong(100);
+    lenient().when(messageRepository.save(any(MessageEntity.class)))
+        .thenAnswer(
+            invocation -> {
+              MessageEntity entity = invocation.getArgument(0);
+              if (entity.getId() == null) {
+                entity.setId(ids.getAndIncrement());
+              }
+              return entity;
+            });
   }
 
   @Test
   void sendMessage_resolvesStoredKey_andPersistsMessages() {
-    // arrange
     RequestDTO request =
         new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null, null);
 
@@ -68,12 +79,14 @@ class ChatServiceTest {
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
-    // stub chat client chain
     when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", "stored-key"))
-        .thenReturn(org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2-2025-12-11").build());
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder()
+                .model("gpt-5.2-2025-12-11")
+                .build());
     when(chatClient.prompt()).thenReturn(requestSpec);
     when(requestSpec.options(any())).thenReturn(requestSpec);
     when(requestSpec.messages(anyList())).thenReturn(requestSpec);
@@ -82,10 +95,8 @@ class ChatServiceTest {
     ChatResponse response = new ChatResponse(List.of(new Generation(new AssistantMessage("pong"))));
     when(callResponseSpec.chatResponse()).thenReturn(response);
 
-    // act
     ChatResponse result = chatService.sendMessage(chatId, userId, request);
 
-    // assert
     assertThat(result).isSameAs(response);
 
     ArgumentCaptor<MessageEntity> savedMessages = ArgumentCaptor.forClass(MessageEntity.class);
@@ -103,13 +114,17 @@ class ChatServiceTest {
             RequestDTO.Provider.CLAUDE,
             "claude-sonnet-4-5",
             "claude-key",
-            List.of(new RequestDTO.MediaAttachment("image/png", Base64.getEncoder().encodeToString("png".getBytes()))));
+            List.of(
+                new RequestDTO.MediaAttachment(
+                    "image/png", Base64.getEncoder().encodeToString("png".getBytes()))));
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+
     MessageEntity latestUserMessage = new MessageEntity();
+    latestUserMessage.setId(100L);
     latestUserMessage.setRole(Role.USER);
     latestUserMessage.setMessage("describe image");
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
@@ -117,8 +132,10 @@ class ChatServiceTest {
 
     when(providerClientFactory.getClient(RequestDTO.Provider.CLAUDE, "claude-key"))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
-    when(providerClientFactory.buildOptions(RequestDTO.Provider.CLAUDE, "claude-sonnet-4-5", "claude-key"))
-        .thenReturn(org.springframework.ai.chat.prompt.ChatOptions.builder().model("claude-sonnet-4-5").build());
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.CLAUDE, "claude-sonnet-4-5", "claude-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("claude-sonnet-4-5").build());
     when(chatClient.prompt()).thenReturn(requestSpec);
     when(requestSpec.options(any())).thenReturn(requestSpec);
     when(requestSpec.messages(anyList())).thenReturn(requestSpec);
@@ -136,6 +153,63 @@ class ChatServiceTest {
     assertThat(((UserMessage) lastMessage).getMedia()).hasSize(1);
   }
 
+  @Test
+  void sendMessage_withConcurrentLatestUserMessage_attachesMediaToPersistedMessageId() {
+    RequestDTO request =
+        new RequestDTO(
+            "my image",
+            RequestDTO.Provider.CLAUDE,
+            "claude-sonnet-4-5",
+            "claude-key",
+            List.of(
+                new RequestDTO.MediaAttachment(
+                    "image/png", Base64.getEncoder().encodeToString("abc".getBytes()))));
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+
+    MessageEntity concurrentNewerUserMessage = new MessageEntity();
+    concurrentNewerUserMessage.setId(200L);
+    concurrentNewerUserMessage.setRole(Role.USER);
+    concurrentNewerUserMessage.setMessage("other request text");
+
+    MessageEntity persistedCurrentUserMessage = new MessageEntity();
+    persistedCurrentUserMessage.setId(100L);
+    persistedCurrentUserMessage.setRole(Role.USER);
+    persistedCurrentUserMessage.setMessage("my image");
+
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
+        .thenReturn(List.of(concurrentNewerUserMessage, persistedCurrentUserMessage));
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.CLAUDE, "claude-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.CLAUDE, "claude-sonnet-4-5", "claude-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("claude-sonnet-4-5").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("done")))));
+
+    chatService.sendMessage(chatId, userId, request);
+
+    ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+    verify(requestSpec).messages(messagesCaptor.capture());
+
+    List<Message> prompt = messagesCaptor.getValue();
+    UserMessage firstUser = (UserMessage) prompt.get(1);
+    UserMessage secondUser = (UserMessage) prompt.get(2);
+
+    assertThat(firstUser.getText()).isEqualTo("my image");
+    assertThat(firstUser.getMedia()).hasSize(1);
+    assertThat(secondUser.getText()).isEqualTo("other request text");
+    assertThat(secondUser.getMedia()).isEmpty();
+  }
 
   @Test
   void sendMessage_withNullMediaEntry_throwsBadRequest_andSkipsPersistence() {
@@ -157,6 +231,36 @@ class ChatServiceTest {
         .hasMessageContaining("media[0] must not be null");
 
     verify(messageRepository, never()).save(any());
+    verify(providerClientFactory, never()).getClient(any(), anyString());
+  }
+
+  @Test
+  void sendMessage_withOversizedMedia_throwsBadRequest_andSkipsProviderCall() {
+    String oversized = Base64.getEncoder().encodeToString(new byte[6 * 1024 * 1024]);
+    RequestDTO request =
+        new RequestDTO(
+            "describe image",
+            RequestDTO.Provider.CLAUDE,
+            "claude-sonnet-4-5",
+            "claude-key",
+            List.of(new RequestDTO.MediaAttachment("image/png", oversized)));
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+
+    MessageEntity latestUserMessage = new MessageEntity();
+    latestUserMessage.setId(100L);
+    latestUserMessage.setRole(Role.USER);
+    latestUserMessage.setMessage("describe image");
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
+        .thenReturn(List.of(latestUserMessage));
+
+    assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("exceeds");
+
     verify(providerClientFactory, never()).getClient(any(), anyString());
   }
 
