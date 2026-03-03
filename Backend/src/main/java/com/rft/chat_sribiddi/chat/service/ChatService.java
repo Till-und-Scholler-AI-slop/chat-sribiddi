@@ -1,6 +1,7 @@
 package com.rft.chat_sribiddi.chat.service;
 
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
+import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
@@ -11,6 +12,7 @@ import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,8 +25,11 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.content.Media;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.util.MimeTypeUtils;
 
 @Service
 public class ChatService {
@@ -94,9 +99,14 @@ public class ChatService {
         .findByChatIdAndUserId(chatId, userId)
         .orElseThrow(() -> new ChatNotFoundException(chatId));
 
-    persistMessage(chatId, requestDTO.content(), Role.USER, null);
+    String userContext =
+        Optional.ofNullable(requestDTO.media())
+            .filter(media -> !media.isEmpty())
+            .map(media -> "attachments=%d".formatted(media.size()))
+            .orElse(null);
+    persistMessage(chatId, requestDTO.content(), Role.USER, userContext);
 
-    List<Message> promptMessages = buildPromptMessages(chatId);
+    List<Message> promptMessages = buildPromptMessages(chatId, requestDTO.media());
     if (log.isTraceEnabled()) {
       log.trace("Prompt messages: {}", promptMessages);
     }
@@ -145,7 +155,7 @@ public class ChatService {
     return chatResponse;
   }
 
-  private List<Message> buildPromptMessages(UUID chatId) {
+  private List<Message> buildPromptMessages(UUID chatId, List<MediaAttachment> mediaAttachments) {
     List<MessageEntity> latestMessages =
         new ArrayList<>(
             messageRepository.findByChatIdOrderByCreatedAtDesc(
@@ -153,7 +163,17 @@ public class ChatService {
 
     List<Message> messages = new ArrayList<>();
     messages.add(new SystemMessage(SYSTEM_PROMPT));
-    latestMessages.reversed().stream().map(this::toChatMessage).forEach(messages::add);
+
+    List<MessageEntity> ordered = latestMessages.reversed();
+    int mediaTargetIndex = mediaAttachments == null || mediaAttachments.isEmpty() ? -1 : ordered.size() - 1;
+    for (int i = 0; i < ordered.size(); i++) {
+      MessageEntity entity = ordered.get(i);
+      if (i == mediaTargetIndex && entity.getRole() == Role.USER) {
+        messages.add(toUserMessage(entity, mediaAttachments));
+        continue;
+      }
+      messages.add(toChatMessage(entity));
+    }
     return messages;
   }
 
@@ -163,6 +183,25 @@ public class ChatService {
       case SYSTEM -> new SystemMessage(entity.getMessage());
       default -> new UserMessage(entity.getMessage());
     };
+  }
+
+  private UserMessage toUserMessage(MessageEntity entity, List<MediaAttachment> mediaAttachments) {
+    List<Media> media =
+        mediaAttachments.stream()
+            .map(this::toMedia)
+            .toList();
+    return UserMessage.builder().text(entity.getMessage()).media(media).build();
+  }
+
+  private Media toMedia(MediaAttachment attachment) {
+    String encodedData = attachment.data();
+    int commaIndex = encodedData.indexOf(',');
+    if (encodedData.startsWith("data:") && commaIndex > 0) {
+      encodedData = encodedData.substring(commaIndex + 1);
+    }
+    byte[] content = Base64.getDecoder().decode(encodedData);
+    return new Media(
+        MimeTypeUtils.parseMimeType(attachment.mimeType()), new ByteArrayResource(content));
   }
 
   private void persistMessage(UUID chatId, String message, Role role, String context) {

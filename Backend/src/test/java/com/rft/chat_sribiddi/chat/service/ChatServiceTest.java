@@ -14,6 +14,7 @@ import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import java.util.List;
+import java.util.Base64;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +25,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 
@@ -55,7 +58,7 @@ class ChatServiceTest {
   void sendMessage_resolvesStoredKey_andPersistsMessages() {
     // arrange
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -93,10 +96,51 @@ class ChatServiceTest {
   }
 
   @Test
+  void sendMessage_withMedia_addsMultimodalUserMessage() {
+    RequestDTO request =
+        new RequestDTO(
+            "describe image",
+            RequestDTO.Provider.CLAUDE,
+            "claude-sonnet-4-5",
+            "claude-key",
+            List.of(new RequestDTO.MediaAttachment("image/png", Base64.getEncoder().encodeToString("png".getBytes()))));
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    MessageEntity latestUserMessage = new MessageEntity();
+    latestUserMessage.setRole(Role.USER);
+    latestUserMessage.setMessage("describe image");
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
+        .thenReturn(List.of(latestUserMessage));
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.CLAUDE, "claude-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(RequestDTO.Provider.CLAUDE, "claude-sonnet-4-5", "claude-key"))
+        .thenReturn(org.springframework.ai.chat.prompt.ChatOptions.builder().model("claude-sonnet-4-5").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("done")))));
+
+    chatService.sendMessage(chatId, userId, request);
+
+    ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+    verify(requestSpec).messages(messagesCaptor.capture());
+
+    Message lastMessage = messagesCaptor.getValue().getLast();
+    assertThat(lastMessage).isInstanceOf(UserMessage.class);
+    assertThat(((UserMessage) lastMessage).getMedia()).hasSize(1);
+  }
+
+  @Test
   void sendMessage_missingChat_throwsNotFound() {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.empty());
 
-    RequestDTO request = new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemini", "key");
+    RequestDTO request = new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemini", "key", null);
 
     assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
         .isInstanceOf(ChatNotFoundException.class);
