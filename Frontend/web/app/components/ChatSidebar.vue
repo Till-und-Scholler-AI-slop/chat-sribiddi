@@ -8,6 +8,20 @@ const emit = defineEmits<(e: 'toggle') => void>()
 const router = useRouter()
 const route = useRoute()
 const toast = useToast()
+
+const colorMode = useColorMode()
+
+const isDark = computed({
+  get: () => colorMode.value === 'dark',
+  set: (value: boolean) => {
+    const next = value ? 'dark' : 'light'
+    colorMode.preference = next
+  }
+})
+
+const toggleColorMode = () => {
+  isDark.value = !isDark.value
+}
 const { ensureAuthenticated } = useAuth()
 const {
   conversations,
@@ -239,6 +253,14 @@ const goToSettings = () => {
 
     <!-- Footer -->
     <div class="border-t border-gray-200 dark:border-gray-800 p-2 space-y-2">
+      <UButton
+        variant="ghost"
+        :icon="isDark ? 'i-heroicons-sun' : 'i-heroicons-moon'"
+        :label="collapsed ? '' : isDark ? 'Light Mode' : 'Dark Mode'"
+        :aria-label="isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
+        class="w-full justify-start"
+        @click="toggleColorMode"
+      />
       <UButton
         variant="ghost"
         icon="i-heroicons-cog-6-tooth"
