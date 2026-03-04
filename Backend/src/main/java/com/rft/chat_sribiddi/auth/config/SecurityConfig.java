@@ -1,8 +1,11 @@
 package com.rft.chat_sribiddi.auth.config;
 
 import com.rft.chat_sribiddi.auth.CustomOAuth2UserService;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
@@ -19,6 +22,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -28,6 +32,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 @Slf4j
 @Configuration
@@ -51,6 +56,7 @@ public class SecurityConfig {
             csrf ->
                 csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                     .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler()))
+        .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
         .authorizeHttpRequests(
             auth -> {
               auth.requestMatchers(
@@ -86,6 +92,23 @@ public class SecurityConfig {
     UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
     source.registerCorsConfiguration("/**", configuration);
     return source;
+  }
+
+  /**
+   * Forces the deferred CSRF token to be loaded on every response so the {@code XSRF-TOKEN} cookie
+   * is written before the SPA attempts any state-mutating request.
+   */
+  static final class CsrfCookieFilter extends OncePerRequestFilter {
+    @Override
+    protected void doFilterInternal(
+        HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+        throws ServletException, IOException {
+      CsrfToken csrfToken = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
+      if (csrfToken != null) {
+        csrfToken.getToken();
+      }
+      filterChain.doFilter(request, response);
+    }
   }
 
   /**
