@@ -9,36 +9,18 @@ const router = useRouter()
 const route = useRoute()
 const toast = useToast()
 
-interface NuxtColorMode {
-  preference: string
-  value: string
-  addColorScheme: (scheme: string) => void
-  removeColorScheme: (scheme: string) => void
-}
+const colorMode = useColorMode()
 
-const isDark = ref(false)
-onMounted(() => {
-  isDark.value = document.documentElement.classList.contains('dark')
+const isDark = computed({
+  get: () => colorMode.value === 'dark',
+  set: (value: boolean) => {
+    const next = value ? 'dark' : 'light'
+    colorMode.preference = next
+  }
 })
+
 const toggleColorMode = () => {
-  const next = !isDark.value
-  const current = next ? 'light' : 'dark'
-  const mode = (window as Window & { __NUXT_COLOR_MODE__?: NuxtColorMode }).__NUXT_COLOR_MODE__
-  if (mode) {
-    mode.removeColorScheme(current)
-    mode.addColorScheme(next ? 'dark' : 'light')
-    mode.preference = next ? 'dark' : 'light'
-    mode.value = next ? 'dark' : 'light'
-  } else {
-    document.documentElement.classList.remove(current)
-    document.documentElement.classList.add(next ? 'dark' : 'light')
-  }
-  try {
-    localStorage.setItem('nuxt-color-mode', next ? 'dark' : 'light')
-  } catch {
-    // localStorage unavailable (e.g. Safari private browsing)
-  }
-  isDark.value = next
+  isDark.value = !isDark.value
 }
 const { ensureAuthenticated } = useAuth()
 const {
