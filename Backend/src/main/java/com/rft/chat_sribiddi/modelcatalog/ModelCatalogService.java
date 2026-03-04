@@ -9,16 +9,35 @@ import org.springframework.stereotype.Service;
 public class ModelCatalogService {
 
   private final ModelCatalogProperties properties;
+  private final ModelFetchService modelFetchService;
 
-  public List<ModelCatalogProperties.ModelOption> listOpenAiModels() {
+  public List<ModelCatalogProperties.ModelOption> listOpenAiModels(String apiKey) {
+    if (apiKey != null && !apiKey.isBlank()) {
+      List<ModelCatalogProperties.ModelOption> live = modelFetchService.fetchOpenAiModels(apiKey);
+      if (!live.isEmpty()) {
+        return live;
+      }
+    }
     return List.copyOf(properties.getOpenai());
   }
 
-  public List<ModelCatalogProperties.ModelOption> listGoogleModels() {
+  public List<ModelCatalogProperties.ModelOption> listGoogleModels(String apiKey) {
+    if (apiKey != null && !apiKey.isBlank()) {
+      List<ModelCatalogProperties.ModelOption> live = modelFetchService.fetchGoogleModels(apiKey);
+      if (!live.isEmpty()) {
+        return live;
+      }
+    }
     return List.copyOf(properties.getGoogle());
   }
 
-  public List<ModelCatalogProperties.ModelOption> listClaudeModels() {
+  public List<ModelCatalogProperties.ModelOption> listClaudeModels(String apiKey) {
+    if (apiKey != null && !apiKey.isBlank()) {
+      List<ModelCatalogProperties.ModelOption> live = modelFetchService.fetchClaudeModels(apiKey);
+      if (!live.isEmpty()) {
+        return live;
+      }
+    }
     return List.copyOf(properties.getClaude());
   }
 }
