@@ -63,6 +63,14 @@ export function extractAssistantText(response: any): string {
   return pick(response)?.trim() || 'No response received.'
 }
 
+export function parseAttachmentContext(context: string): string[] {
+  const prefix = 'attachments:'
+  if (!context.startsWith(prefix)) return []
+  const raw = context.slice(prefix.length)
+  if (!raw) return []
+  return raw.split(',').map(s => s.trim()).filter(Boolean)
+}
+
 export function useChatStore() {
   const {
     createChat,
@@ -95,10 +103,19 @@ export function useChatStore() {
           ? 'system'
           : 'user'
 
+    const parts: UIMessage['parts'] = [{ type: 'text', text: message.message || '' }]
+
+    if (message.context?.startsWith('attachments:')) {
+      const mimeTypes = parseAttachmentContext(message.context)
+      for (const mediaType of mimeTypes) {
+        parts.push({ type: 'file', mediaType, url: '' })
+      }
+    }
+
     return {
       id: message.id ? `msg-${message.id}` : messageId(),
       role,
-      parts: [{ type: 'text', text: message.message || '' }]
+      parts
     }
   }
 
@@ -284,10 +301,16 @@ export function useChatStore() {
     stop(chatId) // cancel any ongoing request
 
     if (appendUserMessage) {
+      const parts: UIMessage['parts'] = [{ type: 'text', text }]
+      if (options?.media?.length) {
+        for (const att of options.media) {
+          parts.push({ type: 'file', mediaType: att.mimeType, filename: att.name, url: '' })
+        }
+      }
       const userMessage: UIMessage = {
         id: messageId(),
         role: 'user',
-        parts: [{ type: 'text', text }]
+        parts
       }
       conversation.messages.push(userMessage)
     }

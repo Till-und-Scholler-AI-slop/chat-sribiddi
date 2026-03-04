@@ -48,6 +48,22 @@ const errorMessage = computed(() => activeConversation.value?.error || modelsErr
 const firstText = (parts?: Array<{ type: string; text?: string }>) =>
   parts?.find(part => part.type === 'text' && typeof part.text === 'string')?.text || ''
 
+type FilePart = { type: 'file'; mediaType: string; filename?: string }
+
+const getFileParts = (parts?: Array<{ type: string }>): FilePart[] =>
+  (parts || []).filter((p): p is FilePart => p.type === 'file')
+
+const formatMimeType = (mimeType: string): string => {
+  const subType = mimeType.split('/').pop() || mimeType
+  return subType.toUpperCase()
+}
+
+const fileIcon = (mimeType: string): string => {
+  if (mimeType.startsWith('image/')) return 'i-heroicons-photo'
+  if (mimeType === 'application/pdf') return 'i-heroicons-document-text'
+  return 'i-heroicons-paper-clip'
+}
+
 const toDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -241,6 +257,18 @@ const handleReload = async () => {
                 >
                   <template #content="{ parts }">
                     <MarkdownMessage :text="firstText(parts)" />
+                    <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
+                      <UBadge
+                        v-for="(file, idx) in getFileParts(parts)"
+                        :key="idx"
+                        variant="subtle"
+                        color="neutral"
+                        size="sm"
+                      >
+                        <UIcon :name="fileIcon(file.mediaType)" class="size-3.5 mr-1" />
+                        {{ file.filename || formatMimeType(file.mediaType) }}
+                      </UBadge>
+                    </div>
                   </template>
                 </UChatMessages>
               </div>
