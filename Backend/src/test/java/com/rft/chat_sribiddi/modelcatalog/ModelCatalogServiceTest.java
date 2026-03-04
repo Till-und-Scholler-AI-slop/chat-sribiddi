@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,13 @@ class ModelCatalogServiceTest {
   @BeforeEach
   void setUp() {
     properties = new ModelCatalogProperties();
+    properties.setOpenai(
+        new ArrayList<>(List.of(new ModelOption("gpt-4.1-2025-04-14", "GPT-4.1"))));
+    properties.setGoogle(
+        new ArrayList<>(
+            List.of(new ModelOption("gemini-2.5-pro-preview-05-06", "Gemini 2.5 Pro"))));
+    properties.setClaude(
+        new ArrayList<>(List.of(new ModelOption("claude-sonnet-4-20250514", "Claude Sonnet 4"))));
     service = new ModelCatalogService(properties, modelFetchService);
   }
 
