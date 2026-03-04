@@ -120,8 +120,8 @@ app:
   chat:
     context-message-limit: ${CHAT_CONTEXT_MESSAGE_LIMIT:20}
     max-media-attachments: ${CHAT_MAX_MEDIA_ATTACHMENTS:5}
-    max-media-attachment-bytes: ${CHAT_MAX_MEDIA_ATTACHMENT_BYTES:5242880}
-    max-media-total-bytes: ${CHAT_MAX_MEDIA_TOTAL_BYTES:20971520}
+    max-media-attachment-bytes: ${CHAT_MAX_MEDIA_ATTACHMENT_BYTES:5242880}   # 5 MB
+    max-media-total-bytes: ${CHAT_MAX_MEDIA_TOTAL_BYTES:20971520}           # 20 MB
   ai:
     openai:
       connect-timeout: ${OPENAI_CONNECT_TIMEOUT:10s}

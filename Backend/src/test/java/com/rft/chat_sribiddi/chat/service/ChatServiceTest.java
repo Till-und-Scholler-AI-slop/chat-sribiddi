@@ -274,4 +274,33 @@ class ChatServiceTest {
     assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
         .isInstanceOf(ChatNotFoundException.class);
   }
+
+  @Test
+  void sendMessage_respectsCustomMaxMediaAttachments() {
+    ChatProperties customProperties = new ChatProperties();
+    customProperties.setMaxMediaAttachments(1);
+    ChatService customService =
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, customProperties);
+
+    RequestDTO request =
+        new RequestDTO(
+            "two images",
+            RequestDTO.Provider.OPENAI,
+            "gpt-5.2",
+            "key",
+            List.of(
+                new RequestDTO.MediaAttachment(
+                    "image/png", Base64.getEncoder().encodeToString("a".getBytes())),
+                new RequestDTO.MediaAttachment(
+                    "image/png", Base64.getEncoder().encodeToString("b".getBytes()))));
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+
+    assertThatThrownBy(() -> customService.sendMessage(chatId, userId, request))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("media supports up to 1 attachments");
+  }
 }
