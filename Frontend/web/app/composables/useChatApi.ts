@@ -210,10 +210,7 @@ export function useChatApi() {
           ? '/models/google'
           : '/models/claude'
     const models = await requestJson<Array<{ id: string; label: string }>>(path, {
-      method: 'GET',
-      headers: {
-        'X-User-Id': resolveUserId()
-      }
+      method: 'GET'
     })
 
     return models.map(model => ({
