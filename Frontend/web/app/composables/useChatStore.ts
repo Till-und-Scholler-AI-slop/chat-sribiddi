@@ -113,10 +113,6 @@ export function useChatStore() {
   )
 
   const ensureModels = async () => {
-    if (models.value.length > 0) {
-      return models.value
-    }
-
     modelsLoading.value = true
     try {
       const [openAiModels, googleModels, claudeModels] = await Promise.all([
