@@ -52,9 +52,6 @@ export function useUserSettings() {
 
   return {
     settings: state,
-    hydrated,
-    reset: () => {
-      state.value = { backendBaseUrl: defaultBackend }
-    }
+    hydrated
   }
 }

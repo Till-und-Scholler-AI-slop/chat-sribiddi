@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import type { Provider } from '~/composables/useChatApi'
+import type {Provider} from '~/composables/useChatApi'
 
 definePageMeta({
   layout: 'default'
 })
 
-const { settings, hydrated, reset } = useUserSettings()
-const { getStatus, saveKey, deleteKey } = useKeyApi()
-const { models } = useChatStore()
+const { hydrated} = useUserSettings()
+const {getStatus, saveKey, deleteKey} = useKeyApi()
+const {models} = useChatStore()
 const toast = useToast()
 
 type KeyProviderStatus = {
@@ -80,15 +80,15 @@ const deletingProvider = reactive<Record<Provider, boolean>>({
 })
 
 const providerDisplay = (provider: Provider) =>
-  provider === 'OPENAI' ? 'OpenAI' : provider === 'GOOGLE' ? 'Google' : 'Claude'
+    provider === 'OPENAI' ? 'OpenAI' : provider === 'GOOGLE' ? 'Google' : 'Claude'
 
 const statusByProvider = (provider: Provider) => {
   if (!status.value) return false
   return provider === 'OPENAI'
-    ? status.value.openai
-    : provider === 'GOOGLE'
-      ? status.value.google
-      : status.value.claude
+      ? status.value.openai
+      : provider === 'GOOGLE'
+          ? status.value.google
+          : status.value.claude
 }
 
 const statusLabel = (provider: Provider) => {
@@ -96,8 +96,8 @@ const statusLabel = (provider: Provider) => {
     return `${providerDisplay(provider)} status loading...`
   }
   return statusByProvider(provider)
-    ? `${providerDisplay(provider)} key set`
-    : `${providerDisplay(provider)} key missing`
+      ? `${providerDisplay(provider)} key set`
+      : `${providerDisplay(provider)} key missing`
 }
 
 const keyPresent = (provider: Provider) => form[provider].trim().length > 0
@@ -186,50 +186,19 @@ async function handleDelete(provider: Provider) {
 <template>
   <UDashboardPanel>
     <template #header>
-      <UDashboardNavbar title="Settings" />
+      <UDashboardNavbar title="Settings"/>
     </template>
 
     <template #body>
       <UContainer class="py-6 space-y-6">
-        <UAlert
-          title="Backend-managed API keys"
-          color="neutral"
-          description="Model API keys are stored server-side after login. Frontend does not keep them."
-          icon="i-heroicons-key"
-        />
 
         <div v-if="!hydrated" class="space-y-3">
-          <USkeleton class="h-12" />
-          <USkeleton class="h-12" />
-          <USkeleton class="h-12" />
+          <USkeleton class="h-12"/>
+          <USkeleton class="h-12"/>
+          <USkeleton class="h-12"/>
         </div>
 
         <div v-else class="space-y-6">
-          <UCard>
-            <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <UFormGroup
-                label="Backend base URL"
-                description="The REST API from the Spring Boot backend."
-                name="backendBaseUrl"
-              >
-                <UInput
-                  v-model="settings.backendBaseUrl"
-                  placeholder="http://localhost:8080"
-                  icon="i-heroicons-globe-alt"
-                />
-              </UFormGroup>
-            </div>
-            <div class="mt-4">
-              <UButton
-                type="button"
-                variant="ghost"
-                icon="i-heroicons-rectangle-stack"
-                label="Reset URL"
-                @click="reset()"
-              />
-            </div>
-          </UCard>
-
           <UCard>
             <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
               <div class="space-y-1">
@@ -240,11 +209,11 @@ async function handleDelete(provider: Provider) {
               </div>
               <div class="flex items-center gap-2 flex-wrap">
                 <UBadge
-                  v-for="item in providerCards"
-                  :key="item.provider"
-                  color="primary"
-                  variant="soft"
-                  :label="statusLabel(item.provider)"
+                    v-for="item in providerCards"
+                    :key="item.provider"
+                    color="primary"
+                    variant="soft"
+                    :label="statusLabel(item.provider)"
                 />
               </div>
             </div>
@@ -255,72 +224,67 @@ async function handleDelete(provider: Provider) {
                   <div class="flex items-center justify-between gap-2">
                     <div class="font-semibold">{{ item.title }}</div>
                     <UBadge
-                      variant="soft"
-                      :color="statusByProvider(item.provider) ? 'primary' : 'neutral'"
-                      :label="statusByProvider(item.provider) ? 'Stored' : 'Not stored'"
+                        variant="soft"
+                        :color="statusByProvider(item.provider) ? 'primary' : 'neutral'"
+                        :label="statusByProvider(item.provider) ? 'Stored' : 'Not stored'"
                     />
                   </div>
 
                   <UFormGroup
-                    :label="item.label"
-                    :description="item.description"
-                    :name="item.provider.toLowerCase()"
+                      :label="item.label"
+                      :description="item.description"
+                      :name="item.provider.toLowerCase()"
                   >
                     <UInput
-                      v-model="form[item.provider]"
-                      :type="reveal[item.provider] ? 'text' : 'password'"
-                      :placeholder="item.placeholder"
-                      icon="i-heroicons-lock-closed"
-                      autocomplete="off"
+                        v-model="form[item.provider]"
+                        :type="reveal[item.provider] ? 'text' : 'password'"
+                        :placeholder="item.placeholder"
+                        icon="i-heroicons-lock-closed"
+                        autocomplete="off"
                     />
                   </UFormGroup>
 
                   <div v-if="item.provider === 'GOOGLE'">
                     <UAlert
-                      color="neutral"
-                      variant="soft"
-                      icon="i-heroicons-information-circle"
-                      title="Google Project ID"
-                      description="Configured in backend env (`GOOGLE_PROJECT_ID`). It is not part of the per-user key API contract."
+                        color="neutral"
+                        variant="soft"
+                        icon="i-heroicons-information-circle"
+                        title="Google Project ID"
+                        description="Configured in backend env (`GOOGLE_PROJECT_ID`). It is not part of the per-user key API contract."
                     />
                   </div>
 
                   <div class="flex flex-wrap gap-2">
                     <UButton
-                      type="button"
-                      variant="ghost"
-                      color="neutral"
-                      :icon="reveal[item.provider] ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
-                      :label="reveal[item.provider] ? 'Hide key' : 'Show key'"
-                      @click="reveal[item.provider] = !reveal[item.provider]"
+                        type="button"
+                        variant="ghost"
+                        color="neutral"
+                        :icon="reveal[item.provider] ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
+                        :label="reveal[item.provider] ? 'Hide key' : 'Show key'"
+                        @click="reveal[item.provider] = !reveal[item.provider]"
                     />
                     <UButton
-                      type="button"
-                      color="primary"
-                      icon="i-heroicons-check-circle"
-                      label="Save key"
-                      :loading="savingProvider[item.provider]"
-                      :disabled="!keyPresent(item.provider) || isProviderBusy(item.provider)"
-                      @click="handleSave(item.provider)"
+                        type="button"
+                        color="primary"
+                        icon="i-heroicons-check-circle"
+                        label="Save key"
+                        :loading="savingProvider[item.provider]"
+                        :disabled="!keyPresent(item.provider) || isProviderBusy(item.provider)"
+                        @click="handleSave(item.provider)"
                     />
                     <UButton
-                      type="button"
-                      variant="outline"
-                      color="neutral"
-                      icon="i-heroicons-trash"
-                      label="Remove stored key"
-                      :loading="deletingProvider[item.provider]"
-                      :disabled="isProviderBusy(item.provider)"
-                      @click="handleDelete(item.provider)"
+                        type="button"
+                        variant="outline"
+                        color="neutral"
+                        icon="i-heroicons-trash"
+                        label="Remove stored key"
+                        :loading="deletingProvider[item.provider]"
+                        :disabled="isProviderBusy(item.provider)"
+                        @click="handleDelete(item.provider)"
                     />
                   </div>
                 </div>
               </UCard>
-            </div>
-
-            <div class="mt-4 text-xs text-gray-500 dark:text-gray-400">
-              Backend contract in use: <code>PUT /apikeys/{provider}</code>,
-              <code>DELETE /apikeys/{provider}</code>, <code>GET /apikeys/{provider}/exists</code>.
             </div>
           </UCard>
         </div>

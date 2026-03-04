@@ -64,14 +64,6 @@ onMounted(async () => {
             size="lg"
             label="Continue with Google"
           />
-
-          <UAlert
-            color="warning"
-            variant="soft"
-            icon="i-heroicons-exclamation-triangle"
-            title="If you see 404 on OAuth URL"
-            description="Backend is likely running with SPRING_PROFILES_ACTIVE=dev. Switch backend to production profile to enable /oauth2/authorization/google."
-          />
         </div>
 
         <UAlert
@@ -82,11 +74,6 @@ onMounted(async () => {
           title="Session check failed"
           :description="checkError"
         />
-
-        <div class="rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900 dark:text-gray-300">
-          <div class="font-medium">Backend</div>
-          <code class="break-all">{{ resolveBaseUrl(settings.backendBaseUrl) }}</code>
-        </div>
 
         <p class="text-center text-xs text-gray-500 dark:text-gray-400">
           Legal:
