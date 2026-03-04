@@ -31,13 +31,13 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
 
   private final OpenAiProviderProperties openAiProperties;
   private final Cache<String, ChatService.ClientHolder> openAiCache;
-  private final Cache<String, ChatService.ClientHolder> googleCache;
+  private final Cache<String, Client> googleClientCache;
   private final Cache<String, ChatService.ClientHolder> claudeCache;
 
   public DefaultProviderClientFactory(OpenAiProviderProperties openAiProperties) {
     this.openAiProperties = openAiProperties;
     this.openAiCache = buildCache();
-    this.googleCache = buildCache();
+    this.googleClientCache = buildGoogleClientCache();
     this.claudeCache = buildCache();
   }
 
@@ -52,6 +52,23 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                   holder.close();
                 } catch (Exception e) {
                   log.warn("Failed to close evicted provider client", e);
+                }
+              }
+            })
+        .build();
+  }
+
+  private Cache<String, Client> buildGoogleClientCache() {
+    return Caffeine.newBuilder()
+        .expireAfterAccess(30, TimeUnit.MINUTES)
+        .maximumSize(200)
+        .removalListener(
+            (String key, Client client, RemovalCause cause) -> {
+              if (client != null) {
+                try {
+                  client.close();
+                } catch (Exception e) {
+                  log.warn("Failed to close evicted Google client", e);
                 }
               }
             })
@@ -86,16 +103,14 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                     ChatClient.create(OpenAiChatModel.builder().openAiApi(openAiApi).build());
                 return new ChatService.ClientHolder(client, null);
               });
-      case GOOGLE ->
-          googleCache.get(
-              apiKey,
-              key -> {
-                Client googleClient = Client.builder().apiKey(key).build();
-                GoogleGenAiChatModel model =
-                    GoogleGenAiChatModel.builder().genAiClient(googleClient).build();
-                ChatClient chatClient = ChatClient.create(model);
-                return new ChatService.ClientHolder(chatClient, googleClient);
-              });
+      case GOOGLE -> {
+        Client googleClient =
+            googleClientCache.get(apiKey, key -> Client.builder().apiKey(key).build());
+        GoogleGenAiChatModel model =
+            GoogleGenAiChatModel.builder().genAiClient(googleClient).build();
+        ChatClient chatClient = ChatClient.create(model);
+        yield new ChatService.ClientHolder(chatClient, null);
+      }
       case CLAUDE ->
           claudeCache.get(
               apiKey,
