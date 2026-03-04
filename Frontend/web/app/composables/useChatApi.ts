@@ -43,13 +43,13 @@ type SendMessageInput = {
   media?: Array<Pick<MediaAttachment, 'mimeType' | 'data'>>
 }
 
-const DEFAULT_BACKEND_BASE_URL = 'http://localhost:8080'
+export const DEFAULT_BACKEND_BASE_URL = 'http://localhost:8080'
 
-function normalizeBaseUrl(value: string) {
+export function normalizeBaseUrl(value: string) {
   return value.endsWith('/') ? value.slice(0, -1) : value
 }
 
-async function readErrorText(response: Response) {
+export async function readErrorText(response: Response) {
   try {
     const text = await response.text()
     return text.trim()
@@ -57,6 +57,14 @@ async function readErrorText(response: Response) {
     return ''
   }
 }
+
+function getCsrfToken(): string | null {
+  if (typeof document === 'undefined') return null
+  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/)
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 export function useChatApi() {
   const config = useRuntimeConfig()
@@ -112,13 +120,23 @@ export function useChatApi() {
   }
 
   const requestJson = async <T>(path: string, options: RequestInit) => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string> || {})
+    }
+
+    const method = (options.method || 'GET').toUpperCase()
+    if (MUTATING_METHODS.has(method)) {
+      const csrfToken = getCsrfToken()
+      if (csrfToken) {
+        headers['X-XSRF-TOKEN'] = csrfToken
+      }
+    }
+
     const response = await fetch(buildUrl(path), {
       credentials: 'include',
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      }
+      headers
     })
 
     if (!response.ok) {
@@ -181,23 +199,7 @@ export function useChatApi() {
   }
 
   const deleteChat = async (chatId: string) => {
-    const response = await fetch(buildUrl(`/chats/${chatId}`), {
-      credentials: 'include',
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error('Not authenticated. Please log in via the Login page.')
-      }
-      const errorText = await readErrorText(response)
-      throw new Error(
-        errorText || `Request failed (${response.status} ${response.statusText})`
-      )
-    }
+    await requestJson<void>(`/chats/${chatId}`, { method: 'DELETE' })
   }
 
   const fetchModels = async (provider: Provider) => {

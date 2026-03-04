@@ -1,14 +1,16 @@
 package com.rft.chat_sribiddi.chat.controller;
 
+import com.rft.chat_sribiddi.chat.dto.ChatResponseDTO;
+import com.rft.chat_sribiddi.chat.dto.CreateChatRequestDTO;
+import com.rft.chat_sribiddi.chat.dto.MessageResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
-import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.service.ChatService;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import jakarta.validation.Valid;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,26 +27,39 @@ public class ChatController {
   private final ChatService chatService;
 
   @PostMapping
-  public ResponseEntity<ChatEntity> createChat(
-      @AuthenticationPrincipal OidcUser principal, @RequestBody ChatEntity chatEntity) {
+  public ResponseEntity<ChatResponseDTO> createChat(
+      @AuthenticationPrincipal OidcUser principal,
+      @RequestBody CreateChatRequestDTO request) {
     validatePrincipal(principal);
+
+    ChatEntity chatEntity = new ChatEntity();
+    chatEntity.setTitle(request.title());
 
     ChatEntity savedChat = chatService.createChat(chatEntity, principal.getSubject());
 
-    return ResponseEntity.status(HttpStatus.CREATED).body(savedChat);
+    return ResponseEntity.status(HttpStatus.CREATED).body(ChatResponseDTO.from(savedChat));
   }
 
   @GetMapping
-  public ResponseEntity<List<ChatEntity>> listChats(@AuthenticationPrincipal OidcUser principal) {
+  public ResponseEntity<List<ChatResponseDTO>> listChats(
+      @AuthenticationPrincipal OidcUser principal) {
     validatePrincipal(principal);
-    return ResponseEntity.ok(chatService.listChats(principal.getSubject()));
+    List<ChatResponseDTO> chats =
+        chatService.listChats(principal.getSubject()).stream()
+            .map(ChatResponseDTO::from)
+            .toList();
+    return ResponseEntity.ok(chats);
   }
 
   @GetMapping("/{chatId}/messages")
-  public ResponseEntity<List<MessageEntity>> listMessages(
+  public ResponseEntity<List<MessageResponseDTO>> listMessages(
       @AuthenticationPrincipal OidcUser principal, @PathVariable UUID chatId) {
     validatePrincipal(principal);
-    return ResponseEntity.ok(chatService.listMessages(chatId, principal.getSubject()));
+    List<MessageResponseDTO> messages =
+        chatService.listMessages(chatId, principal.getSubject()).stream()
+            .map(MessageResponseDTO::from)
+            .toList();
+    return ResponseEntity.ok(messages);
   }
 
   @PostMapping("/{chatId}/messages")
@@ -59,14 +74,14 @@ public class ChatController {
   }
 
   @PatchMapping("/{chatId}")
-  public ResponseEntity<ChatEntity> updateChatTitle(
+  public ResponseEntity<ChatResponseDTO> updateChatTitle(
       @AuthenticationPrincipal OidcUser principal,
       @PathVariable UUID chatId,
       @Valid @RequestBody UpdateChatPayload payload) {
     validatePrincipal(principal);
     ChatEntity updatedChat =
         chatService.updateChatTitle(chatId, principal.getSubject(), payload.title());
-    return ResponseEntity.ok(updatedChat);
+    return ResponseEntity.ok(ChatResponseDTO.from(updatedChat));
   }
 
   @DeleteMapping("/{chatId}")
