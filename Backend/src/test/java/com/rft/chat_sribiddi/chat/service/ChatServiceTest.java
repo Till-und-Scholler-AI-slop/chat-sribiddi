@@ -49,8 +49,9 @@ class ChatServiceTest {
 
   @BeforeEach
   void setUp() {
+    ChatProperties chatProperties = new ChatProperties();
     chatService =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory);
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, chatProperties);
     chatId = UUID.randomUUID();
     userId = "user-123";
 

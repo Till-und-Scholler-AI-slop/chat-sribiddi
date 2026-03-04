@@ -1,3 +1,5 @@
+import { DEFAULT_BACKEND_BASE_URL, normalizeBaseUrl } from '~/composables/useChatApi'
+
 type AuthState = 'unknown' | 'authenticated' | 'unauthenticated'
 
 export function useAuth() {
@@ -9,7 +11,7 @@ export function useAuth() {
     if (checking.value) return status.value
     checking.value = true
     try {
-      const base = settings.value.backendBaseUrl.trim().replace(/\/$/, '') || 'http://localhost:8080'
+      const base = normalizeBaseUrl(settings.value.backendBaseUrl.trim()) || DEFAULT_BACKEND_BASE_URL
       const response = await fetch(`${base}/secured`, {
         credentials: 'include'
       })

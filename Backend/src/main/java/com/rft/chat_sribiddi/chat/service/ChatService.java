@@ -16,8 +16,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AbstractMessage;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -31,31 +30,30 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
 
+@Slf4j
 @Service
 public class ChatService {
 
   private static final String SYSTEM_PROMPT =
       "You are a helpful assistant. Your answer must be structured in markdown.";
-  private static final int CONTEXT_MESSAGE_LIMIT = 20;
-  private static final int MAX_MEDIA_ATTACHMENTS = 5;
-  private static final long MAX_MEDIA_ATTACHMENT_BYTES = 5L * 1024 * 1024;
-  private static final long MAX_MEDIA_TOTAL_BYTES = 20L * 1024 * 1024;
-  private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
   private final ApiKeyService apiKeyService;
   private final ProviderClientFactory providerClientFactory;
+  private final ChatProperties chatProperties;
 
   public ChatService(
       ChatRepository chatRepository,
       MessageRepository messageRepository,
       ApiKeyService apiKeyService,
-      ProviderClientFactory providerClientFactory) {
+      ProviderClientFactory providerClientFactory,
+      ChatProperties chatProperties) {
     this.chatRepository = chatRepository;
     this.messageRepository = messageRepository;
     this.apiKeyService = apiKeyService;
     this.providerClientFactory = providerClientFactory;
+    this.chatProperties = chatProperties;
   }
 
   @Transactional
@@ -164,7 +162,7 @@ public class ChatService {
     List<MessageEntity> latestMessages =
         new ArrayList<>(
             messageRepository.findByChatIdOrderByCreatedAtDesc(
-                chatId, PageRequest.of(0, CONTEXT_MESSAGE_LIMIT)));
+                chatId, PageRequest.of(0, chatProperties.getContextMessageLimit())));
 
     List<Message> messages = new ArrayList<>();
     messages.add(new SystemMessage(SYSTEM_PROMPT));
@@ -188,9 +186,9 @@ public class ChatService {
       return List.of();
     }
 
-    if (mediaAttachments.size() > MAX_MEDIA_ATTACHMENTS) {
+    if (mediaAttachments.size() > chatProperties.getMaxMediaAttachments()) {
       throw new IllegalArgumentException(
-          "media supports up to %d attachments".formatted(MAX_MEDIA_ATTACHMENTS));
+          "media supports up to %d attachments".formatted(chatProperties.getMaxMediaAttachments()));
     }
 
     for (int i = 0; i < mediaAttachments.size(); i++) {
@@ -225,16 +223,16 @@ public class ChatService {
       String normalized = normalizeEncodedData(attachment.data());
       long estimatedDecodedBytes = estimateDecodedBytes(normalized);
 
-      if (estimatedDecodedBytes > MAX_MEDIA_ATTACHMENT_BYTES) {
+      if (estimatedDecodedBytes > chatProperties.getMaxMediaAttachmentBytes()) {
         throw new IllegalArgumentException(
             "media[%d] exceeds %d bytes"
-                .formatted(i, MAX_MEDIA_ATTACHMENT_BYTES));
+                .formatted(i, chatProperties.getMaxMediaAttachmentBytes()));
       }
 
       totalBytes += estimatedDecodedBytes;
-      if (totalBytes > MAX_MEDIA_TOTAL_BYTES) {
+      if (totalBytes > chatProperties.getMaxMediaTotalBytes()) {
         throw new IllegalArgumentException(
-            "combined media size exceeds %d bytes".formatted(MAX_MEDIA_TOTAL_BYTES));
+            "combined media size exceeds %d bytes".formatted(chatProperties.getMaxMediaTotalBytes()));
       }
 
       byte[] content;
@@ -244,9 +242,9 @@ public class ChatService {
         throw new IllegalArgumentException("media[%d].data is not valid base64".formatted(i), e);
       }
 
-      if (content.length > MAX_MEDIA_ATTACHMENT_BYTES) {
+      if (content.length > chatProperties.getMaxMediaAttachmentBytes()) {
         throw new IllegalArgumentException(
-            "media[%d] exceeds %d bytes".formatted(i, MAX_MEDIA_ATTACHMENT_BYTES));
+            "media[%d] exceeds %d bytes".formatted(i, chatProperties.getMaxMediaAttachmentBytes()));
       }
 
       media.add(
