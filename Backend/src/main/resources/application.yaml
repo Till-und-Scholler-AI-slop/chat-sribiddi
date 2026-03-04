@@ -68,6 +68,12 @@ encryption:
 ai:
   models:
     openai:
+      - id: gpt-5.2
+        label: GPT-5.2
+      - id: gpt-5.2-mini
+        label: GPT-5.2 Mini
+      - id: gpt-5.2-nano
+        label: GPT-5.2 Nano
       - id: gpt-4.1-2025-04-14
         label: GPT-4.1
       - id: gpt-4.1-mini-2025-04-14
@@ -79,6 +85,14 @@ ai:
       - id: o4-mini-2025-04-16
         label: o4-mini
     google:
+      - id: gemini-3.1-pro-preview
+        label: Gemini 3.1 Pro
+      - id: gemini-3.1-flash-lite-preview
+        label: Gemini 3.1 Flash Lite
+      - id: gemini-3-flash
+        label: Gemini 3 Flash
+      - id: gemini-3-pro
+        label: Gemini 3 Pro
       - id: gemini-2.5-pro-preview-05-06
         label: Gemini 2.5 Pro
       - id: gemini-2.5-flash-preview-05-20
@@ -88,6 +102,12 @@ ai:
       - id: gemini-2.0-flash-lite
         label: Gemini 2.0 Flash Lite
     claude:
+      - id: claude-opus-4-6-20260215
+        label: Claude Opus 4.6
+      - id: claude-sonnet-4-6-20260215
+        label: Claude Sonnet 4.6
+      - id: claude-haiku-4-5-20251001
+        label: Claude Haiku 4.5
       - id: claude-sonnet-4-20250514
         label: Claude Sonnet 4
       - id: claude-3-5-haiku-20241022

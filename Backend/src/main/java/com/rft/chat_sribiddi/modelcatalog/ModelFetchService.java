@@ -146,7 +146,7 @@ public class ModelFetchService {
   }
 
   private boolean isRelevantOpenAiModel(String id) {
-    return id.startsWith("gpt-") || id.startsWith("o1") || id.startsWith("o3") || id.startsWith("o4");
+    return id.startsWith("gpt-") || id.matches("^o\\d.*");
   }
 
   private boolean isRelevantGoogleModel(String id) {
