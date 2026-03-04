@@ -5,8 +5,9 @@ import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,29 +21,29 @@ public class ModelController {
 
   @GetMapping("/openai")
   public ResponseEntity<List<ModelCatalogProperties.ModelOption>> openAiModels(
-      @RequestHeader(value = "X-User-Id", required = false) String userId) {
-    String apiKey = resolveApiKey(userId, Provider.OPENAI);
+      @AuthenticationPrincipal OidcUser principal) {
+    String apiKey = resolveApiKey(principal, Provider.OPENAI);
     return ResponseEntity.ok(modelCatalogService.listOpenAiModels(apiKey));
   }
 
   @GetMapping("/google")
   public ResponseEntity<List<ModelCatalogProperties.ModelOption>> googleModels(
-      @RequestHeader(value = "X-User-Id", required = false) String userId) {
-    String apiKey = resolveApiKey(userId, Provider.GOOGLE);
+      @AuthenticationPrincipal OidcUser principal) {
+    String apiKey = resolveApiKey(principal, Provider.GOOGLE);
     return ResponseEntity.ok(modelCatalogService.listGoogleModels(apiKey));
   }
 
   @GetMapping("/claude")
   public ResponseEntity<List<ModelCatalogProperties.ModelOption>> claudeModels(
-      @RequestHeader(value = "X-User-Id", required = false) String userId) {
-    String apiKey = resolveApiKey(userId, Provider.CLAUDE);
+      @AuthenticationPrincipal OidcUser principal) {
+    String apiKey = resolveApiKey(principal, Provider.CLAUDE);
     return ResponseEntity.ok(modelCatalogService.listClaudeModels(apiKey));
   }
 
-  private String resolveApiKey(String userId, Provider provider) {
-    if (userId == null || userId.isBlank()) {
+  private String resolveApiKey(OidcUser principal, Provider provider) {
+    if (principal == null) {
       return null;
     }
-    return apiKeyService.getKey(userId, provider).orElse(null);
+    return apiKeyService.getKey(principal.getSubject(), provider).orElse(null);
   }
 }
