@@ -209,11 +209,13 @@ export function useChatApi() {
         : provider === 'GOOGLE'
           ? '/models/google'
           : '/models/claude'
-    const models = await requestJson<Array<{ id: string; label: string }>>(path, {
+    const data = await requestJson<Array<{ id: string; label: string }>>(path, {
       method: 'GET'
     })
 
-    return models.map(model => ({
+    if (!data) return []
+
+    return data.map(model => ({
       label: model.label,
       value: model.id,
       provider

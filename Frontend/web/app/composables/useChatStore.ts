@@ -115,13 +115,29 @@ export function useChatStore() {
   const ensureModels = async () => {
     modelsLoading.value = true
     try {
-      const [openAiModels, googleModels, claudeModels] = await Promise.all([
+      const results = await Promise.allSettled([
         fetchModels('OPENAI'),
         fetchModels('GOOGLE'),
         fetchModels('CLAUDE')
       ])
-      models.value = [...openAiModels, ...googleModels, ...claudeModels]
-      modelsError.value = null
+
+      const loaded: ModelOption[] = []
+      const errors: string[] = []
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          loaded.push(...result.value)
+        } else {
+          const msg = result.reason instanceof Error ? result.reason.message : String(result.reason)
+          errors.push(msg)
+          console.error('Failed to load models for a provider:', msg)
+        }
+      }
+
+      models.value = loaded
+      modelsError.value = loaded.length === 0 && errors.length > 0
+        ? errors[0]
+        : null
     } catch (err) {
       console.error(err)
       modelsError.value =

@@ -7,6 +7,7 @@ definePageMeta({
 
 const { settings, hydrated, reset } = useUserSettings()
 const { getStatus, saveKey, deleteKey } = useKeyApi()
+const { models } = useChatStore()
 const toast = useToast()
 
 type KeyProviderStatus = {
@@ -142,6 +143,7 @@ async function handleSave(provider: Provider) {
   try {
     await saveKey(provider, key)
     form[provider] = ''
+    models.value = []
     await refreshStatus()
     toast.add({
       title: `${providerDisplay(provider)} key saved`,
@@ -163,6 +165,7 @@ async function handleDelete(provider: Provider) {
   deletingProvider[provider] = true
   try {
     await deleteKey(provider)
+    models.value = []
     await refreshStatus()
     toast.add({
       title: `${providerDisplay(provider)} key removed`,
