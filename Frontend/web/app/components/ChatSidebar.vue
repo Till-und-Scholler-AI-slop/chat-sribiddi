@@ -8,6 +8,38 @@ const emit = defineEmits<(e: 'toggle') => void>()
 const router = useRouter()
 const route = useRoute()
 const toast = useToast()
+
+interface NuxtColorMode {
+  preference: string
+  value: string
+  addColorScheme: (scheme: string) => void
+  removeColorScheme: (scheme: string) => void
+}
+
+const isDark = ref(false)
+onMounted(() => {
+  isDark.value = document.documentElement.classList.contains('dark')
+})
+const toggleColorMode = () => {
+  const next = !isDark.value
+  const current = next ? 'light' : 'dark'
+  const mode = (window as Window & { __NUXT_COLOR_MODE__?: NuxtColorMode }).__NUXT_COLOR_MODE__
+  if (mode) {
+    mode.removeColorScheme(current)
+    mode.addColorScheme(next ? 'dark' : 'light')
+    mode.preference = next ? 'dark' : 'light'
+    mode.value = next ? 'dark' : 'light'
+  } else {
+    document.documentElement.classList.remove(current)
+    document.documentElement.classList.add(next ? 'dark' : 'light')
+  }
+  try {
+    localStorage.setItem('nuxt-color-mode', next ? 'dark' : 'light')
+  } catch {
+    // localStorage unavailable (e.g. Safari private browsing)
+  }
+  isDark.value = next
+}
 const { ensureAuthenticated } = useAuth()
 const {
   conversations,
@@ -239,6 +271,14 @@ const goToSettings = () => {
 
     <!-- Footer -->
     <div class="border-t border-gray-200 dark:border-gray-800 p-2 space-y-2">
+      <UButton
+        variant="ghost"
+        :icon="isDark ? 'i-heroicons-sun' : 'i-heroicons-moon'"
+        :label="collapsed ? '' : isDark ? 'Light Mode' : 'Dark Mode'"
+        :aria-label="isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
+        class="w-full justify-start"
+        @click="toggleColorMode"
+      />
       <UButton
         variant="ghost"
         icon="i-heroicons-cog-6-tooth"

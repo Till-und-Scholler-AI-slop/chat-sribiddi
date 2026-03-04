@@ -1,6 +1,51 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 
+/* ── Color Palette ──────────────────────────────────────────────────────
+ * Dark mode uses the provided blue-navy palette:
+ *   Ink Black    #0d1b2a  →  gray-950  (darkest bg)
+ *   Prussian Blue #1b263b →  gray-900  (secondary bg / hover)
+ *   Dusk Blue    #415a77  →  gray-700  (borders, strong accent)
+ *   Dusty Denim  #778da9  →  gray-500  (muted text / mid-tone)
+ *   Alabaster    #e0e1dd  →  body text in dark mode
+ *
+ * Light mode uses a complementary cool blue-gray palette derived from
+ * the same blue-navy family for a cohesive look.
+ * ─────────────────────────────────────────────────────────────────── */
+@theme {
+  --color-gray-50:  #f4f7fa;
+  --color-gray-100: #e8f0f5;
+  --color-gray-200: #d0e0ea;
+  --color-gray-300: #b0c8d8;
+  --color-gray-400: #8aabbd;
+  --color-gray-500: #778da9;
+  --color-gray-600: #5e7592;
+  --color-gray-700: #415a77;
+  --color-gray-800: #2e4059;
+  --color-gray-900: #1b263b;
+  --color-gray-950: #0d1b2a;
+}
+
+/* Light mode base: clean white with blue-gray accents */
+body {
+  background-color: #f4f7fa;
+  color: #1b263b;
+}
+
+/* Dark mode base: Ink Black background, Alabaster Grey text */
+.dark body {
+  background-color: #0d1b2a;
+  color: #e0e1dd;
+}
+
+/* ── Primary accent: sky blue to complement the navy palette ────────── */
+:root {
+  --ui-primary: oklch(65.9% 0.175 232.4); /* sky-500 */
+}
+.dark {
+  --ui-primary: oklch(72.4% 0.160 230.4); /* sky-400 – lighter on dark bg */
+}
+
 .markdown-body {
   font-size: 0.95rem;
   line-height: 1.6;
@@ -35,6 +80,9 @@
   overflow-x: auto;
 }
 .markdown-body a {
-  color: rgb(59, 130, 246);
+  color: var(--color-gray-500);
   text-decoration: underline;
+}
+.dark .markdown-body a {
+  color: var(--color-gray-400);
 }
