@@ -12,6 +12,7 @@ const {
   defaultModel,
   ensureModels,
   loadChatsFromBackend,
+  loadMessagesForChat,
   models,
   modelsError,
   modelsLoading,
@@ -115,10 +116,17 @@ onMounted(async () => {
   }
 })
 
-watch(activeChatId, newId => {
+watch(activeChatId, async newId => {
+  if (!newId) return
   const conversation = conversations.value.find(c => c.session.chatId === newId)
-  if (conversation && !conversation.model && defaultModel.value) {
+  if (!conversation) return
+
+  if (!conversation.model && defaultModel.value) {
     setModelForChat(conversation.session.chatId, defaultModel.value)
+  }
+
+  if (conversation.messages.length === 0) {
+    await loadMessagesForChat(newId)
   }
 })
 

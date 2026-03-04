@@ -17,7 +17,7 @@ const messageId = () =>
   globalThis.crypto?.randomUUID?.() ||
   `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`
 
-function extractAssistantText(response: any): string {
+export function extractAssistantText(response: any): string {
   const pick = (candidate: any): string | null => {
     if (!candidate) return null
     if (typeof candidate === 'string') return candidate
@@ -137,6 +137,19 @@ export function useChatStore() {
     return models.value
   }
 
+  const loadMessagesForChat = async (chatId: string) => {
+    const conversation = conversations.value.find(c => c.session.chatId === chatId)
+    if (!conversation || conversation.messages.length > 0) return
+
+    const messages = await fetchChatMessages(chatId)
+    const uiMessages = messages.map(toUiMessage)
+    const lastUserMessage =
+      [...messages].reverse().find(message => message.role === 'USER')?.message || null
+
+    conversation.messages = uiMessages
+    conversation.lastPrompt = lastUserMessage
+  }
+
   const loadChatsFromBackend = async () => {
     const chats = await fetchChats()
 
@@ -146,26 +159,22 @@ export function useChatStore() {
         ? previousActiveId
         : null
 
-    const loadedConversations: Conversation[] = await Promise.all(
-      chats.map(async session => {
-        const messages = await fetchChatMessages(session.chatId)
-        const uiMessages = messages.map(toUiMessage)
-        const lastUserMessage =
-          [...messages].reverse().find(message => message.role === 'USER')?.message || null
-
-        return {
-          session,
-          messages: uiMessages,
-          status: 'ready',
-          error: null,
-          model: defaultModel.value,
-          lastPrompt: lastUserMessage
-        } satisfies Conversation
-      })
-    )
+    const loadedConversations: Conversation[] = chats.map(session => ({
+      session,
+      messages: [],
+      status: 'ready',
+      error: null,
+      model: defaultModel.value,
+      lastPrompt: null
+    } satisfies Conversation))
 
     conversations.value = loadedConversations
     activeChatId.value = existingSelectedId || loadedConversations[0]?.session.chatId || null
+
+    // Load messages only for the active chat
+    if (activeChatId.value) {
+      await loadMessagesForChat(activeChatId.value)
+    }
 
     return loadedConversations
   }
@@ -189,8 +198,9 @@ export function useChatStore() {
     return session
   }
 
-  const selectChat = (chatId: string) => {
+  const selectChat = async (chatId: string) => {
     activeChatId.value = chatId
+    await loadMessagesForChat(chatId)
   }
 
   const setModelForChat = (chatId: string, model: ModelOption) => {
@@ -338,6 +348,7 @@ export function useChatStore() {
     defaultModel,
     ensureModels,
     loadChatsFromBackend,
+    loadMessagesForChat,
     startChat,
     selectChat,
     setModelForChat,
