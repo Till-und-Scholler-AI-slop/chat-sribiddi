@@ -40,14 +40,16 @@ Frontend/web/
 ### Backend
 
 ```bash
+cd Backend
+
 # Compile
-./gradlew :Backend:compileJava
+./gradlew compileJava
 
 # Run all tests
-./gradlew :Backend:test
+./gradlew test
 
 # Run a specific test class
-./gradlew :Backend:test --tests "com.rft.chat_sribiddi.chat.service.ChatServiceTest"
+./gradlew test --tests "com.rft.chat_sribiddi.chat.service.ChatServiceTest"
 
 # Start (dev profile – no auth, uses docker-compose for Postgres)
 cd Backend && ./gradlew bootRun --args='--spring.profiles.active=dev'
