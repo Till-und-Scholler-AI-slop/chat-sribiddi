@@ -80,7 +80,7 @@ body {
   overflow-x: auto;
 }
 .markdown-body a {
-  color: var(--color-gray-500);
+  color: var(--ui-primary);
   text-decoration: underline;
 }
 .dark .markdown-body a {
