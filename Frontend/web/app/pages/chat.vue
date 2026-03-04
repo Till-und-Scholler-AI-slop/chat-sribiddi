@@ -54,8 +54,8 @@ const getFileParts = (parts?: Array<{ type: string }>): FilePart[] =>
   (parts || []).filter((p): p is FilePart => p.type === 'file')
 
 const formatMimeType = (mimeType: string): string => {
-  const sub = mimeType.split('/').pop() || mimeType
-  return sub.toUpperCase()
+  const subType = mimeType.split('/').pop() || mimeType
+  return subType.toUpperCase()
 }
 
 const fileIcon = (mimeType: string): string => {

@@ -16,6 +16,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AbstractMessage;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -108,7 +109,7 @@ public class ChatService {
             : "attachments:"
                 + validatedMedia.stream()
                     .map(RequestDTO.MediaAttachment::mimeType)
-                    .collect(java.util.stream.Collectors.joining(","));
+                    .collect(Collectors.joining(","));
 
     MessageEntity persistedUserMessage =
         persistMessage(chatId, requestDTO.content(), Role.USER, userContext);
