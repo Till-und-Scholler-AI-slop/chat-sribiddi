@@ -6,13 +6,14 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record MessageResponseDTO(
-    Long id, UUID chatId, String message, Role role, Instant createdAt) {
+    Long id, UUID chatId, String message, String context, Role role, Instant createdAt) {
 
   public static MessageResponseDTO from(MessageEntity entity) {
     return new MessageResponseDTO(
         entity.getId(),
         entity.getChatId(),
         entity.getMessage(),
+        entity.getContext(),
         entity.getRole(),
         entity.getCreatedAt());
   }

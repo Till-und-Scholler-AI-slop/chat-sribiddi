@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractAssistantText } from '../useChatStore'
+import { extractAssistantText, parseAttachmentContext } from '../useChatStore'
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {
@@ -40,5 +40,40 @@ describe('extractAssistantText', () => {
 
   it('trims whitespace from extracted text', () => {
     expect(extractAssistantText('  hello  ')).toBe('hello')
+  })
+})
+
+describe('parseAttachmentContext', () => {
+  it('parses single mime type', () => {
+    expect(parseAttachmentContext('attachments:image/png')).toEqual(['image/png'])
+  })
+
+  it('parses multiple mime types', () => {
+    expect(parseAttachmentContext('attachments:image/png,application/pdf')).toEqual([
+      'image/png',
+      'application/pdf'
+    ])
+  })
+
+  it('returns empty array for non-attachment context', () => {
+    expect(parseAttachmentContext('something else')).toEqual([])
+  })
+
+  it('returns empty array for empty attachments', () => {
+    expect(parseAttachmentContext('attachments:')).toEqual([])
+  })
+
+  it('trims whitespace from mime types', () => {
+    expect(parseAttachmentContext('attachments: image/png , application/pdf ')).toEqual([
+      'image/png',
+      'application/pdf'
+    ])
+  })
+
+  it('filters out empty entries', () => {
+    expect(parseAttachmentContext('attachments:image/png,,application/pdf')).toEqual([
+      'image/png',
+      'application/pdf'
+    ])
   })
 })

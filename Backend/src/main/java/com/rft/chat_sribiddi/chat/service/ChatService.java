@@ -103,7 +103,12 @@ public class ChatService {
     List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
 
     String userContext =
-        validatedMedia.isEmpty() ? null : "attachments=%d".formatted(validatedMedia.size());
+        validatedMedia.isEmpty()
+            ? null
+            : "attachments:"
+                + validatedMedia.stream()
+                    .map(RequestDTO.MediaAttachment::mimeType)
+                    .collect(java.util.stream.Collectors.joining(","));
 
     MessageEntity persistedUserMessage =
         persistMessage(chatId, requestDTO.content(), Role.USER, userContext);

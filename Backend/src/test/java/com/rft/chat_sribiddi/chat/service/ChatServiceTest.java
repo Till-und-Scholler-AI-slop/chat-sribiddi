@@ -155,6 +155,50 @@ class ChatServiceTest {
   }
 
   @Test
+  void sendMessage_withMedia_storesMimeTypesInContext() {
+    RequestDTO request =
+        new RequestDTO(
+            "describe files",
+            RequestDTO.Provider.OPENAI,
+            "gpt-5.2",
+            "key",
+            List.of(
+                new RequestDTO.MediaAttachment(
+                    "image/png", Base64.getEncoder().encodeToString("a".getBytes())),
+                new RequestDTO.MediaAttachment(
+                    "application/pdf", Base64.getEncoder().encodeToString("b".getBytes()))));
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
+        .thenReturn(List.of());
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("ok")))));
+
+    chatService.sendMessage(chatId, userId, request);
+
+    ArgumentCaptor<MessageEntity> savedMessages = ArgumentCaptor.forClass(MessageEntity.class);
+    verify(messageRepository, times(2)).save(savedMessages.capture());
+
+    MessageEntity userMsg = savedMessages.getAllValues().get(0);
+    assertThat(userMsg.getRole()).isEqualTo(Role.USER);
+    assertThat(userMsg.getContext()).isEqualTo("attachments:image/png,application/pdf");
+  }
+
+  @Test
   void sendMessage_withConcurrentLatestUserMessage_attachesMediaToPersistedMessageId() {
     RequestDTO request =
         new RequestDTO(
