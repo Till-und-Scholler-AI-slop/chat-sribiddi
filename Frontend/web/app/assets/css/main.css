@@ -2,48 +2,59 @@
 @import "@nuxt/ui";
 
 /* ── Color Palette ──────────────────────────────────────────────────────
- * Dark mode uses the provided blue-navy palette:
- *   Ink Black    #0d1b2a  →  gray-950  (darkest bg)
- *   Prussian Blue #1b263b →  gray-900  (secondary bg / hover)
- *   Dusk Blue    #415a77  →  gray-700  (borders, strong accent)
- *   Dusty Denim  #778da9  →  gray-500  (muted text / mid-tone)
- *   Alabaster    #e0e1dd  →  body text in dark mode
+ * Dark mode uses a violet-to-blue palette:
+ *   Schwarzviolett  #0B0514  →  gray-950  (body bg)
+ *   Dunkelviolett   #140A21  →  gray-900  (cards / sections bg)
+ *   Very dark purple #1E1030 →  gray-800  (intermediate)
+ *   Dunkles Purpur  #2E104D  →  gray-700  (light mode main text)
+ *   Dunkler Blau    #3A5888  →  gray-600  (intermediate)
+ *   Stahlblau       #3A8CCF  →  gray-500  (secondary accent / links)
+ *   Intermediate    #5BB8E8  →  gray-400  (intermediate)
+ *   Hellblau        #8EE2FC  →  gray-300  (highlights / hover)
+ *   Pastellblau     #ADE8FB  →  gray-200  (subtle borders)
+ *   Eisblau         #F0F9FF  →  gray-100  (light bg muted areas)
+ *   Weiß            #FFFFFF  →  gray-50   (cards in light mode)
  *
- * Light mode uses a complementary cool blue-gray palette derived from
- * the same blue-navy family for a cohesive look.
+ * Primary accent:
+ *   Light mode: #B82E8E  Beere / Magenta  (buttons & call-to-action)
+ *   Dark mode:  #E5338A  Magenta          (buttons & call-to-action)
+ *
+ * Body text:
+ *   Light mode: #2E104D  Dunkles Purpur
+ *   Dark mode:  #E0F7FF  Lichtblau (very light)
  * ─────────────────────────────────────────────────────────────────── */
 @theme {
-  --color-gray-50:  #f4f7fa;
-  --color-gray-100: #e8f0f5;
-  --color-gray-200: #d0e0ea;
-  --color-gray-300: #b0c8d8;
-  --color-gray-400: #8aabbd;
-  --color-gray-500: #778da9;
-  --color-gray-600: #5e7592;
-  --color-gray-700: #415a77;
-  --color-gray-800: #2e4059;
-  --color-gray-900: #1b263b;
-  --color-gray-950: #0d1b2a;
+  --color-gray-50:  #FFFFFF;
+  --color-gray-100: #F0F9FF;
+  --color-gray-200: #ADE8FB;
+  --color-gray-300: #8EE2FC;
+  --color-gray-400: #5BB8E8;
+  --color-gray-500: #3A8CCF;
+  --color-gray-600: #3A5888;
+  --color-gray-700: #2E104D;
+  --color-gray-800: #1E1030;
+  --color-gray-900: #140A21;
+  --color-gray-950: #0B0514;
 }
 
-/* Light mode base: clean white with blue-gray accents */
+/* Light mode base: very light ice blue background, dark purple text */
 body {
-  background-color: #f4f7fa;
-  color: #1b263b;
+  background-color: #F0F9FF;
+  color: #2E104D;
 }
 
-/* Dark mode base: Ink Black background, Alabaster Grey text */
+/* Dark mode base: Schwarzviolett background, very light blue text */
 .dark body {
-  background-color: #0d1b2a;
-  color: #e0e1dd;
+  background-color: #0B0514;
+  color: #E0F7FF;
 }
 
-/* ── Primary accent: sky blue to complement the navy palette ────────── */
+/* ── Primary accent: Magenta for buttons / call-to-action ────────── */
 :root {
-  --ui-primary: oklch(65.9% 0.175 232.4); /* sky-500 */
+  --ui-primary: oklch(47.5% 0.220 339); /* #B82E8E Berry/Magenta – light mode */
 }
 .dark {
-  --ui-primary: oklch(72.4% 0.160 230.4); /* sky-400 – lighter on dark bg */
+  --ui-primary: oklch(56% 0.236 351); /* #E5338A Magenta – dark mode */
 }
 
 .markdown-body {
@@ -80,9 +91,9 @@ body {
   overflow-x: auto;
 }
 .markdown-body a {
-  color: var(--ui-primary);
+  color: var(--color-gray-500); /* Stahlblau – secondary accent */
   text-decoration: underline;
 }
 .dark .markdown-body a {
-  color: var(--color-gray-400);
+  color: var(--color-gray-500); /* Stahlblau – secondary accent */
 }
