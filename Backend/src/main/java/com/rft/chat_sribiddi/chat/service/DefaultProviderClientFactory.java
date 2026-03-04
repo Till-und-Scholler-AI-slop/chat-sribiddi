@@ -7,8 +7,7 @@ import com.google.genai.Client;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import java.net.http.HttpClient;
 import java.util.concurrent.TimeUnit;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.anthropic.AnthropicChatModel;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.anthropic.api.AnthropicApi;
@@ -23,11 +22,10 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+@Slf4j
 @org.springframework.context.annotation.Primary
 @Component
 public class DefaultProviderClientFactory implements ProviderClientFactory {
-
-  private static final Logger log = LoggerFactory.getLogger(DefaultProviderClientFactory.class);
 
   private final OpenAiProviderProperties openAiProperties;
   private final Cache<String, ChatService.ClientHolder> openAiCache;

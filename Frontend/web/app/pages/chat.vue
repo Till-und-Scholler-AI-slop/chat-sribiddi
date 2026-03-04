@@ -254,13 +254,12 @@ const handleReload = async () => {
       <UContainer class="pb-4 sm:pb-6 space-y-2">
         <div class="flex items-center gap-2 flex-wrap">
           <label class="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-            <UIcon name="i-heroicons-photo" />
+            <UIcon name="i-heroicons-paper-clip" />
             <span>Add attachments</span>
             <input
               ref="fileInput"
               type="file"
               class="hidden"
-              accept="image/*"
               multiple
               @change="handleFiles"
             >

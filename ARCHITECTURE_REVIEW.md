@@ -2,147 +2,94 @@
 
 ## Overview
 
-This document identifies 20 architectural findings across the Spring Boot backend and Nuxt 4 frontend, organized by priority. Each finding includes the affected files, the problem, and the recommended fix.
+This document tracks architectural findings across the Spring Boot backend and Nuxt 4 frontend. Items are marked as ✅ Resolved, 🔄 Deferred, or noted with their current status.
 
 ---
 
-## High Priority
+## Resolved
 
-### 1. JPA entities exposed directly in REST API
+### 1. ✅ JPA entities exposed directly in REST API
 
-`ChatController` accepts and returns `ChatEntity` directly. `MessageEntity` is also returned raw from `listMessages`. This couples the API contract to the database schema — any schema change is a breaking API change, and persistence details (e.g. `@PrePersist`) leak to consumers.
+`ChatController` now uses `ChatResponseDTO`, `CreateChatRequestDTO`, and `MessageResponseDTO` records. Entities are no longer exposed in the API.
 
-- **Files:** `Backend/.../chat/controller/ChatController.java`, `Backend/.../chat/model/ChatEntity.java`, `Backend/.../chat/model/MessageEntity.java`
-- **Fix:** Create `ChatResponseDTO`, `CreateChatRequestDTO`, and `MessageResponseDTO` records. Map between entity and DTO in the controller.
+### 2. ✅ Unbounded provider-client cache (memory leak)
 
-### 2. Unbounded provider-client cache (memory leak)
+`DefaultProviderClientFactory` now uses Caffeine caches with `expireAfterAccess(30, MINUTES)` and `maximumSize(200)`, with removal listeners that close evicted clients.
 
-`DefaultProviderClientFactory` caches `ChatClient` instances per API key in `ConcurrentHashMap` with no eviction. If a user rotates their key, the old client stays cached forever.
+### 3. ✅ `SecurityConfig.securityFilterChain` returns null on exception
 
-- **File:** `Backend/.../chat/service/DefaultProviderClientFactory.java`
-- **Fix:** Replace `ConcurrentHashMap` with a Caffeine cache using `expireAfterAccess(30, MINUTES)` and `maximumSize(200)`. Add a removal listener that calls `ClientHolder.close()`.
+The method now declares `throws Exception` with no try/catch — Spring handles startup failures gracefully.
 
-### 3. `SecurityConfig.securityFilterChain` returns null on exception
+### 4. ✅ Frontend tests added
 
-If the security chain configuration fails, the catch block logs the error and returns `null`, causing a hard-to-debug `NullPointerException` at startup instead of a clear failure.
+Vitest tests exist for `useChatApi` and `useChatStore` composables in `Frontend/web/app/composables/__tests__/`.
 
-- **File:** `Backend/.../auth/config/SecurityConfig.java`
-- **Fix:** Remove the try/catch or rethrow as an unchecked exception. Spring handles startup failures gracefully.
+### 5. ✅ All chat message histories fetched on page load
 
-### 4. Zero frontend tests
+`loadChatsFromBackend` now only fetches messages for the active chat. Other chats are lazy-loaded via `loadMessagesForChat` when selected.
 
-There are no `*.spec.ts` or `*.test.ts` files in the frontend. Refactoring is risky without test coverage.
+### 6. ✅ CSRF enabled with session-based auth
 
-- **Fix:** Set up Vitest with `@nuxt/test-utils`. Add unit tests for composables (`useChatStore`, `useChatApi`) and component tests for key components.
+`SecurityConfig` uses `CookieCsrfTokenRepository.withHttpOnlyFalse()` with a custom `SpaCsrfTokenRequestHandler`. The frontend reads the `XSRF-TOKEN` cookie and sends the `X-XSRF-TOKEN` header on mutating requests.
 
-### 5. All chat message histories fetched on page load
+### 10. ✅ Hardcoded `http://localhost:8080` consolidated
 
-`loadChatsFromBackend` in `useChatStore.ts` calls `fetchChatMessages()` for every chat session in `Promise.all`. A user with 50 chats triggers 50+ concurrent requests and loads all message data into memory.
+`DEFAULT_BACKEND_BASE_URL` is defined in `useChatApi.ts` and imported by `useAuth.ts`, `useUserSettings.ts`, and `login.vue`. Only `nuxt.config.ts` retains a literal default (build-time config).
 
-- **File:** `Frontend/web/app/composables/useChatStore.ts`
-- **Fix:** Only fetch messages for the active chat. Lazy-load messages for other chats when the user selects them.
+### 11. ✅ `useChatApi.deleteChat` uses shared error handling
 
-### 6. CSRF disabled with session-based auth
+`deleteChat` now delegates to `requestJson<void>('/chats/${chatId}', { method: 'DELETE' })`.
 
-Both `SecurityConfig` and `DevSecurityConfig` disable CSRF. Since the app uses session cookies with `credentials: 'include'`, it's vulnerable to CSRF attacks.
+### 12. ✅ Model catalog configured in YAML
 
-- **Files:** `Backend/.../auth/config/SecurityConfig.java`, `Backend/.../auth/config/DevSecurityConfig.java`
-- **Fix:** Enable CSRF with `CookieCsrfTokenRepository.withHttpOnlyFalse()` and send the CSRF token from the frontend. Alternatively, switch to stateless JWT auth.
+Model lists are defined in `application.yaml` under `ai.models.openai`, `ai.models.google`, and `ai.models.claude`. `ModelCatalogProperties` reads them via `@ConfigurationProperties`.
 
----
+### 18. ✅ Consistent logging style
 
-## Medium Priority
+All backend service classes now use Lombok `@Slf4j` instead of manual `LoggerFactory.getLogger()`.
 
-### 7. Duplicated auth validation across controllers
+### 19. ✅ ChatService limits configurable
 
-`ChatController.validatePrincipal()` and `ApiKeyController.requireUser()` both null-check `OidcUser` with identical logic, repeated in every endpoint.
-
-- **Files:** `Backend/.../chat/controller/ChatController.java`, `Backend/.../keyring/ApiKeyController.java`
-- **Fix:** Use a `HandlerMethodArgumentResolver` or Spring Security's built-in mechanisms to reject null principals before controller code runs.
-
-### 8. `extractAssistantText` is fragile deep-object traversal
-
-The function in `useChatStore.ts` recursively traverses an unknown response shape with many fallback paths (`.text`, `.content`, `.output`, `.message`, `.result`, `.results`). This suggests the backend response contract is unclear.
-
-- **File:** `Frontend/web/app/composables/useChatStore.ts`
-- **Fix:** Define a clear response DTO on the backend with an explicit `assistantText` field instead of leaking Spring AI's internal `ChatResponse` structure.
-
-### 9. `MessageEntity.chatId` is a raw UUID, not a JPA relationship
-
-No `@ManyToOne` relationship means no cascading deletes, no JPA referential integrity, and requires manual `messageRepository.deleteByChatId()` in `ChatService.deleteChat()`.
-
-- **File:** `Backend/.../chat/model/MessageEntity.java`
-- **Fix:** Add `@ManyToOne(fetch = FetchType.LAZY)` on `MessageEntity` and `@OneToMany(cascade = CascadeType.REMOVE, orphanRemoval = true)` on `ChatEntity`.
-
-### 10. Hardcoded `http://localhost:8080` in 5+ frontend files
-
-The default backend URL is duplicated in `useChatApi.ts`, `useAuth.ts`, `useUserSettings.ts`, `nuxt.config.ts`, and `login.vue`.
-
-- **Fix:** Define a single `DEFAULT_BACKEND_URL` constant in a shared file and import it everywhere.
-
-### 11. `useChatApi.deleteChat` duplicates error handling
-
-The `deleteChat` method manually re-implements the same fetch + 401-check + error-text logic that `requestJson` already provides.
-
-- **File:** `Frontend/web/app/composables/useChatApi.ts`
-- **Fix:** Replace with `requestJson<void>('/chats/${chatId}', { method: 'DELETE' })`.
-
-### 12. Model catalog hardcoded in Java
-
-`ModelCatalogProperties` hardcodes model lists as Java defaults. Adding or removing a model requires a code change and redeploy.
-
-- **File:** `Backend/.../modelcatalog/ModelCatalogProperties.java`
-- **Fix:** Move defaults to `application.yml` under `ai.models.*` so they can be updated without code changes.
-
-### 13. No linting or formatting config for frontend
-
-No ESLint, Prettier, or similar configuration exists for the frontend code.
-
-- **Fix:** Add `@nuxt/eslint` with recommended preset, `.prettierrc`, and pre-commit hooks.
+`ChatProperties` (`@ConfigurationProperties(prefix = "app.chat")`) externalizes `contextMessageLimit`, `maxMediaAttachments`, `maxMediaAttachmentBytes`, and `maxMediaTotalBytes`. Defaults match the previous hardcoded values and can be overridden via `application.yaml` or environment variables.
 
 ---
 
-## Lower Priority
+## Deferred
 
-### 14. Missing OpenAPI/Swagger documentation
+The following items are acknowledged but deferred due to scope, risk, or dependency considerations.
 
-Swagger UI paths are permitted in `SecurityConfig` but there's no `springdoc` dependency. Add `springdoc-openapi-starter-webmvc-ui` and annotate controllers.
+### 7. 🔄 Duplicated auth validation across controllers
 
-### 15. Unpaginated message history endpoint
+`ChatController.validatePrincipal()` and `ApiKeyController.requireUser()` contain similar null-check logic. Both are small, self-contained, and functional. A shared `HandlerMethodArgumentResolver` could reduce duplication but adds complexity for minimal gain.
 
-`ChatService.listMessages` returns all messages for a chat. Long conversations will become slow.
+### 8. 🔄 `extractAssistantText` fragile deep-object traversal
 
-- **File:** `Backend/.../chat/service/ChatService.java`
-- **Fix:** Add `Pageable` parameter and return `Page<MessageEntity>`.
+The recursive fallback approach handles multiple AI provider response shapes. Replacing it requires defining a backend response DTO that normalizes Spring AI's `ChatResponse` — a larger change that should be part of a dedicated backend API contract cleanup.
 
-### 16. No request rate limiting
+### 9. 🔄 `MessageEntity.chatId` is a raw UUID
 
-No rate limiting on AI provider endpoints. A single user could spam requests.
+Adding `@ManyToOne` / `@OneToMany` requires a Flyway migration, changes to repository queries, and careful testing with the existing schema. Deferred to avoid migration risk.
 
-- **Fix:** Add rate limiting on `POST /chats/{chatId}/messages` (e.g. Bucket4j or a Spring filter).
+### 13. 🔄 No linting or formatting config for frontend
 
-### 17. Static `CryptoService` reference in `ApiKeyAttributeConverter`
+Adding ESLint and Prettier is a setup task that affects the entire frontend codebase and CI pipeline. Should be done as a dedicated configuration PR.
 
-Uses a static field with manual `initialize()` call — fragile and not idiomatic Spring.
+### 14. 🔄 Missing OpenAPI/Swagger documentation
 
-- **File:** `Backend/.../keyring/ApiKeyAttributeConverter.java`
-- **Fix:** Use Spring's `@Component` + `@Converter(autoApply = true)` pattern.
+Requires adding the `springdoc-openapi-starter-webmvc-ui` dependency and annotating controllers. Deferred as a separate enhancement.
 
-### 18. Inconsistent logging style
+### 15. 🔄 Unpaginated message history endpoint
 
-Mix of `LoggerFactory.getLogger()` and Lombok `@Slf4j` across backend classes.
+Adding pagination to `listMessages` changes the API contract and requires frontend coordination. Deferred until conversation length becomes a concern.
 
-- **Fix:** Standardize on `@Slf4j` across all classes.
+### 16. 🔄 No request rate limiting
 
-### 19. Non-configurable ChatService limits
+Requires a new dependency (e.g., Bucket4j) or custom filter. Should be evaluated as part of a production hardening effort.
 
-`CONTEXT_MESSAGE_LIMIT`, `MAX_MEDIA_ATTACHMENTS`, `MAX_MEDIA_ATTACHMENT_BYTES`, `MAX_MEDIA_TOTAL_BYTES` are hardcoded constants.
+### 17. 🔄 Static `CryptoService` reference in `ApiKeyAttributeConverter`
 
-- **File:** `Backend/.../chat/service/ChatService.java`
-- **Fix:** Move to a `@ConfigurationProperties` class so they can be tuned per environment.
+The current pattern with `ApiKeyAttributeConverterBootstrap` works around JPA's limitation of not injecting Spring beans into `@Converter` classes. The approach is functional and well-documented in the code.
 
-### 20. No global error boundary on frontend
+### 20. 🔄 No global error boundary on frontend
 
-Uncaught component errors will show a blank screen. Errors are only caught per-composable with `try/catch` + `toast.add()`.
-
-- **Fix:** Add Nuxt's `app:error` hook or `onErrorCaptured` with a fallback UI.
+Adding `app:error` hook or `onErrorCaptured` with a fallback UI is a UX enhancement that should be part of a broader error handling strategy.

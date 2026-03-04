@@ -1,3 +1,5 @@
+import { DEFAULT_BACKEND_BASE_URL } from '~/composables/useChatApi'
+
 type UserSettings = {
   backendBaseUrl: string
 }
@@ -10,7 +12,7 @@ export function useUserSettings() {
     typeof config.public?.backendBaseUrl === 'string' &&
     config.public.backendBaseUrl.trim() !== ''
       ? config.public.backendBaseUrl.trim()
-      : 'http://localhost:8080'
+      : DEFAULT_BACKEND_BASE_URL
 
   const state = useState<UserSettings>('user-settings', () => ({
     backendBaseUrl: defaultBackend

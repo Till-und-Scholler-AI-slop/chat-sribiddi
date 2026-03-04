@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { DEFAULT_BACKEND_BASE_URL, normalizeBaseUrl } from '~/composables/useChatApi'
+
 definePageMeta({
   layout: 'auth'
 })
@@ -10,13 +12,13 @@ const checking = ref(true)
 const authState = ref<'unknown' | 'authenticated' | 'unauthenticated'>('unknown')
 const checkError = ref<string | null>(null)
 
-const normalizeBaseUrl = (value: string) => {
+const resolveBaseUrl = (value: string) => {
   const trimmed = value.trim()
-  if (!trimmed) return 'http://localhost:8080'
-  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed
+  if (!trimmed) return DEFAULT_BACKEND_BASE_URL
+  return normalizeBaseUrl(trimmed)
 }
 
-const loginUrl = computed(() => `${normalizeBaseUrl(settings.value.backendBaseUrl)}/oauth2/authorization/google`)
+const loginUrl = computed(() => `${resolveBaseUrl(settings.value.backendBaseUrl)}/oauth2/authorization/google`)
 
 onMounted(async () => {
   try {
@@ -83,7 +85,7 @@ onMounted(async () => {
 
         <div class="rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900 dark:text-gray-300">
           <div class="font-medium">Backend</div>
-          <code class="break-all">{{ normalizeBaseUrl(settings.backendBaseUrl) }}</code>
+          <code class="break-all">{{ resolveBaseUrl(settings.backendBaseUrl) }}</code>
         </div>
 
         <p class="text-center text-xs text-gray-500 dark:text-gray-400">
