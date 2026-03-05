@@ -1,5 +1,5 @@
 import type { ChatStatus, UIMessage } from 'ai'
-import type { BackendMessage, ChatSession, MediaAttachment, ModelOption } from '~/composables/useChatApi'
+import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, SendMessageResponse, TokenUsage } from '~/composables/useChatApi'
 import { useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
 
@@ -71,6 +71,17 @@ export function parseAttachmentContext(context: string): string[] {
   return raw.split(',').map(s => s.trim()).filter(Boolean)
 }
 
+export function extractTokenUsage(response: SendMessageResponse | null): TokenUsage | null {
+  if (!response) return null
+  const { promptTokens, generationTokens, totalTokens } = response
+  if (promptTokens == null && generationTokens == null && totalTokens == null) return null
+  return {
+    promptTokens: promptTokens ?? null,
+    generationTokens: generationTokens ?? null,
+    totalTokens: totalTokens ?? null
+  }
+}
+
 export function useChatStore() {
   const {
     createChat,
@@ -88,6 +99,7 @@ export function useChatStore() {
   const models = useState<ModelOption[]>('chat-models', () => [])
   const modelsLoading = useState<boolean>('chat-models-loading', () => false)
   const modelsError = useState<string | null>('chat-models-error', () => null)
+  const tokenUsageMap = useState<Record<string, TokenUsage>>('chat-token-usage', () => ({}))
 
   const activeConversation = computed(() =>
     conversations.value.find(c => c.session.chatId === activeChatId.value) || null
@@ -112,11 +124,17 @@ export function useChatStore() {
       }
     }
 
-    return {
-      id: message.id ? `msg-${message.id}` : messageId(),
-      role,
-      parts
+    const id = message.id ? `msg-${message.id}` : messageId()
+
+    if (role === 'assistant' && (message.promptTokens != null || message.generationTokens != null || message.totalTokens != null)) {
+      tokenUsageMap.value[id] = {
+        promptTokens: message.promptTokens ?? null,
+        generationTokens: message.generationTokens ?? null,
+        totalTokens: message.totalTokens ?? null
+      }
     }
+
+    return { id, role, parts }
   }
 
   watch(
@@ -126,6 +144,7 @@ export function useChatStore() {
       models.value = []
       conversations.value = []
       activeChatId.value = null
+      tokenUsageMap.value = {}
     }
   )
 
@@ -338,7 +357,12 @@ export function useChatStore() {
       const assistantMessage: UIMessage = {
         id: messageId(),
         role: 'assistant',
-        parts: [{ type: 'text', text: extractAssistantText(response) }]
+        parts: [{ type: 'text', text: response?.message ?? extractAssistantText(response) }]
+      }
+
+      const usage = extractTokenUsage(response)
+      if (usage) {
+        tokenUsageMap.value[assistantMessage.id] = usage
       }
 
       conversation.messages.push(assistantMessage)
@@ -381,6 +405,7 @@ export function useChatStore() {
     modelsLoading,
     modelsError,
     defaultModel,
+    tokenUsageMap,
     ensureModels,
     loadChatsFromBackend,
     loadMessagesForChat,

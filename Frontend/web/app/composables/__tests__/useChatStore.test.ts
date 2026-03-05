@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractAssistantText, parseAttachmentContext } from '../useChatStore'
+import { extractAssistantText, extractTokenUsage, parseAttachmentContext } from '../useChatStore'
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {
@@ -75,5 +75,48 @@ describe('parseAttachmentContext', () => {
       'image/png',
       'application/pdf'
     ])
+  })
+})
+
+describe('extractTokenUsage', () => {
+  it('extracts token usage from response with all fields', () => {
+    const response = { message: 'hello', promptTokens: 100, generationTokens: 50, totalTokens: 150 }
+    expect(extractTokenUsage(response)).toEqual({
+      promptTokens: 100,
+      generationTokens: 50,
+      totalTokens: 150
+    })
+  })
+
+  it('returns null for null response', () => {
+    expect(extractTokenUsage(null)).toBeNull()
+  })
+
+  it('returns null when all token fields are null', () => {
+    const response = { message: 'hello', promptTokens: null, generationTokens: null, totalTokens: null }
+    expect(extractTokenUsage(response)).toBeNull()
+  })
+
+  it('returns null when all token fields are undefined', () => {
+    const response = { message: 'hello' } as any
+    expect(extractTokenUsage(response)).toBeNull()
+  })
+
+  it('handles partial token usage (only some fields present)', () => {
+    const response = { message: 'hello', promptTokens: 100, generationTokens: null, totalTokens: null }
+    expect(extractTokenUsage(response)).toEqual({
+      promptTokens: 100,
+      generationTokens: null,
+      totalTokens: null
+    })
+  })
+
+  it('handles zero token values', () => {
+    const response = { message: 'hello', promptTokens: 0, generationTokens: 0, totalTokens: 0 }
+    expect(extractTokenUsage(response)).toEqual({
+      promptTokens: 0,
+      generationTokens: 0,
+      totalTokens: 0
+    })
   })
 })

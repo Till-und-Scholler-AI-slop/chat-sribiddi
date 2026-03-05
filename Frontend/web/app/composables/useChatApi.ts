@@ -26,6 +26,22 @@ export type BackendMessage = {
   context?: string | null
   role: 'USER' | 'ASSISTANT' | 'SYSTEM'
   createdAt?: string | null
+  promptTokens?: number | null
+  generationTokens?: number | null
+  totalTokens?: number | null
+}
+
+export type TokenUsage = {
+  promptTokens: number | null
+  generationTokens: number | null
+  totalTokens: number | null
+}
+
+export type SendMessageResponse = {
+  message: string
+  promptTokens?: number | null
+  generationTokens?: number | null
+  totalTokens?: number | null
 }
 
 type CreateChatInput = {
@@ -184,7 +200,7 @@ export function useChatApi() {
     input: SendMessageInput,
     signal?: AbortSignal
   ) => {
-    return requestJson<unknown>(`/chats/${chatId}/messages`, {
+    return requestJson<SendMessageResponse>(`/chats/${chatId}/messages`, {
       method: 'POST',
       body: JSON.stringify(input),
       signal
