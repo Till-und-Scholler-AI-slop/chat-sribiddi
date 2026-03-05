@@ -13,4 +13,6 @@ public interface ApiKeyRepository extends JpaRepository<ApiKeyEntity, Long> {
   void deleteByUserIdAndProvider(String userId, Provider provider);
 
   boolean existsByUserIdAndProvider(String userId, Provider provider);
+
+  void deleteByUserId(String userId);
 }

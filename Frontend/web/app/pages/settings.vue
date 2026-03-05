@@ -7,8 +7,11 @@ definePageMeta({
 
 const { hydrated} = useUserSettings()
 const {getStatus, saveKey, deleteKey} = useKeyApi()
+const {deleteAccount} = useChatApi()
 const {models} = useChatStore()
+const {status: authStatus} = useAuth()
 const toast = useToast()
+const router = useRouter()
 
 type KeyProviderStatus = {
   openai: boolean
@@ -181,6 +184,33 @@ async function handleDelete(provider: Provider) {
     deletingProvider[provider] = false
   }
 }
+
+const showDeleteAccountModal = ref(false)
+const deletingAccount = ref(false)
+
+async function handleDeleteAccount() {
+  deletingAccount.value = true
+  try {
+    await deleteAccount()
+    showDeleteAccountModal.value = false
+    authStatus.value = 'unauthenticated'
+    models.value = []
+    toast.add({
+      title: 'Account deleted',
+      description: 'Your account and all associated data have been permanently deleted.',
+      color: 'neutral'
+    })
+    await router.push('/login')
+  } catch (err) {
+    toast.add({
+      title: 'Could not delete account',
+      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      color: 'error'
+    })
+  } finally {
+    deletingAccount.value = false
+  }
+}
 </script>
 
 <template>
@@ -294,6 +324,54 @@ async function handleDelete(provider: Provider) {
               </UCard>
             </div>
           </UCard>
+        
+
+          <UCard class="border border-red-500/30">
+            <div class="space-y-4">
+              <div class="space-y-1">
+                <div class="text-lg font-semibold text-red-500">Danger Zone</div>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  Permanently delete your account and all associated data including chats, messages, and stored API keys. This action cannot be undone.
+                </p>
+              </div>
+              <UButton
+                  type="button"
+                  color="error"
+                  variant="outline"
+                  icon="i-heroicons-trash"
+                  label="Delete my account"
+                  @click="showDeleteAccountModal = true"
+              />
+            </div>
+          </UCard>
+
+          <UModal v-model:open="showDeleteAccountModal" title="Delete account" description="This action is permanent and cannot be undone.">
+            <template #body>
+              <p class="text-sm text-gray-600 dark:text-gray-300">
+                Are you sure you want to permanently delete your account? All your chats, messages, and stored API keys will be erased immediately.
+              </p>
+            </template>
+            <template #footer>
+              <div class="flex justify-end gap-3">
+                <UButton
+                    type="button"
+                    variant="ghost"
+                    color="neutral"
+                    label="Cancel"
+                    :disabled="deletingAccount"
+                    @click="showDeleteAccountModal = false"
+                />
+                <UButton
+                    type="button"
+                    color="error"
+                    icon="i-heroicons-trash"
+                    label="Yes, delete my account"
+                    :loading="deletingAccount"
+                    @click="handleDeleteAccount"
+                />
+              </div>
+            </template>
+          </UModal>
         </div>
       </UContainer>
     </template>

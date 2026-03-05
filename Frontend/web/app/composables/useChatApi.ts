@@ -218,6 +218,10 @@ export function useChatApi() {
     await requestJson<void>(`/chats/${chatId}`, { method: 'DELETE' })
   }
 
+  const deleteAccount = async () => {
+    await requestJson<void>('/account', { method: 'DELETE' })
+  }
+
   const fetchModels = async (provider: Provider) => {
     const path =
       provider === 'OPENAI'
@@ -248,6 +252,7 @@ export function useChatApi() {
     sendMessage,
     updateChat,
     deleteChat,
+    deleteAccount,
     fetchModels
   }
 }
