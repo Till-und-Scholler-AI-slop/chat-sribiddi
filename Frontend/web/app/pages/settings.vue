@@ -190,20 +190,20 @@ async function handleDelete(provider: Provider) {
     </template>
 
     <template #body>
-      <UContainer class="py-6 space-y-6">
+      <UContainer class="py-8 space-y-8">
 
-        <div v-if="!hydrated" class="space-y-3">
-          <USkeleton class="h-12"/>
-          <USkeleton class="h-12"/>
-          <USkeleton class="h-12"/>
+        <div v-if="!hydrated" class="space-y-4">
+          <USkeleton class="h-14"/>
+          <USkeleton class="h-14"/>
+          <USkeleton class="h-14"/>
         </div>
 
-        <div v-else class="space-y-6">
+        <div v-else class="space-y-8">
           <UCard>
-            <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
               <div class="space-y-1">
-                <div class="font-semibold">Model API keys</div>
-                <p class="text-sm text-gray-600 dark:text-gray-400">
+                <div class="text-lg font-semibold">Model API keys</div>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
                   Save keys per provider. Each key is stored encrypted in the backend.
                 </p>
               </div>
@@ -218,11 +218,11 @@ async function handleDelete(provider: Provider) {
               </div>
             </div>
 
-            <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <UCard v-for="item in providerCards" :key="item.provider">
-                <div class="space-y-4">
-                  <div class="flex items-center justify-between gap-2">
-                    <div class="font-semibold">{{ item.title }}</div>
+            <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+              <UCard v-for="item in providerCards" :key="item.provider" class="flex flex-col">
+                <div class="flex flex-col gap-5 h-full">
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="text-base font-semibold">{{ item.title }}</div>
                     <UBadge
                         variant="soft"
                         :color="statusByProvider(item.provider) ? 'primary' : 'neutral'"
@@ -254,34 +254,41 @@ async function handleDelete(provider: Provider) {
                     />
                   </div>
 
-                  <div class="flex flex-wrap gap-2">
-                    <UButton
-                        type="button"
-                        variant="ghost"
-                        color="neutral"
-                        :icon="reveal[item.provider] ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
-                        :label="reveal[item.provider] ? 'Hide key' : 'Show key'"
-                        @click="reveal[item.provider] = !reveal[item.provider]"
-                    />
-                    <UButton
-                        type="button"
-                        color="primary"
-                        icon="i-heroicons-check-circle"
-                        label="Save key"
-                        :loading="savingProvider[item.provider]"
-                        :disabled="!keyPresent(item.provider) || isProviderBusy(item.provider)"
-                        @click="handleSave(item.provider)"
-                    />
-                    <UButton
-                        type="button"
-                        variant="outline"
-                        color="neutral"
-                        icon="i-heroicons-trash"
-                        label="Remove stored key"
-                        :loading="deletingProvider[item.provider]"
-                        :disabled="isProviderBusy(item.provider)"
-                        @click="handleDelete(item.provider)"
-                    />
+                  <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="flex items-center gap-3">
+                        <UButton
+                            type="button"
+                            variant="ghost"
+                            color="neutral"
+                            size="sm"
+                            :icon="reveal[item.provider] ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
+                            :label="reveal[item.provider] ? 'Hide' : 'Show'"
+                            @click="reveal[item.provider] = !reveal[item.provider]"
+                        />
+                        <UButton
+                            type="button"
+                            color="primary"
+                            size="sm"
+                            icon="i-heroicons-check-circle"
+                            label="Save key"
+                            :loading="savingProvider[item.provider]"
+                            :disabled="!keyPresent(item.provider) || isProviderBusy(item.provider)"
+                            @click="handleSave(item.provider)"
+                        />
+                      </div>
+                      <UButton
+                          type="button"
+                          variant="outline"
+                          color="error"
+                          size="sm"
+                          icon="i-heroicons-trash"
+                          label="Remove"
+                          :loading="deletingProvider[item.provider]"
+                          :disabled="isProviderBusy(item.provider)"
+                          @click="handleDelete(item.provider)"
+                      />
+                    </div>
                   </div>
                 </div>
               </UCard>
