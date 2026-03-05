@@ -1,10 +1,13 @@
 # Deployment Runbook (germinai.de)
 
-Diese Repo nutzt eine GitHub-Action:
+Diese Repo nutzt zwei getrennte GitHub-Actions:
 
-1. Workflow: `.github/workflows/deploy-main.yml`
-2. Trigger: jeder `push` auf Branch `main` (inkl. Merge in `main`)
-3. Zielserver: `root@45.81.235.217`
+1. Backend-Workflow: `.github/workflows/deploy-backend.yml`
+   - Trigger: `push` auf `main` mit Änderungen in `Backend/**` oder `infra/caddy/**`
+2. Frontend-Workflow: `.github/workflows/deploy-frontend.yml`
+   - Trigger: `push` auf `main` mit Änderungen in `Frontend/**`
+3. Beide Workflows unterstützen `workflow_dispatch` für manuelle Auslösung.
+4. Zielserver: `root@45.81.235.217`
 
 ## 1) Zielarchitektur
 
@@ -30,9 +33,10 @@ Wichtige Dateien:
 3. Caddy config: `/etc/caddy/Caddyfile`
 4. Caddy cert data: `/var/lib/caddy/.local/share/caddy`
 
-Temporärer Upload-Pfad beim CI-Deploy:
+Temporäre Upload-Pfade beim CI-Deploy:
 
-1. `/tmp/chat-sribiddi-deploy`
+1. Backend-Pipeline: `/tmp/chat-sribiddi-deploy-backend`
+2. Frontend-Pipeline: `/tmp/chat-sribiddi-deploy-frontend`
 
 ## 3) GitHub-Secrets
 
@@ -91,13 +95,22 @@ Caddyfile-Vorlage in Repo:
 
 ## 7) CI-Deploy-Ablauf
 
-Bei Push auf `main`:
+Bei Push auf `main` mit Änderungen in `Backend/**` oder `infra/caddy/**` (Backend-Pipeline):
 
-1. Archive bauen (`Backend`, `Frontend/web`, `infra/caddy`)
-2. Auf Server nach `/tmp/chat-sribiddi-deploy` hochladen
-3. `.env` Dateien aus Secrets schreiben
-4. Backend/Frontend per Docker Compose neu bauen/starten
+1. Backend-Archiv und Caddy-Archiv bauen
+2. Auf Server nach `/tmp/chat-sribiddi-deploy-backend` hochladen
+3. `.env` Datei aus Secret schreiben
+4. Backend per Docker Compose neu bauen/starten
 5. Caddyfile nach `/etc/caddy/Caddyfile` kopieren und Caddy reloaden
+
+Bei Push auf `main` mit Änderungen in `Frontend/**` (Frontend-Pipeline):
+
+1. Frontend-Archiv bauen
+2. Auf Server nach `/tmp/chat-sribiddi-deploy-frontend` hochladen
+3. `.env` Datei aus Secret schreiben
+4. Frontend per Docker Compose neu bauen/starten
+
+Bei Änderungen an beiden wird jede Pipeline unabhängig voneinander ausgelöst.
 
 ## 8) Verifikation
 
