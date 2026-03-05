@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
+import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
@@ -28,6 +29,8 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 
@@ -96,9 +99,9 @@ class ChatServiceTest {
     ChatResponse response = new ChatResponse(List.of(new Generation(new AssistantMessage("pong"))));
     when(callResponseSpec.chatResponse()).thenReturn(response);
 
-    ChatResponse result = chatService.sendMessage(chatId, userId, request);
+    SendMessageResponseDTO result = chatService.sendMessage(chatId, userId, request);
 
-    assertThat(result).isSameAs(response);
+    assertThat(result.message()).isEqualTo("pong");
 
     ArgumentCaptor<MessageEntity> savedMessages = ArgumentCaptor.forClass(MessageEntity.class);
     verify(messageRepository, times(2)).save(savedMessages.capture());
@@ -346,5 +349,86 @@ class ChatServiceTest {
     assertThatThrownBy(() -> customService.sendMessage(chatId, userId, request))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("media supports up to 1 attachments");
+  }
+
+  @Test
+  void sendMessage_extractsTokenUsage_andPersistsOnAssistantMessage() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of("stored-key"));
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+
+    ChatResponseMetadata metadata =
+        ChatResponseMetadata.builder().usage(new DefaultUsage(50, 20)).build();
+    ChatResponse response =
+        new ChatResponse(List.of(new Generation(new AssistantMessage("reply"))), metadata);
+    when(callResponseSpec.chatResponse()).thenReturn(response);
+
+    SendMessageResponseDTO result = chatService.sendMessage(chatId, userId, request);
+
+    assertThat(result.message()).isEqualTo("reply");
+    assertThat(result.promptTokens()).isEqualTo(50L);
+    assertThat(result.generationTokens()).isEqualTo(20L);
+    assertThat(result.totalTokens()).isEqualTo(70L);
+
+    ArgumentCaptor<MessageEntity> savedMessages = ArgumentCaptor.forClass(MessageEntity.class);
+    verify(messageRepository, times(2)).save(savedMessages.capture());
+
+    MessageEntity assistantMsg = savedMessages.getAllValues().get(1);
+    assertThat(assistantMsg.getRole()).isEqualTo(Role.ASSISTANT);
+    assertThat(assistantMsg.getPromptTokens()).isEqualTo(50L);
+    assertThat(assistantMsg.getGenerationTokens()).isEqualTo(20L);
+    assertThat(assistantMsg.getTotalTokens()).isEqualTo(70L);
+  }
+
+  @Test
+  void sendMessage_withNullUsage_returnsNullTokens() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemini", "key", null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.GOOGLE, "gemini", "key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gemini").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+
+    ChatResponse response =
+        new ChatResponse(List.of(new Generation(new AssistantMessage("ok"))));
+    when(callResponseSpec.chatResponse()).thenReturn(response);
+
+    SendMessageResponseDTO result = chatService.sendMessage(chatId, userId, request);
+
+    assertThat(result.message()).isEqualTo("ok");
+    assertThat(result.promptTokens()).isEqualTo(0L);
+    assertThat(result.generationTokens()).isEqualTo(0L);
+    assertThat(result.totalTokens()).isEqualTo(0L);
   }
 }

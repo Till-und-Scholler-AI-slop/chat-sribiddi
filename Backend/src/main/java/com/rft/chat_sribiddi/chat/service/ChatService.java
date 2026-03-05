@@ -2,6 +2,7 @@ package com.rft.chat_sribiddi.chat.service;
 
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
+import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
@@ -23,6 +24,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.content.Media;
@@ -96,7 +98,7 @@ public class ChatService {
     return chatRepository.save(chat);
   }
 
-  public ChatResponse sendMessage(UUID chatId, String userId, RequestDTO requestDTO) {
+  public SendMessageResponseDTO sendMessage(UUID chatId, String userId, RequestDTO requestDTO) {
     chatRepository
         .findByChatIdAndUserId(chatId, userId)
         .orElseThrow(() -> new ChatNotFoundException(chatId));
@@ -152,15 +154,34 @@ public class ChatService {
             .map(AbstractMessage::getText)
             .orElse("");
 
-    persistMessage(
-        chatId,
-        assistantResponse,
-        Role.ASSISTANT,
+    Long promptTokens = null;
+    Long generationTokens = null;
+    Long totalTokens = null;
+
+    if (chatResponse != null && chatResponse.getMetadata() != null) {
+      Usage usage = chatResponse.getMetadata().getUsage();
+      if (usage != null) {
+        promptTokens = safeLong(usage.getPromptTokens());
+        generationTokens = safeLong(usage.getCompletionTokens());
+        totalTokens = safeLong(usage.getTotalTokens());
+      }
+    }
+
+    MessageEntity assistantMessage = new MessageEntity();
+    assistantMessage.setChatId(chatId);
+    assistantMessage.setMessage(assistantResponse);
+    assistantMessage.setRole(Role.ASSISTANT);
+    assistantMessage.setContext(
         "Contains last %d messages including system prompt".formatted(promptMessages.size()));
+    assistantMessage.setCreatedAt(Instant.now());
+    assistantMessage.setPromptTokens(promptTokens);
+    assistantMessage.setGenerationTokens(generationTokens);
+    assistantMessage.setTotalTokens(totalTokens);
+    messageRepository.save(assistantMessage);
 
     log.debug("Message persisted successfully");
 
-    return chatResponse;
+    return new SendMessageResponseDTO(assistantResponse, promptTokens, generationTokens, totalTokens);
   }
 
   private List<Message> buildPromptMessages(
@@ -289,6 +310,10 @@ public class ChatService {
     entity.setContext(context);
     entity.setCreatedAt(Instant.now());
     return messageRepository.save(entity);
+  }
+
+  private static Long safeLong(Number value) {
+    return value == null ? null : value.longValue();
   }
 
   public record ClientHolder(

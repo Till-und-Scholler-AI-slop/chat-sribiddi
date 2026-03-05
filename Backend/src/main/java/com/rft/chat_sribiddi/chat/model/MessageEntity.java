@@ -30,6 +30,10 @@ public class MessageEntity {
 
   private Instant createdAt;
 
+  private Long promptTokens;
+  private Long generationTokens;
+  private Long totalTokens;
+
   @PrePersist
   void onCreate() {
     if (createdAt == null) {

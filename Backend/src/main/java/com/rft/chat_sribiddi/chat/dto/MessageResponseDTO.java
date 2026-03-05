@@ -6,7 +6,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record MessageResponseDTO(
-    Long id, UUID chatId, String message, String context, Role role, Instant createdAt) {
+    Long id, UUID chatId, String message, String context, Role role, Instant createdAt,
+    Long promptTokens, Long generationTokens, Long totalTokens) {
 
   public static MessageResponseDTO from(MessageEntity entity) {
     return new MessageResponseDTO(
@@ -15,6 +16,9 @@ public record MessageResponseDTO(
         entity.getMessage(),
         entity.getContext(),
         entity.getRole(),
-        entity.getCreatedAt());
+        entity.getCreatedAt(),
+        entity.getPromptTokens(),
+        entity.getGenerationTokens(),
+        entity.getTotalTokens());
   }
 }
