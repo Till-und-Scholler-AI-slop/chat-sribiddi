@@ -20,7 +20,8 @@ const {
   sendPrompt,
   setModelForChat,
   startChat,
-  stop
+  stop,
+  tokenUsageMap
 } = useChatStore()
 
 const input = ref('')
@@ -57,6 +58,15 @@ const formatMimeType = (mimeType: string): string => {
   const subType = mimeType.split('/').pop() || mimeType
   return subType.toUpperCase()
 }
+
+const formatTokenCount = (count: number | null | undefined): string => {
+  if (count == null) return '—'
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`
+  return count.toLocaleString()
+}
+
+const getTokenUsage = (messageId: string) => tokenUsageMap.value[messageId] ?? null
 
 const fileIcon = (mimeType: string): string => {
   if (mimeType.startsWith('image/')) return 'i-heroicons-photo'
@@ -255,7 +265,7 @@ const handleReload = async () => {
                   :auto-scroll="{ size: 'sm', color: 'neutral', variant: 'outline' }"
                   :spacing-offset="96"
                 >
-                  <template #content="{ parts }">
+                  <template #content="{ parts, message }">
                     <MarkdownMessage :text="firstText(parts)" />
                     <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
                       <UBadge
@@ -269,6 +279,27 @@ const handleReload = async () => {
                         {{ file.filename || formatMimeType(file.mediaType) }}
                       </UBadge>
                     </div>
+                    <template v-if="message?.role === 'assistant'">
+                      <template v-for="usage in [getTokenUsage(message.id)]" :key="message.id">
+                        <div
+                          v-if="usage"
+                          class="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400"
+                        >
+                          <span v-if="usage.promptTokens != null" class="inline-flex items-center gap-1">
+                            <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
+                            {{ formatTokenCount(usage.promptTokens) }}
+                          </span>
+                          <span v-if="usage.generationTokens != null" class="inline-flex items-center gap-1">
+                            <UIcon name="i-heroicons-arrow-down-tray" class="size-3" />
+                            {{ formatTokenCount(usage.generationTokens) }}
+                          </span>
+                          <span v-if="usage.totalTokens != null" class="inline-flex items-center gap-1">
+                            <UIcon name="i-heroicons-calculator" class="size-3" />
+                            {{ formatTokenCount(usage.totalTokens) }} tokens
+                          </span>
+                        </div>
+                      </template>
+                    </template>
                   </template>
                 </UChatMessages>
               </div>

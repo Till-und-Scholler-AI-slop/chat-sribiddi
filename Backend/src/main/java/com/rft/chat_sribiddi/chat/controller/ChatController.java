@@ -4,6 +4,7 @@ import com.rft.chat_sribiddi.chat.dto.ChatResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.CreateChatRequestDTO;
 import com.rft.chat_sribiddi.chat.dto.MessageResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
+import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.service.ChatService;
 import jakarta.validation.Valid;
@@ -11,7 +12,6 @@ import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -63,7 +63,7 @@ public class ChatController {
   }
 
   @PostMapping("/{chatId}/messages")
-  public ResponseEntity<ChatResponse> sendMessage(
+  public ResponseEntity<SendMessageResponseDTO> sendMessage(
       @AuthenticationPrincipal OidcUser principal,
       @PathVariable UUID chatId,
       @Valid @RequestBody RequestDTO request) {
