@@ -279,23 +279,27 @@ const handleReload = async () => {
                         {{ file.filename || formatMimeType(file.mediaType) }}
                       </UBadge>
                     </div>
-                    <div
-                      v-if="message?.role === 'assistant' && getTokenUsage(message.id)"
-                      class="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400"
-                    >
-                      <span v-if="getTokenUsage(message.id)!.promptTokens != null" class="inline-flex items-center gap-1">
-                        <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
-                        {{ formatTokenCount(getTokenUsage(message.id)!.promptTokens) }}
-                      </span>
-                      <span v-if="getTokenUsage(message.id)!.generationTokens != null" class="inline-flex items-center gap-1">
-                        <UIcon name="i-heroicons-arrow-down-tray" class="size-3" />
-                        {{ formatTokenCount(getTokenUsage(message.id)!.generationTokens) }}
-                      </span>
-                      <span v-if="getTokenUsage(message.id)!.totalTokens != null" class="inline-flex items-center gap-1">
-                        <UIcon name="i-heroicons-calculator" class="size-3" />
-                        {{ formatTokenCount(getTokenUsage(message.id)!.totalTokens) }} tokens
-                      </span>
-                    </div>
+                    <template v-if="message?.role === 'assistant'">
+                      <template v-for="usage in [getTokenUsage(message.id)]" :key="message.id">
+                        <div
+                          v-if="usage"
+                          class="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400"
+                        >
+                          <span v-if="usage.promptTokens != null" class="inline-flex items-center gap-1">
+                            <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
+                            {{ formatTokenCount(usage.promptTokens) }}
+                          </span>
+                          <span v-if="usage.generationTokens != null" class="inline-flex items-center gap-1">
+                            <UIcon name="i-heroicons-arrow-down-tray" class="size-3" />
+                            {{ formatTokenCount(usage.generationTokens) }}
+                          </span>
+                          <span v-if="usage.totalTokens != null" class="inline-flex items-center gap-1">
+                            <UIcon name="i-heroicons-calculator" class="size-3" />
+                            {{ formatTokenCount(usage.totalTokens) }} tokens
+                          </span>
+                        </div>
+                      </template>
+                    </template>
                   </template>
                 </UChatMessages>
               </div>

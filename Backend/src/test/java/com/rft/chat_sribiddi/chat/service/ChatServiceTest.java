@@ -399,7 +399,7 @@ class ChatServiceTest {
   }
 
   @Test
-  void sendMessage_withNullUsage_returnsNullTokens() {
+  void sendMessage_withDefaultMetadata_returnsZeroTokens() {
     RequestDTO request =
         new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemini", "key", null);
 
