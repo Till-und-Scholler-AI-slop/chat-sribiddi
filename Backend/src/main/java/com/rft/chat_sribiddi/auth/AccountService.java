@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,10 +17,13 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AccountService {
 
+  private static final String GOOGLE_REGISTRATION_ID = "google";
+
   private final UserRepository userRepository;
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
   private final ApiKeyRepository apiKeyRepository;
+  private final OAuth2AuthorizedClientService authorizedClientService;
 
   @Transactional
   public void deleteAccount(String providerId) {
@@ -39,6 +43,13 @@ public class AccountService {
     }
 
     userRepository.delete(user);
+
     log.info("Deleted account for providerId={}", providerId);
+
+    try {
+      authorizedClientService.removeAuthorizedClient(GOOGLE_REGISTRATION_ID, providerId);
+    } catch (Exception e) {
+      log.warn("Failed to remove OAuth2 authorized client for providerId={}", providerId, e);
+    }
   }
 }

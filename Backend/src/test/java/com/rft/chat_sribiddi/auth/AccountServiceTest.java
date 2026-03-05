@@ -16,6 +16,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 
 @ExtendWith(MockitoExtension.class)
 class AccountServiceTest {
@@ -24,13 +25,19 @@ class AccountServiceTest {
   @Mock private ChatRepository chatRepository;
   @Mock private MessageRepository messageRepository;
   @Mock private ApiKeyRepository apiKeyRepository;
+  @Mock private OAuth2AuthorizedClientService authorizedClientService;
 
   private AccountService accountService;
 
   @BeforeEach
   void setUp() {
     accountService =
-        new AccountService(userRepository, chatRepository, messageRepository, apiKeyRepository);
+        new AccountService(
+            userRepository,
+            chatRepository,
+            messageRepository,
+            apiKeyRepository,
+            authorizedClientService);
   }
 
   @Test
@@ -58,6 +65,7 @@ class AccountServiceTest {
     inOrder.verify(messageRepository).deleteAllByChatIdIn(List.of(chatId1, chatId2));
     inOrder.verify(chatRepository).deleteAll(chats);
     inOrder.verify(userRepository).delete(user);
+    verify(authorizedClientService).removeAuthorizedClient("google", providerId);
   }
 
   @Test
@@ -75,6 +83,7 @@ class AccountServiceTest {
     verifyNoInteractions(messageRepository);
     verify(chatRepository, never()).deleteAll(any(List.class));
     verify(userRepository).delete(user);
+    verify(authorizedClientService).removeAuthorizedClient("google", providerId);
   }
 
   @Test
@@ -87,5 +96,6 @@ class AccountServiceTest {
         .hasMessageContaining("No account found");
 
     verifyNoInteractions(apiKeyRepository, chatRepository, messageRepository);
+    verifyNoInteractions(authorizedClientService);
   }
 }
