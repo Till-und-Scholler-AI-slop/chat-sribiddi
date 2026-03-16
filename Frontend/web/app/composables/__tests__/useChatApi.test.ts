@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { modelEndpointPath, normalizeBaseUrl } from '../useChatApi'
+import { modelEndpointPath, normalizeBaseUrl, REQUEST_USER_ID_HEADER, withRequestUserId } from '../useChatApi'
 
 describe('normalizeBaseUrl', () => {
   it('removes trailing slash', () => {
@@ -22,5 +22,25 @@ describe('normalizeBaseUrl', () => {
 describe('modelEndpointPath', () => {
   it('returns the OpenRouter catalog endpoint', () => {
     expect(modelEndpointPath('OPENROUTER')).toBe('/models/openrouter')
+  })
+})
+
+describe('withRequestUserId', () => {
+  it('adds the request user header when a user id is present', () => {
+    expect(withRequestUserId({}, ' user-123 ')).toEqual({
+      [REQUEST_USER_ID_HEADER]: 'user-123'
+    })
+  })
+
+  it('keeps existing user id headers untouched', () => {
+    expect(withRequestUserId({ [REQUEST_USER_ID_HEADER]: 'existing-user' }, 'user-123')).toEqual({
+      [REQUEST_USER_ID_HEADER]: 'existing-user'
+    })
+  })
+
+  it('does not add the header for empty user ids', () => {
+    expect(withRequestUserId({}, null)).toEqual({})
+    expect(withRequestUserId({}, '')).toEqual({})
+    expect(withRequestUserId({}, '   ')).toEqual({})
   })
 })
