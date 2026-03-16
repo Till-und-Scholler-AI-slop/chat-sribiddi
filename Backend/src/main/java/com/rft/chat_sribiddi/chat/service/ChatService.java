@@ -291,7 +291,11 @@ public class ChatService {
                         .name("error")
                         .data(
                             new StreamEventDTO(
-                                "error", error.getMessage(), null, null, null),
+                                "error",
+                                "An error occurred while streaming the response.",
+                                null,
+                                null,
+                                null),
                             MediaType.APPLICATION_JSON));
               } catch (IOException e) {
                 log.warn("Failed to send SSE error event", e);

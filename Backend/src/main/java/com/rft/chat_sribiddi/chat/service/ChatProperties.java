@@ -19,6 +19,6 @@ public class ChatProperties {
 
   private long maxMediaTotalBytes = 20L * 1024 * 1024;
 
-  /** SSE stream timeout in milliseconds (default: 3 minutes). */
-  private long streamTimeoutMs = 180_000L;
+  /** SSE stream timeout in milliseconds (default: 10 minutes). */
+  private long streamTimeoutMs = 600_000L;
 }
