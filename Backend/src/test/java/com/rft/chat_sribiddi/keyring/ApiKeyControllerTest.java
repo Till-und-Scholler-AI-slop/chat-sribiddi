@@ -38,6 +38,8 @@ class ApiKeyControllerTest {
 
   @Test
   void hasApiKey_requiresAnyUserIdentity() {
+    when(request.getHeader(RequestUserResolver.USER_ID_HEADER)).thenReturn(null);
+
     assertThatThrownBy(() -> controller.hasApiKey(null, request, "openrouter"))
         .isInstanceOf(ResponseStatusException.class)
         .hasMessageContaining("401 UNAUTHORIZED");

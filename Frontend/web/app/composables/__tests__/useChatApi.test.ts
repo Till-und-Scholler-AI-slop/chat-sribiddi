@@ -37,4 +37,10 @@ describe('withRequestUserId', () => {
       [REQUEST_USER_ID_HEADER]: 'existing-user'
     })
   })
+
+  it('does not add the header for empty user ids', () => {
+    expect(withRequestUserId({}, null)).toEqual({})
+    expect(withRequestUserId({}, '')).toEqual({})
+    expect(withRequestUserId({}, '   ')).toEqual({})
+  })
 })
