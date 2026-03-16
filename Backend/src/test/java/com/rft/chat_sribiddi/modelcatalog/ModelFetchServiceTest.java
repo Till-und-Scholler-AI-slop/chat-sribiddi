@@ -1,6 +1,11 @@
 package com.rft.chat_sribiddi.modelcatalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.http.HttpMethod.GET;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rft.chat_sribiddi.chat.service.OpenRouterProviderProperties;
@@ -9,15 +14,21 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
 
 class ModelFetchServiceTest {
 
   private ModelFetchService service;
   private Method isRelevantOpenAiModel;
+  private OpenRouterProviderProperties openRouterProperties;
 
   @BeforeEach
   void setUp() throws Exception {
-    service = new ModelFetchService(new OpenRouterProviderProperties());
+    openRouterProperties = new OpenRouterProviderProperties();
+    service = new ModelFetchService(openRouterProperties);
     isRelevantOpenAiModel =
         ModelFetchService.class.getDeclaredMethod("isRelevantOpenAiModel", String.class);
     isRelevantOpenAiModel.setAccessible(true);
@@ -104,5 +115,79 @@ class ModelFetchServiceTest {
     assertThat(option.getMaxCompletionTokens()).isEqualTo(8192);
     assertThat(option.getSupportedParameters()).containsExactly("temperature", "top_p");
     assertThat(option.getInputModalities()).containsExactly("text", "image");
+  }
+
+  @Test
+  void fetchGoogleModels_parsesJsonResponseFromStringBody() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    service = new ModelFetchService(builder.build(), new ObjectMapper(), openRouterProperties);
+
+    server
+        .expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models"))
+        .andExpect(method(GET))
+        .andExpect(header("x-goog-api-key", "goog-key"))
+        .andRespond(
+            withSuccess(
+                """
+                {
+                  "models": [
+                    { "name": "models/gemini-2.5-flash", "displayName": "Gemini 2.5 Flash" },
+                    { "name": "models/text-bison", "displayName": "Text Bison" }
+                  ]
+                }
+                """,
+                MediaType.APPLICATION_JSON));
+
+    var models = service.fetchGoogleModels("goog-key");
+
+    assertThat(models).extracting(ModelCatalogProperties.ModelOption::getId)
+        .containsExactly("gemini-2.5-flash");
+    assertThat(models).extracting(ModelCatalogProperties.ModelOption::getLabel)
+        .containsExactly("Gemini 2.5 Flash");
+  }
+
+  @Test
+  void fetchOpenRouterModels_parsesCatalogResponseFromStringBody() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    service = new ModelFetchService(builder.build(), new ObjectMapper(), openRouterProperties);
+
+    server
+        .expect(requestTo(openRouterProperties.getModelCatalogUrl()))
+        .andExpect(method(GET))
+        .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer or-key"))
+        .andRespond(
+            withSuccess(
+                """
+                {
+                  "data": [
+                    {
+                      "id": "openrouter/auto",
+                      "name": "OpenRouter Auto"
+                    },
+                    {
+                      "id": "openai/gpt-4o",
+                      "canonical_slug": "openai/gpt-4o",
+                      "name": "GPT-4o",
+                      "context_length": 128000,
+                      "pricing": {
+                        "prompt": "0.000005",
+                        "completion": "0.000015"
+                      }
+                    }
+                  ]
+                }
+                """,
+                MediaType.APPLICATION_JSON));
+
+    var models = service.fetchOpenRouterModels("or-key");
+
+    assertThat(models).extracting(ModelCatalogProperties.ModelOption::getId)
+        .containsExactly("openai/gpt-4o", "openrouter/auto");
+    assertThat(models).extracting(ModelCatalogProperties.ModelOption::getLabel)
+        .containsExactly("GPT-4o", "OpenRouter Auto");
+    assertThat(models.getFirst().getPromptPrice()).isEqualTo("0.000005");
+    assertThat(models.getFirst().getCompletionPrice()).isEqualTo("0.000015");
   }
 }
