@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeBaseUrl } from '../useChatApi'
+import { modelEndpointPath, normalizeBaseUrl } from '../useChatApi'
 
 describe('normalizeBaseUrl', () => {
   it('removes trailing slash', () => {
@@ -16,5 +16,11 @@ describe('normalizeBaseUrl', () => {
 
   it('handles empty string', () => {
     expect(normalizeBaseUrl('')).toBe('')
+  })
+})
+
+describe('modelEndpointPath', () => {
+  it('returns the OpenRouter catalog endpoint', () => {
+    expect(modelEndpointPath('OPENROUTER')).toBe('/models/openrouter')
   })
 })

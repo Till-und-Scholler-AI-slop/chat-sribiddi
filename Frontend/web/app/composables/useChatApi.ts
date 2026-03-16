@@ -1,9 +1,31 @@
-export type Provider = 'OPENAI' | 'GOOGLE' | 'CLAUDE'
+export const PROVIDERS = ['OPENAI', 'GOOGLE', 'CLAUDE', 'OPENROUTER'] as const
+
+export type Provider = (typeof PROVIDERS)[number]
+
+export const MODEL_ENDPOINTS: Record<Provider, string> = {
+  OPENAI: '/models/openai',
+  GOOGLE: '/models/google',
+  CLAUDE: '/models/claude',
+  OPENROUTER: '/models/openrouter'
+}
 
 export type ModelOption = {
   label: string
   value: string
   provider: Provider
+  canonicalSlug?: string | null
+  created?: number | null
+  description?: string | null
+  contextLength?: number | null
+  maxCompletionTokens?: number | null
+  promptPrice?: string | null
+  completionPrice?: string | null
+  requestPrice?: string | null
+  imagePrice?: string | null
+  modality?: string | null
+  inputModalities?: string[]
+  outputModalities?: string[]
+  supportedParameters?: string[]
 }
 
 export type MediaAttachment = {
@@ -63,6 +85,10 @@ export const DEFAULT_BACKEND_BASE_URL = 'http://localhost:8080'
 
 export function normalizeBaseUrl(value: string) {
   return value.endsWith('/') ? value.slice(0, -1) : value
+}
+
+export function modelEndpointPath(provider: Provider) {
+  return MODEL_ENDPOINTS[provider]
 }
 
 export async function readErrorText(response: Response) {
@@ -223,13 +249,23 @@ export function useChatApi() {
   }
 
   const fetchModels = async (provider: Provider) => {
-    const path =
-      provider === 'OPENAI'
-        ? '/models/openai'
-        : provider === 'GOOGLE'
-          ? '/models/google'
-          : '/models/claude'
-    const data = await requestJson<Array<{ id: string; label: string }>>(path, {
+    const data = await requestJson<Array<{
+      id: string
+      label: string
+      canonicalSlug?: string | null
+      created?: number | null
+      description?: string | null
+      contextLength?: number | null
+      maxCompletionTokens?: number | null
+      promptPrice?: string | null
+      completionPrice?: string | null
+      requestPrice?: string | null
+      imagePrice?: string | null
+      modality?: string | null
+      inputModalities?: string[] | null
+      outputModalities?: string[] | null
+      supportedParameters?: string[] | null
+    }>>(modelEndpointPath(provider), {
       method: 'GET'
     })
 
@@ -238,7 +274,20 @@ export function useChatApi() {
     return data.map(model => ({
       label: model.label,
       value: model.id,
-      provider
+      provider,
+      canonicalSlug: model.canonicalSlug ?? null,
+      created: model.created ?? null,
+      description: model.description ?? null,
+      contextLength: model.contextLength ?? null,
+      maxCompletionTokens: model.maxCompletionTokens ?? null,
+      promptPrice: model.promptPrice ?? null,
+      completionPrice: model.completionPrice ?? null,
+      requestPrice: model.requestPrice ?? null,
+      imagePrice: model.imagePrice ?? null,
+      modality: model.modality ?? null,
+      inputModalities: model.inputModalities ?? [],
+      outputModalities: model.outputModalities ?? [],
+      supportedParameters: model.supportedParameters ?? []
     }))
   }
 

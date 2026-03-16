@@ -29,6 +29,7 @@ public record RequestDTO(
   public enum Provider {
     OPENAI,
     GOOGLE,
-    CLAUDE
+    CLAUDE,
+    OPENROUTER
   }
 }

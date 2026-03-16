@@ -28,15 +28,20 @@ import org.springframework.web.client.RestClient;
 public class DefaultProviderClientFactory implements ProviderClientFactory {
 
   private final OpenAiProviderProperties openAiProperties;
+  private final OpenRouterProviderProperties openRouterProperties;
   private final Cache<String, ChatService.ClientHolder> openAiCache;
   private final Cache<String, Client> googleClientCache;
   private final Cache<String, ChatService.ClientHolder> claudeCache;
+  private final Cache<String, ChatService.ClientHolder> openRouterCache;
 
-  public DefaultProviderClientFactory(OpenAiProviderProperties openAiProperties) {
+  public DefaultProviderClientFactory(
+      OpenAiProviderProperties openAiProperties, OpenRouterProviderProperties openRouterProperties) {
     this.openAiProperties = openAiProperties;
+    this.openRouterProperties = openRouterProperties;
     this.openAiCache = buildCache();
     this.googleClientCache = buildGoogleClientCache();
     this.claudeCache = buildCache();
+    this.openRouterCache = buildCache();
   }
 
   private Cache<String, ChatService.ClientHolder> buildCache() {
@@ -119,6 +124,29 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                         AnthropicChatModel.builder().anthropicApi(anthropicApi).build());
                 return new ChatService.ClientHolder(chatClient, null);
               });
+      case OPENROUTER ->
+          openRouterCache.get(
+              apiKey,
+              key -> {
+                HttpClient httpClient =
+                    HttpClient.newBuilder()
+                        .connectTimeout(openAiProperties.getConnectTimeout())
+                        .build();
+                JdkClientHttpRequestFactory requestFactory =
+                    new JdkClientHttpRequestFactory(httpClient);
+                requestFactory.setReadTimeout(openAiProperties.getReadTimeout());
+
+                OpenAiApi openRouterApi =
+                    OpenAiApi.builder()
+                        .apiKey(key)
+                        .baseUrl(openRouterProperties.getBaseUrl())
+                        .completionsPath(openRouterProperties.getCompletionsPath())
+                        .restClientBuilder(RestClient.builder().requestFactory(requestFactory))
+                        .build();
+                ChatClient chatClient =
+                    ChatClient.create(OpenAiChatModel.builder().openAiApi(openRouterApi).build());
+                return new ChatService.ClientHolder(chatClient, null);
+              });
     };
   }
 
@@ -132,6 +160,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
               // Google client uses the apiKey bound to the Client instance; header not needed here.
               .build();
       case CLAUDE -> AnthropicChatOptions.builder().model(modelId).build();
+      case OPENROUTER -> OpenAiChatOptions.builder().model(modelId).build();
     };
   }
 }

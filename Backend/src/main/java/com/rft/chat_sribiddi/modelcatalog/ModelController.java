@@ -40,6 +40,13 @@ public class ModelController {
     return ResponseEntity.ok(modelCatalogService.listClaudeModels(apiKey));
   }
 
+  @GetMapping("/openrouter")
+  public ResponseEntity<List<ModelCatalogProperties.ModelOption>> openRouterModels(
+      @AuthenticationPrincipal OidcUser principal) {
+    String apiKey = resolveApiKey(principal, Provider.OPENROUTER);
+    return ResponseEntity.ok(modelCatalogService.listOpenRouterModels(apiKey));
+  }
+
   private String resolveApiKey(OidcUser principal, Provider provider) {
     if (principal == null) {
       return null;

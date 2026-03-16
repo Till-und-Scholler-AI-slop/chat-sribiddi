@@ -74,6 +74,15 @@ const fileIcon = (mimeType: string): string => {
   return 'i-heroicons-paper-clip'
 }
 
+const providerLabel = (provider: ModelOption['provider']) =>
+  provider === 'OPENAI'
+    ? 'OpenAI'
+    : provider === 'GOOGLE'
+      ? 'Google'
+      : provider === 'CLAUDE'
+        ? 'Claude'
+        : 'OpenRouter'
+
 const toDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -376,7 +385,7 @@ const handleReload = async () => {
               <template #option="{ option }">
                 <div class="flex items-center justify-between">
                   <span>{{ option.label }}</span>
-                  <UBadge :label="option.provider" variant="soft" color="neutral" />
+                  <UBadge :label="providerLabel(option.provider)" variant="soft" color="neutral" />
                 </div>
               </template>
             </USelectMenu>
