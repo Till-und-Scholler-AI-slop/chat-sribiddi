@@ -9,7 +9,20 @@ export default defineNuxtConfig({
         mode: 'css',
         clientBundle: {
             scan: true,
-            icons: ['lucide:menu', 'lucide:chevron-down', 'lucide:arrow-up']
+            icons: [
+                'lucide:menu',
+                'lucide:chevron-down',
+                'lucide:arrow-up',
+                // USelectMenu / UCheckbox internal icons
+                'lucide:check',
+                'lucide:square',
+                'lucide:arrow-down',
+                // UPagination internal icons
+                'lucide:chevrons-left',
+                'lucide:chevron-left',
+                'lucide:chevron-right',
+                'lucide:chevrons-right',
+            ]
         }
     },
     ui: {
