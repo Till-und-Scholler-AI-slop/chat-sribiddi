@@ -18,6 +18,7 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestClient;
 
 class ModelFetchServiceTest {
@@ -199,7 +200,13 @@ class ModelFetchServiceTest {
 
       context.refresh();
 
-      assertThat(context.getBean(ModelFetchService.class)).isNotNull();
+      ModelFetchService modelFetchService = context.getBean(ModelFetchService.class);
+      OpenRouterProviderProperties injectedProperties =
+          context.getBean(OpenRouterProviderProperties.class);
+
+      assertThat(modelFetchService).isNotNull();
+      assertThat(ReflectionTestUtils.getField(modelFetchService, "openRouterProperties"))
+          .isSameAs(injectedProperties);
     }
   }
 }
