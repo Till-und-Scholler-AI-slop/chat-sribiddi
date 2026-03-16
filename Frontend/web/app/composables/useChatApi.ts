@@ -68,6 +68,49 @@ export type SendMessageResponse = {
   totalTokens?: number | null
 }
 
+export type StreamEvent = {
+  type: 'text' | 'reasoning' | 'done' | 'error'
+  content?: string | null
+  promptTokens?: number | null
+  generationTokens?: number | null
+  totalTokens?: number | null
+}
+
+/**
+ * Parses a raw SSE chunk into individual stream events.
+ * Each SSE message is delimited by a blank line and may contain
+ * `event:` and `data:` fields.
+ */
+export function parseSseEvents(raw: string): StreamEvent[] {
+  const events: StreamEvent[] = []
+  const blocks = raw.split(/\n\n+/)
+
+  for (const block of blocks) {
+    const trimmedBlock = block.trim()
+    if (!trimmedBlock) continue
+
+    let dataLine = ''
+    for (const line of trimmedBlock.split('\n')) {
+      if (line.startsWith('data:')) {
+        dataLine = line.slice(5).trim()
+      }
+    }
+
+    if (!dataLine) continue
+
+    try {
+      const parsed = JSON.parse(dataLine) as StreamEvent
+      if (parsed && parsed.type) {
+        events.push(parsed)
+      }
+    } catch {
+      // skip malformed JSON
+    }
+  }
+
+  return events
+}
+
 type CreateChatInput = {
   title?: string
 }
@@ -258,6 +301,86 @@ export function useChatApi() {
     })
   }
 
+  /**
+   * Streams a chat response via Server-Sent Events.
+   * Calls `onEvent` for each parsed {@link StreamEvent}.
+   */
+  const streamMessage = async (
+    chatId: string,
+    input: SendMessageInput,
+    onEvent: (event: StreamEvent) => void,
+    signal?: AbortSignal
+  ) => {
+    let headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+
+    const csrfToken = getCsrfToken()
+    if (csrfToken) {
+      headers['X-XSRF-TOKEN'] = csrfToken
+    }
+
+    if (import.meta.client) {
+      headers = withRequestUserId(headers, resolveUserId())
+    }
+
+    const response = await fetch(buildUrl(`/chats/${chatId}/messages/stream`), {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify(input),
+      signal
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Not authenticated. Please log in via the Login page.')
+      }
+      const errorText = await readErrorText(response)
+      throw new Error(
+        errorText || `Request failed (${response.status} ${response.statusText})`
+      )
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('Response body is not readable')
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+
+        // Process complete SSE events (delimited by double newline)
+        const parts = buffer.split(/\n\n/)
+        buffer = parts.pop() || ''
+
+        for (const part of parts) {
+          const events = parseSseEvents(part + '\n\n')
+          for (const event of events) {
+            onEvent(event)
+          }
+        }
+      }
+
+      // Process any remaining buffer
+      if (buffer.trim()) {
+        const events = parseSseEvents(buffer + '\n\n')
+        for (const event of events) {
+          onEvent(event)
+        }
+      }
+    } finally {
+      reader.releaseLock()
+    }
+  }
+
   const updateChat = async (chatId: string, input: UpdateChatInput) => {
     return requestJson<ChatSession>(`/chats/${chatId}`, {
       method: 'PATCH',
@@ -324,6 +447,7 @@ export function useChatApi() {
     fetchChats,
     fetchChatMessages,
     sendMessage,
+    streamMessage,
     updateChat,
     deleteChat,
     deleteAccount,

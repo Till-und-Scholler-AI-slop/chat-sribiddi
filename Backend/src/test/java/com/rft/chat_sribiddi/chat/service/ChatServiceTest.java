@@ -45,6 +45,7 @@ class ChatServiceTest {
   @Mock private ChatClient chatClient;
   @Mock private ChatClient.ChatClientRequestSpec requestSpec;
   @Mock private ChatClient.CallResponseSpec callResponseSpec;
+  @Mock private ChatClient.StreamResponseSpec streamResponseSpec;
 
   private ChatService chatService;
   private UUID chatId;
@@ -430,5 +431,66 @@ class ChatServiceTest {
     assertThat(result.promptTokens()).isEqualTo(0L);
     assertThat(result.generationTokens()).isEqualTo(0L);
     assertThat(result.totalTokens()).isEqualTo(0L);
+  }
+
+  @Test
+  void streamMessage_emitsTextChunks_andPersistsAssistantMessage() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of("stored-key"));
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.stream()).thenReturn(streamResponseSpec);
+
+    ChatResponseMetadata metadata =
+        ChatResponseMetadata.builder().usage(new DefaultUsage(10, 5)).build();
+    ChatResponse chunk1 = new ChatResponse(List.of(new Generation(new AssistantMessage("Hello"))));
+    ChatResponse chunk2 =
+        new ChatResponse(List.of(new Generation(new AssistantMessage(" world"))), metadata);
+    when(streamResponseSpec.chatResponse())
+        .thenReturn(reactor.core.publisher.Flux.just(chunk1, chunk2));
+
+    var emitter = chatService.streamMessage(chatId, userId, request);
+
+    assertThat(emitter).isNotNull();
+
+    // Verify user + assistant messages were persisted
+    ArgumentCaptor<MessageEntity> savedMessages = ArgumentCaptor.forClass(MessageEntity.class);
+    verify(messageRepository, times(2)).save(savedMessages.capture());
+
+    MessageEntity userMsg = savedMessages.getAllValues().get(0);
+    assertThat(userMsg.getRole()).isEqualTo(Role.USER);
+
+    MessageEntity assistantMsg = savedMessages.getAllValues().get(1);
+    assertThat(assistantMsg.getRole()).isEqualTo(Role.ASSISTANT);
+    assertThat(assistantMsg.getMessage()).isEqualTo("Hello world");
+    assertThat(assistantMsg.getPromptTokens()).isEqualTo(10L);
+    assertThat(assistantMsg.getGenerationTokens()).isEqualTo(5L);
+    assertThat(assistantMsg.getTotalTokens()).isEqualTo(15L);
+  }
+
+  @Test
+  void streamMessage_missingChat_throwsNotFound() {
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.empty());
+
+    RequestDTO request = new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemini", "key", null);
+
+    assertThatThrownBy(() -> chatService.streamMessage(chatId, userId, request))
+        .isInstanceOf(ChatNotFoundException.class);
   }
 }
