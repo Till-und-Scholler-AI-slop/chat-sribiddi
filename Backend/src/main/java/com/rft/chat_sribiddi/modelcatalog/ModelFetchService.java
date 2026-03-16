@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,7 @@ public class ModelFetchService {
   /** Cache keyed by "{provider}:{sha256(apiKey)}" with a 5-minute TTL to avoid hammering provider APIs. */
   private final Cache<String, List<ModelOption>> modelCache;
 
+  @Autowired
   public ModelFetchService(OpenRouterProviderProperties openRouterProperties) {
     this(createRestClient(), new ObjectMapper(), openRouterProperties);
   }
