@@ -12,6 +12,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
@@ -58,6 +59,18 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(RestClientResponseException.class)
   public ResponseEntity<Map<String, String>> handleProviderResponse(RestClientResponseException ex) {
+    HttpStatus mappedStatus =
+        ex.getStatusCode().is4xxClientError() ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY;
+    String responseBody = ex.getResponseBodyAsString();
+    String message =
+        (responseBody == null || responseBody.isBlank())
+            ? "AI provider rejected the request. Check your model and API key."
+            : responseBody;
+    return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
+  }
+
+  @ExceptionHandler(WebClientResponseException.class)
+  public ResponseEntity<Map<String, String>> handleWebClientResponse(WebClientResponseException ex) {
     HttpStatus mappedStatus =
         ex.getStatusCode().is4xxClientError() ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY;
     String responseBody = ex.getResponseBodyAsString();
