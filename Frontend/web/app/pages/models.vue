@@ -73,6 +73,21 @@ const filteredModels = computed(() => {
   })
 })
 
+const PAGE_SIZE = 24
+const currentPage = ref(1)
+
+// Reset to first page when filters change
+watch([search, providerFilter], () => {
+  currentPage.value = 1
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredModels.value.length / PAGE_SIZE)))
+
+const paginatedModels = computed(() => {
+  const start = (currentPage.value - 1) * PAGE_SIZE
+  return filteredModels.value.slice(start, start + PAGE_SIZE)
+})
+
 const formatInteger = (value?: number | null) => {
   if (value == null || Number.isNaN(value)) return '—'
   return value.toLocaleString()
@@ -177,8 +192,8 @@ onMounted(async () => {
               <USelectMenu
                 v-model="providerFilter"
                 :items="providerFilters"
-                value-attribute="value"
-                option-attribute="label"
+                value-key="value"
+                label-key="label"
                 class="min-w-[13rem]"
               />
             </div>
@@ -198,7 +213,7 @@ onMounted(async () => {
 
         <div v-else class="grid gap-4 xl:grid-cols-2">
           <UCard
-            v-for="model in filteredModels"
+            v-for="model in paginatedModels"
             :key="`${model.provider}:${model.value}`"
             class="h-full"
           >
@@ -341,6 +356,10 @@ onMounted(async () => {
               </div>
             </div>
           </UCard>
+        </div>
+
+        <div v-if="totalPages > 1" class="flex justify-center pt-2">
+          <UPagination v-model:page="currentPage" :total="filteredModels.length" :items-per-page="PAGE_SIZE" />
         </div>
       </UContainer>
     </template>
