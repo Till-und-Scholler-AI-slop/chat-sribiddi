@@ -40,6 +40,7 @@ public class ModelFetchService {
     this(createRestClient(), new ObjectMapper(), openRouterProperties);
   }
 
+  /** Package-private for focused tests that need to inject a mocked RestClient. */
   ModelFetchService(
       RestClient restClient,
       ObjectMapper objectMapper,
@@ -194,6 +195,10 @@ public class ModelFetchService {
     return id.startsWith("gemini-");
   }
 
+  /**
+   * Parses provider responses from a raw JSON string because these endpoints can fail when
+   * {@link RestClient} is asked to deserialize directly to {@link JsonNode}.
+   */
   private JsonNode getJson(RestClient.RequestHeadersSpec<?> request) throws IOException {
     String responseBody = request.retrieve().body(String.class);
     if (responseBody == null || responseBody.isBlank()) {
