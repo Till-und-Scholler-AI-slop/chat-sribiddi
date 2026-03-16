@@ -1,11 +1,11 @@
+import type { Provider } from './useChatApi'
+
 type KeyStatus = {
   openai: boolean
   google: boolean
   claude: boolean
   openrouter: boolean
 }
-
-type Provider = 'OPENAI' | 'GOOGLE' | 'CLAUDE' | 'OPENROUTER'
 
 const providerPath = (provider: Provider) => `/apikeys/${provider.toLowerCase()}`
 
