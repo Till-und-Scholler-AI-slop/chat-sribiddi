@@ -402,7 +402,6 @@ const handleReload = async () => {
               class="w-56"
               :loading="modelsLoading"
               label-key="label"
-              value-key="value"
               by="value"
               placeholder="Pick model"
               variant="subtle"
