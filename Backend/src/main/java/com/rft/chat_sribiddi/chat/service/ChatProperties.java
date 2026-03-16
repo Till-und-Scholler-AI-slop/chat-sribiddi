@@ -18,4 +18,7 @@ public class ChatProperties {
   private long maxMediaAttachmentBytes = 5L * 1024 * 1024;
 
   private long maxMediaTotalBytes = 20L * 1024 * 1024;
+
+  /** SSE stream timeout in milliseconds (default: 3 minutes). */
+  private long streamTimeoutMs = 180_000L;
 }

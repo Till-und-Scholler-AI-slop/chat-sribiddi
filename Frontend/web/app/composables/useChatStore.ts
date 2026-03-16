@@ -419,6 +419,15 @@ export function useChatStore() {
 
       return assistantMessage
     } catch (err) {
+      // Remove empty/partial assistant message on error
+      const textPart = assistantMessage.parts.find(
+        (p): p is { type: 'text'; text: string } => p.type === 'text'
+      )
+      if (!textPart?.text) {
+        const idx = conversation.messages.indexOf(assistantMessage)
+        if (idx !== -1) conversation.messages.splice(idx, 1)
+      }
+
       if (controller.signal.aborted) {
         conversation.error = 'Request cancelled.'
       } else {

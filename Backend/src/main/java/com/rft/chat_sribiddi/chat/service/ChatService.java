@@ -225,7 +225,7 @@ public class ChatService {
                         "No API key supplied and no stored key found for provider %s"
                             .formatted(requestDTO.provider())));
 
-    SseEmitter emitter = new SseEmitter(180_000L);
+    SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
 
     ClientHolder clientHolder =
         providerClientFactory.getClient(requestDTO.provider(), resolvedKey);
@@ -235,7 +235,6 @@ public class ChatService {
     var client = clientHolder.client();
 
     StringBuilder fullText = new StringBuilder();
-    StringBuilder reasoningText = new StringBuilder();
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
 
     client
@@ -266,7 +265,6 @@ public class ChatService {
 
                 String reasoning = extractReasoningContent(chunk);
                 if (reasoning != null && !reasoning.isEmpty()) {
-                  reasoningText.append(reasoning);
                   emitter.send(
                       SseEmitter.event()
                           .name("reasoning")
@@ -297,9 +295,10 @@ public class ChatService {
                             MediaType.APPLICATION_JSON));
               } catch (IOException e) {
                 log.warn("Failed to send SSE error event", e);
+              } finally {
+                emitter.completeWithError(error);
+                clientHolder.close();
               }
-              emitter.completeWithError(error);
-              clientHolder.close();
             },
             () -> {
               try {
