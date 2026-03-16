@@ -9,6 +9,8 @@ export const MODEL_ENDPOINTS: Record<Provider, string> = {
   OPENROUTER: '/models/openrouter'
 }
 
+export const REQUEST_USER_ID_HEADER = 'X-Chat-User-Id'
+
 export type ModelOption = {
   label: string
   value: string
@@ -91,6 +93,25 @@ export function modelEndpointPath(provider: Provider) {
   return MODEL_ENDPOINTS[provider]
 }
 
+export function withRequestUserId(
+  headers: Record<string, string>,
+  userId?: string | null
+) {
+  if (headers[REQUEST_USER_ID_HEADER]) {
+    return headers
+  }
+
+  const normalizedUserId = userId?.trim()
+  if (!normalizedUserId) {
+    return headers
+  }
+
+  return {
+    ...headers,
+    [REQUEST_USER_ID_HEADER]: normalizedUserId
+  }
+}
+
 export async function readErrorText(response: Response) {
   try {
     const text = await response.text()
@@ -162,7 +183,7 @@ export function useChatApi() {
   }
 
   const requestJson = async <T>(path: string, options: RequestInit) => {
-    const headers: Record<string, string> = {
+    let headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options.headers as Record<string, string> || {})
     }
@@ -173,6 +194,10 @@ export function useChatApi() {
       if (csrfToken) {
         headers['X-XSRF-TOKEN'] = csrfToken
       }
+    }
+
+    if (import.meta.client) {
+      headers = withRequestUserId(headers, resolveUserId())
     }
 
     const response = await fetch(buildUrl(path), {

@@ -1,6 +1,8 @@
 package com.rft.chat_sribiddi.keyring;
 
+import com.rft.chat_sribiddi.auth.RequestUserResolver;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.Locale;
@@ -18,38 +20,44 @@ import org.springframework.web.server.ResponseStatusException;
 public class ApiKeyController {
 
   private final ApiKeyService apiKeyService;
+  private final RequestUserResolver requestUserResolver;
 
   @PutMapping("/{provider}")
   public ResponseEntity<Void> upsertApiKey(
       @AuthenticationPrincipal OidcUser principal,
+      HttpServletRequest request,
       @PathVariable String provider,
       @Valid @RequestBody ApiKeyPayload payload) {
-    OidcUser user = requireUser(principal);
-    apiKeyService.saveKey(user.getSubject(), parseProvider(provider), payload.apiKey());
+    String userId = requireUserId(principal, request);
+    apiKeyService.saveKey(userId, parseProvider(provider), payload.apiKey());
     return ResponseEntity.noContent().build();
   }
 
   @DeleteMapping("/{provider}")
   public ResponseEntity<Void> deleteApiKey(
-      @AuthenticationPrincipal OidcUser principal, @PathVariable String provider) {
-    OidcUser user = requireUser(principal);
-    apiKeyService.deleteKey(user.getSubject(), parseProvider(provider));
+      @AuthenticationPrincipal OidcUser principal,
+      HttpServletRequest request,
+      @PathVariable String provider) {
+    String userId = requireUserId(principal, request);
+    apiKeyService.deleteKey(userId, parseProvider(provider));
     return ResponseEntity.noContent().build();
   }
 
   @GetMapping("/{provider}/exists")
   public ResponseEntity<Boolean> hasApiKey(
-      @AuthenticationPrincipal OidcUser principal, @PathVariable String provider) {
-    OidcUser user = requireUser(principal);
-    boolean exists = apiKeyService.hasKey(user.getSubject(), parseProvider(provider));
+      @AuthenticationPrincipal OidcUser principal,
+      HttpServletRequest request,
+      @PathVariable String provider) {
+    String userId = requireUserId(principal, request);
+    boolean exists = apiKeyService.hasKey(userId, parseProvider(provider));
     return ResponseEntity.ok(exists);
   }
 
-  private OidcUser requireUser(OidcUser principal) {
-    if (principal == null) {
-      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
-    }
-    return principal;
+  private String requireUserId(OidcUser principal, HttpServletRequest request) {
+    return requestUserResolver
+        .resolveUserId(principal, request)
+        .orElseThrow(
+            () -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
   }
 
   private Provider parseProvider(String provider) {
