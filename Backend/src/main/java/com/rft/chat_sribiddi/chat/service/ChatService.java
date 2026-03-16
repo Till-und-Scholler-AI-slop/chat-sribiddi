@@ -353,22 +353,20 @@ public class ChatService {
 
   private String extractProviderErrorMessage(Throwable error) {
     if (error instanceof WebClientResponseException webEx) {
-      String body = webEx.getResponseBodyAsString();
-      if (body != null && !body.isBlank()) {
-        return body;
-      }
-      return "AI provider rejected the request (HTTP %d). Check your model and API key."
-          .formatted(webEx.getStatusCode().value());
+      return formatProviderError(webEx.getResponseBodyAsString(), webEx.getStatusCode().value());
     }
     if (error instanceof RestClientResponseException restEx) {
-      String body = restEx.getResponseBodyAsString();
-      if (body != null && !body.isBlank()) {
-        return body;
-      }
-      return "AI provider rejected the request (HTTP %d). Check your model and API key."
-          .formatted(restEx.getStatusCode().value());
+      return formatProviderError(restEx.getResponseBodyAsString(), restEx.getStatusCode().value());
     }
     return "An error occurred while streaming the response.";
+  }
+
+  private static String formatProviderError(String responseBody, int statusCode) {
+    if (responseBody != null && !responseBody.isBlank()) {
+      return responseBody;
+    }
+    return "AI provider rejected the request (HTTP %d). Check your model and API key."
+        .formatted(statusCode);
   }
 
   private String extractReasoningContent(ChatResponse chunk) {
