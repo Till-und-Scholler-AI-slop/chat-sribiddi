@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -24,6 +25,9 @@ import org.springframework.web.client.RestClient;
 @Slf4j
 @Service
 public class ModelFetchService {
+
+  private static final String PUBLIC_CATALOG_CACHE_KEY = "<public>";
+  private static final Pattern PATH_SEPARATOR = Pattern.compile("\\.");
 
   private final RestClient restClient;
 
@@ -195,7 +199,9 @@ public class ModelFetchService {
   private String cacheKey(String provider, String apiKey) {
     try {
       MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      byte[] hash = digest.digest((apiKey == null ? "<public>" : apiKey).getBytes(StandardCharsets.UTF_8));
+      byte[] hash =
+          digest.digest(
+              (apiKey == null ? PUBLIC_CATALOG_CACHE_KEY : apiKey).getBytes(StandardCharsets.UTF_8));
       return provider + ":" + HexFormat.of().formatHex(hash);
     } catch (NoSuchAlgorithmException e) {
       // SHA-256 is guaranteed to be available in all JVM implementations
@@ -261,7 +267,7 @@ public class ModelFetchService {
     }
 
     JsonNode current = node;
-    for (String part : path.split("\\.")) {
+    for (String part : PATH_SEPARATOR.split(path)) {
       if (current == null || !current.hasNonNull(part)) {
         return null;
       }

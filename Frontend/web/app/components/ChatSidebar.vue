@@ -275,7 +275,7 @@ const goToModels = () => {
       <UButton
         variant="ghost"
         icon="i-heroicons-cog-6-tooth"
-        :label="collapsed ? '' : 'Einstellungen'"
+        :label="collapsed ? '' : 'Settings'"
         class="w-full justify-start"
         @click="goToSettings"
       />

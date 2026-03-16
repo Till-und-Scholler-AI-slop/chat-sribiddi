@@ -67,7 +67,7 @@ const isCurrentChatModel = (model: ModelOption) =>
 
 const formatContextWindow = (value?: number | null) => {
   if (value == null) return 'Unavailable'
-  return value.toLocaleString()
+  return `${value.toLocaleString()} tokens`
 }
 
 const formatUsdRate = (value?: string | null, unit = 'token') => {
@@ -214,7 +214,7 @@ onMounted(async () => {
                   <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     Context window
                   </div>
-                  <div class="mt-1 text-sm font-medium">{{ formatContextWindow(model.contextWindow) }} tokens</div>
+                  <div class="mt-1 text-sm font-medium">{{ formatContextWindow(model.contextWindow) }}</div>
                 </div>
 
                 <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
@@ -261,12 +261,12 @@ onMounted(async () => {
           </UCard>
         </div>
 
-        <UEmptyState
-          v-if="!modelsLoading && filteredModels.length === 0"
-          icon="i-heroicons-cpu-chip"
-          title="No models found"
-          description="Try a broader search, switch providers, or add an API key in Settings."
-        />
+        <UCard v-if="!modelsLoading && filteredModels.length === 0">
+          <div class="flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
+            <UIcon name="i-heroicons-cpu-chip" class="size-5" />
+            <span>Try a broader search, switch providers, or add an API key in Settings.</span>
+          </div>
+        </UCard>
       </UContainer>
     </template>
   </UDashboardPanel>
