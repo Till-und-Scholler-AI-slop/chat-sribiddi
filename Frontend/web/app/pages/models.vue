@@ -172,7 +172,7 @@ onMounted(async () => {
                 v-model="search"
                 icon="i-heroicons-magnifying-glass"
                 placeholder="Search models, providers, or parameters"
-                class="min-w-72"
+                class="min-w-[18rem]"
               />
               <USelectMenu
                 v-model="providerFilter"
