@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeBaseUrl } from '../useChatApi'
+import { mapModelOption, normalizeBaseUrl } from '../useChatApi'
 
 describe('normalizeBaseUrl', () => {
   it('removes trailing slash', () => {
@@ -16,5 +16,32 @@ describe('normalizeBaseUrl', () => {
 
   it('handles empty string', () => {
     expect(normalizeBaseUrl('')).toBe('')
+  })
+})
+
+describe('mapModelOption', () => {
+  it('preserves provider metadata for model catalog pages', () => {
+    expect(
+      mapModelOption('OPENROUTER', {
+        id: 'openai/gpt-4.1',
+        label: 'GPT-4.1',
+        description: 'OpenRouter hosted model',
+        contextWindow: 1_000_000,
+        pricing: {
+          prompt: '0.000002',
+          completion: '0.000008'
+        }
+      })
+    ).toEqual({
+      label: 'GPT-4.1',
+      value: 'openai/gpt-4.1',
+      provider: 'OPENROUTER',
+      description: 'OpenRouter hosted model',
+      contextWindow: 1_000_000,
+      pricing: {
+        prompt: '0.000002',
+        completion: '0.000008'
+      }
+    })
   })
 })

@@ -1,5 +1,5 @@
 import type { ChatStatus, UIMessage } from 'ai'
-import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, SendMessageResponse, TokenUsage } from '~/composables/useChatApi'
+import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, Provider, SendMessageResponse, TokenUsage } from '~/composables/useChatApi'
 import { useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
 
@@ -105,7 +105,18 @@ export function useChatStore() {
     conversations.value.find(c => c.session.chatId === activeChatId.value) || null
   )
 
-  const defaultModel = computed<ModelOption | null>(() => models.value[0] || null)
+  const preferredModel = computed<ModelOption | null>(() => {
+    const preferredId = settings.value.preferredModelId?.trim()
+    const preferredProvider = settings.value.preferredModelProvider
+    if (!preferredId || !preferredProvider) return null
+    return (
+      models.value.find(
+        model => model.value === preferredId && model.provider === preferredProvider
+      ) || null
+    )
+  })
+
+  const defaultModel = computed<ModelOption | null>(() => preferredModel.value || models.value[0] || null)
 
   const toUiMessage = (message: BackendMessage): UIMessage => {
     const role =
@@ -154,7 +165,8 @@ export function useChatStore() {
       const results = await Promise.allSettled([
         fetchModels('OPENAI'),
         fetchModels('GOOGLE'),
-        fetchModels('CLAUDE')
+        fetchModels('CLAUDE'),
+        fetchModels('OPENROUTER')
       ])
 
       const loaded: ModelOption[] = []
@@ -256,6 +268,11 @@ export function useChatStore() {
     if (conversation) {
       conversation.model = model
     }
+  }
+
+  const setPreferredModel = (model: ModelOption | null) => {
+    settings.value.preferredModelId = model?.value ?? null
+    settings.value.preferredModelProvider = (model?.provider as Provider | undefined) ?? null
   }
 
   const renameChat = async (chatId: string, title: string) => {
@@ -405,6 +422,7 @@ export function useChatStore() {
     modelsLoading,
     modelsError,
     defaultModel,
+    preferredModel,
     tokenUsageMap,
     ensureModels,
     loadChatsFromBackend,
@@ -412,6 +430,7 @@ export function useChatStore() {
     startChat,
     selectChat,
     setModelForChat,
+    setPreferredModel,
     renameChat,
     removeChat,
     sendPrompt,

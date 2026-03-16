@@ -17,6 +17,7 @@ type KeyProviderStatus = {
   openai: boolean
   google: boolean
   claude: boolean
+  openrouter: boolean
 }
 
 type ProviderCard = {
@@ -52,6 +53,14 @@ const providerCards: ProviderCard[] = [
     label: 'Claude API key',
     placeholder: 'sk-ant-...',
     description: 'Used for Claude models.'
+  },
+  {
+    provider: 'OPENROUTER',
+    key: 'openrouter',
+    title: 'OpenRouter',
+    label: 'OpenRouter API key',
+    placeholder: 'sk-or-...',
+    description: 'Used for the full OpenRouter model catalog and chat requests.'
   }
 ]
 
@@ -61,29 +70,39 @@ const status = ref<KeyProviderStatus | null>(null)
 const form = reactive<Record<Provider, string>>({
   OPENAI: '',
   GOOGLE: '',
-  CLAUDE: ''
+  CLAUDE: '',
+  OPENROUTER: ''
 })
 
 const reveal = reactive<Record<Provider, boolean>>({
   OPENAI: false,
   GOOGLE: false,
-  CLAUDE: false
+  CLAUDE: false,
+  OPENROUTER: false
 })
 
 const savingProvider = reactive<Record<Provider, boolean>>({
   OPENAI: false,
   GOOGLE: false,
-  CLAUDE: false
+  CLAUDE: false,
+  OPENROUTER: false
 })
 
 const deletingProvider = reactive<Record<Provider, boolean>>({
   OPENAI: false,
   GOOGLE: false,
-  CLAUDE: false
+  CLAUDE: false,
+  OPENROUTER: false
 })
 
 const providerDisplay = (provider: Provider) =>
-    provider === 'OPENAI' ? 'OpenAI' : provider === 'GOOGLE' ? 'Google' : 'Claude'
+    provider === 'OPENAI'
+      ? 'OpenAI'
+      : provider === 'GOOGLE'
+        ? 'Google'
+        : provider === 'CLAUDE'
+          ? 'Claude'
+          : 'OpenRouter'
 
 const statusByProvider = (provider: Provider) => {
   if (!status.value) return false
@@ -91,7 +110,9 @@ const statusByProvider = (provider: Provider) => {
       ? status.value.openai
       : provider === 'GOOGLE'
           ? status.value.google
-          : status.value.claude
+          : provider === 'CLAUDE'
+            ? status.value.claude
+            : status.value.openrouter
 }
 
 const statusLabel = (provider: Provider) => {

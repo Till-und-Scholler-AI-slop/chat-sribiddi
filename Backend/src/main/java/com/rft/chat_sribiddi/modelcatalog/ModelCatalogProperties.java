@@ -21,6 +21,8 @@ public class ModelCatalogProperties {
 
   private List<ModelOption> claude = new ArrayList<>();
 
+  private List<ModelOption> openrouter = new ArrayList<>();
+
   @Getter
   @Setter
   @NoArgsConstructor
@@ -28,5 +30,23 @@ public class ModelCatalogProperties {
   public static class ModelOption {
     private String id;
     private String label;
+    private String description;
+    private Long contextWindow;
+    private Pricing pricing;
+
+    public ModelOption(String id, String label) {
+      this(id, label, null, null, null);
+    }
+  }
+
+  @Getter
+  @Setter
+  @NoArgsConstructor
+  @AllArgsConstructor
+  public static class Pricing {
+    private String prompt;
+    private String completion;
+    private String image;
+    private String request;
   }
 }

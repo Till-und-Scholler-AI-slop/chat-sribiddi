@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
+import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.Pricing;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +31,15 @@ class ModelCatalogServiceTest {
             List.of(new ModelOption("gemini-2.5-pro-preview-05-06", "Gemini 2.5 Pro"))));
     properties.setClaude(
         new ArrayList<>(List.of(new ModelOption("claude-sonnet-4-20250514", "Claude Sonnet 4"))));
+    properties.setOpenrouter(
+        new ArrayList<>(
+            List.of(
+                new ModelOption(
+                    "openai/gpt-4o-mini",
+                    "GPT-4o Mini",
+                    "OpenRouter fallback",
+                    128000L,
+                    new Pricing("0.00000015", "0.0000006", null, null)))));
     service = new ModelCatalogService(properties, modelFetchService);
   }
 
@@ -127,5 +137,34 @@ class ModelCatalogServiceTest {
 
     assertThat(result).isEqualTo(properties.getClaude());
     verifyNoInteractions(modelFetchService);
+  }
+
+  // --- OpenRouter ---
+
+  @Test
+  void listOpenRouterModels_returnsLiveResults_evenWhenNoApiKeyProvided() {
+    List<ModelOption> liveModels =
+        List.of(
+            new ModelOption(
+                "openai/gpt-4.1",
+                "GPT-4.1",
+                "Live OpenRouter model",
+                1_000_000L,
+                new Pricing("0.000002", "0.000008", null, null)));
+    when(modelFetchService.fetchOpenRouterModels(null)).thenReturn(liveModels);
+
+    List<ModelOption> result = service.listOpenRouterModels(null);
+
+    assertThat(result).isEqualTo(liveModels);
+    verify(modelFetchService).fetchOpenRouterModels(null);
+  }
+
+  @Test
+  void listOpenRouterModels_fallsBackToStatic_whenLiveFetchReturnsEmpty() {
+    when(modelFetchService.fetchOpenRouterModels("sk-or-key")).thenReturn(List.of());
+
+    List<ModelOption> result = service.listOpenRouterModels("sk-or-key");
+
+    assertThat(result).isEqualTo(properties.getOpenrouter());
   }
 }

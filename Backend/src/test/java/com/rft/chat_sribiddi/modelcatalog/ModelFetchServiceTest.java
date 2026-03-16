@@ -54,4 +54,14 @@ class ModelFetchServiceTest {
     assertThat((boolean) isRelevantGoogleModel.invoke(service, "gemini-2.5-flash")).isTrue();
     assertThat((boolean) isRelevantGoogleModel.invoke(service, "text-bison")).isFalse();
   }
+
+  @Test
+  void cacheKey_handlesMissingApiKeyForPublicCatalogFetches() throws Exception {
+    Method cacheKey = ModelFetchService.class.getDeclaredMethod("cacheKey", String.class, String.class);
+    cacheKey.setAccessible(true);
+
+    String result = (String) cacheKey.invoke(service, "openrouter", null);
+
+    assertThat(result).startsWith("openrouter:");
+  }
 }

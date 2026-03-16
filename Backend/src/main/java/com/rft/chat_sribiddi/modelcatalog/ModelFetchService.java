@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
+import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.Pricing;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -14,17 +15,15 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+@Slf4j
 @Service
 public class ModelFetchService {
-
-  private static final Logger log = LoggerFactory.getLogger(ModelFetchService.class);
 
   private final RestClient restClient;
 
@@ -65,7 +64,7 @@ public class ModelFetchService {
                 models.add(new ModelOption(id, id));
               }
             }
-            models.sort(Comparator.comparing(ModelOption::getId));
+            models.sort(Comparator.comparing(ModelOption::getLabel).thenComparing(ModelOption::getId));
             return models;
           } catch (Exception e) {
             log.warn("Failed to fetch OpenAI models: {}", e.getMessage());
@@ -102,7 +101,7 @@ public class ModelFetchService {
                 models.add(new ModelOption(id, displayName));
               }
             }
-            models.sort(Comparator.comparing(ModelOption::getId));
+            models.sort(Comparator.comparing(ModelOption::getLabel).thenComparing(ModelOption::getId));
             return models;
           } catch (Exception e) {
             log.warn("Failed to fetch Google models: {}", e.getMessage());
@@ -136,10 +135,49 @@ public class ModelFetchService {
                   model.has("display_name") ? model.get("display_name").asText() : id;
               models.add(new ModelOption(id, displayName));
             }
-            models.sort(Comparator.comparing(ModelOption::getId));
+            models.sort(Comparator.comparing(ModelOption::getLabel).thenComparing(ModelOption::getId));
             return models;
           } catch (Exception e) {
             log.warn("Failed to fetch Claude models: {}", e.getMessage());
+            return List.of();
+          }
+        });
+  }
+
+  public List<ModelOption> fetchOpenRouterModels(String apiKey) {
+    return modelCache.get(
+        cacheKey("openrouter", apiKey),
+        k -> {
+          try {
+            RestClient.RequestHeadersSpec<?> request = restClient.get().uri("https://openrouter.ai/api/v1/models");
+            if (apiKey != null && !apiKey.isBlank()) {
+              request = request.header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
+            }
+
+            JsonNode response = request.retrieve().body(JsonNode.class);
+            if (response == null || !response.has("data")) {
+              return List.of();
+            }
+
+            List<ModelOption> models = new ArrayList<>();
+            for (JsonNode model : response.get("data")) {
+              String id = firstTextValue(model, "id", "canonical_slug");
+              if (id == null || id.isBlank()) {
+                continue;
+              }
+              String label = textValue(model, "name");
+              models.add(
+                  new ModelOption(
+                      id,
+                      (label == null || label.isBlank()) ? id : label,
+                      textValue(model, "description"),
+                      firstLongValue(model, "context_length", "top_provider.context_length"),
+                      pricing(model.get("pricing"))));
+            }
+            models.sort(Comparator.comparing(ModelOption::getLabel).thenComparing(ModelOption::getId));
+            return models;
+          } catch (Exception e) {
+            log.warn("Failed to fetch OpenRouter models: {}", e.getMessage());
             return List.of();
           }
         });
@@ -157,11 +195,98 @@ public class ModelFetchService {
   private String cacheKey(String provider, String apiKey) {
     try {
       MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      byte[] hash = digest.digest(apiKey.getBytes(StandardCharsets.UTF_8));
+      byte[] hash = digest.digest((apiKey == null ? "<public>" : apiKey).getBytes(StandardCharsets.UTF_8));
       return provider + ":" + HexFormat.of().formatHex(hash);
     } catch (NoSuchAlgorithmException e) {
       // SHA-256 is guaranteed to be available in all JVM implementations
       throw new IllegalStateException("SHA-256 not available", e);
     }
+  }
+
+  private String textValue(JsonNode node, String field) {
+    if (node == null || !node.hasNonNull(field)) {
+      return null;
+    }
+    String value = node.get(field).asText();
+    return value == null || value.isBlank() ? null : value;
+  }
+
+  private Long longValue(JsonNode node, String field) {
+    if (node == null || !node.hasNonNull(field)) {
+      return null;
+    }
+    return node.get(field).asLong();
+  }
+
+  private String firstTextValue(JsonNode node, String... fields) {
+    for (String field : fields) {
+      String value = pathTextValue(node, field);
+      if (value != null) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  private Long firstLongValue(JsonNode node, String... fields) {
+    for (String field : fields) {
+      Long value = pathLongValue(node, field);
+      if (value != null) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  private String pathTextValue(JsonNode node, String path) {
+    JsonNode resolved = pathValue(node, path);
+    if (resolved == null || resolved.isNull()) {
+      return null;
+    }
+    String value = resolved.asText();
+    return value == null || value.isBlank() ? null : value;
+  }
+
+  private Long pathLongValue(JsonNode node, String path) {
+    JsonNode resolved = pathValue(node, path);
+    if (resolved == null || resolved.isNull()) {
+      return null;
+    }
+    return resolved.asLong();
+  }
+
+  private JsonNode pathValue(JsonNode node, String path) {
+    if (node == null || path == null || path.isBlank()) {
+      return null;
+    }
+
+    JsonNode current = node;
+    for (String part : path.split("\\.")) {
+      if (current == null || !current.hasNonNull(part)) {
+        return null;
+      }
+      current = current.get(part);
+    }
+    return current;
+  }
+
+  private Pricing pricing(JsonNode node) {
+    if (node == null || node.isNull()) {
+      return null;
+    }
+
+    Pricing pricing =
+        new Pricing(
+            textValue(node, "prompt"),
+            textValue(node, "completion"),
+            textValue(node, "image"),
+            textValue(node, "request"));
+
+    return pricing.getPrompt() == null
+            && pricing.getCompletion() == null
+            && pricing.getImage() == null
+            && pricing.getRequest() == null
+        ? null
+        : pricing;
   }
 }

@@ -1,9 +1,27 @@
-export type Provider = 'OPENAI' | 'GOOGLE' | 'CLAUDE'
+export type Provider = 'OPENAI' | 'GOOGLE' | 'CLAUDE' | 'OPENROUTER'
+
+export type ModelPricing = {
+  prompt?: string | null
+  completion?: string | null
+  image?: string | null
+  request?: string | null
+}
 
 export type ModelOption = {
   label: string
   value: string
   provider: Provider
+  description?: string | null
+  contextWindow?: number | null
+  pricing?: ModelPricing | null
+}
+
+type BackendModelOption = {
+  id: string
+  label: string
+  description?: string | null
+  contextWindow?: number | null
+  pricing?: ModelPricing | null
 }
 
 export type MediaAttachment = {
@@ -63,6 +81,17 @@ export const DEFAULT_BACKEND_BASE_URL = 'http://localhost:8080'
 
 export function normalizeBaseUrl(value: string) {
   return value.endsWith('/') ? value.slice(0, -1) : value
+}
+
+export function mapModelOption(provider: Provider, model: BackendModelOption): ModelOption {
+  return {
+    label: model.label,
+    value: model.id,
+    provider,
+    description: model.description ?? null,
+    contextWindow: model.contextWindow ?? null,
+    pricing: model.pricing ?? null
+  }
 }
 
 export async function readErrorText(response: Response) {
@@ -228,18 +257,16 @@ export function useChatApi() {
         ? '/models/openai'
         : provider === 'GOOGLE'
           ? '/models/google'
-          : '/models/claude'
-    const data = await requestJson<Array<{ id: string; label: string }>>(path, {
+          : provider === 'CLAUDE'
+            ? '/models/claude'
+            : '/models/openrouter'
+    const data = await requestJson<BackendModelOption[]>(path, {
       method: 'GET'
     })
 
     if (!data) return []
 
-    return data.map(model => ({
-      label: model.label,
-      value: model.id,
-      provider
-    }))
+    return data.map(model => mapModelOption(provider, model))
   }
 
   return {

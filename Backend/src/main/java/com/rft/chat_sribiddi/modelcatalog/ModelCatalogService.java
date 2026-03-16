@@ -40,4 +40,12 @@ public class ModelCatalogService {
     }
     return List.copyOf(properties.getClaude());
   }
+
+  public List<ModelCatalogProperties.ModelOption> listOpenRouterModels(String apiKey) {
+    List<ModelCatalogProperties.ModelOption> live = modelFetchService.fetchOpenRouterModels(apiKey);
+    if (!live.isEmpty()) {
+      return live;
+    }
+    return List.copyOf(properties.getOpenrouter());
+  }
 }

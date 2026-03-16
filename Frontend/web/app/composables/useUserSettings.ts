@@ -1,7 +1,10 @@
+import type { Provider } from '~/composables/useChatApi'
 import { DEFAULT_BACKEND_BASE_URL } from '~/composables/useChatApi'
 
 type UserSettings = {
   backendBaseUrl: string
+  preferredModelId: string | null
+  preferredModelProvider: Provider | null
 }
 
 const STORAGE_KEY = 'chat-sribiddi:user-settings:v2'
@@ -15,7 +18,9 @@ export function useUserSettings() {
       : DEFAULT_BACKEND_BASE_URL
 
   const state = useState<UserSettings>('user-settings', () => ({
-    backendBaseUrl: defaultBackend
+    backendBaseUrl: defaultBackend,
+    preferredModelId: null,
+    preferredModelProvider: null
   }))
 
   const hydrated = useState<boolean>('user-settings-hydrated', () => false)
@@ -27,13 +32,20 @@ export function useUserSettings() {
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<UserSettings>
         state.value = {
-          backendBaseUrl: parsed.backendBaseUrl?.trim() || defaultBackend
+          backendBaseUrl: parsed.backendBaseUrl?.trim() || defaultBackend,
+          preferredModelId:
+            typeof parsed.preferredModelId === 'string' && parsed.preferredModelId.trim() !== ''
+              ? parsed.preferredModelId
+              : null,
+          preferredModelProvider: parsed.preferredModelProvider ?? null
         }
       } else {
         state.value.backendBaseUrl ||= defaultBackend
       }
     } catch {
       state.value.backendBaseUrl = defaultBackend
+      state.value.preferredModelId = null
+      state.value.preferredModelProvider = null
     } finally {
       hydrated.value = true
     }
