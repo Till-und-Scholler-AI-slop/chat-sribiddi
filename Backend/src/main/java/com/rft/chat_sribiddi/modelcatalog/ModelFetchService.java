@@ -203,8 +203,8 @@ public class ModelFetchService {
     option.setCanonicalSlug(textOrNull(model, "canonical_slug"));
     option.setCreated(longOrNull(model, "created"));
     option.setDescription(textOrNull(model, "description"));
-    option.setContextLength(
-        integerOrNull(model, "context_length", integerOrNull(model.path("top_provider"), "context_length", null)));
+    Integer topProviderContextLength = integerOrNull(model.path("top_provider"), "context_length", null);
+    option.setContextLength(integerOrNull(model, "context_length", topProviderContextLength));
     option.setMaxCompletionTokens(integerOrNull(model.path("top_provider"), "max_completion_tokens", null));
 
     JsonNode pricing = model.path("pricing");

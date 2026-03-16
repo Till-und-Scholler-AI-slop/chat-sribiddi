@@ -121,9 +121,9 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                 AnthropicApi anthropicApi = AnthropicApi.builder().apiKey(key).build();
                 ChatClient chatClient =
                     ChatClient.create(
-                         AnthropicChatModel.builder().anthropicApi(anthropicApi).build());
-                 return new ChatService.ClientHolder(chatClient, null);
-               });
+                        AnthropicChatModel.builder().anthropicApi(anthropicApi).build());
+                return new ChatService.ClientHolder(chatClient, null);
+              });
       case OPENROUTER ->
           openRouterCache.get(
               apiKey,

@@ -2,6 +2,7 @@ package com.rft.chat_sribiddi.modelcatalog;
 
 import java.util.ArrayList;
 import java.util.List;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -25,6 +26,7 @@ public class ModelCatalogProperties {
   @Getter
   @Setter
   @NoArgsConstructor
+  @AllArgsConstructor
   public static class ModelOption {
     private String id;
     private String label;

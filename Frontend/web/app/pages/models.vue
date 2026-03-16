@@ -85,7 +85,9 @@ const toPriceLabel = (value?: string | null, suffix = '/ 1M tokens') => {
   if (!value) return '—'
   const numeric = Number(value)
   if (Number.isNaN(numeric)) return value
-  return `$${(numeric * 1_000_000).toFixed(numeric === 0 ? 0 : numeric * 1_000_000 >= 1 ? 2 : 4)} ${suffix}`
+  const perMillion = numeric * 1_000_000
+  const decimals = numeric === 0 ? 0 : perMillion >= 1 ? 2 : 4
+  return `$${perMillion.toFixed(decimals)} ${suffix}`
 }
 
 const toRequestPriceLabel = (value?: string | null) => {

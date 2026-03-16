@@ -198,6 +198,9 @@ export function useChatStore() {
 
   const loadChatsFromBackend = async () => {
     const chats = await fetchChats()
+    const existingConversations = new Map(
+      conversations.value.map(conversation => [conversation.session.chatId, conversation])
+    )
 
     const previousActiveId = activeChatId.value
     const existingSelectedId =
@@ -205,14 +208,22 @@ export function useChatStore() {
         ? previousActiveId
         : null
 
-    const loadedConversations: Conversation[] = chats.map(session => ({
-      session,
-      messages: [],
-      status: 'ready',
-      error: null,
-      model: defaultModel.value,
-      lastPrompt: null
-    } satisfies Conversation))
+    const loadedConversations: Conversation[] = chats.map(session => {
+      const existingConversation = existingConversations.get(session.chatId)
+
+      return {
+        session: {
+          ...existingConversation?.session,
+          ...session
+        },
+        messages: existingConversation?.messages || [],
+        status: existingConversation?.status || 'ready',
+        error: existingConversation?.error || null,
+        model: existingConversation?.model || defaultModel.value,
+        activeRequest: existingConversation?.activeRequest,
+        lastPrompt: existingConversation?.lastPrompt || null
+      } satisfies Conversation
+    })
 
     conversations.value = loadedConversations
     activeChatId.value = existingSelectedId || loadedConversations[0]?.session.chatId || null
