@@ -14,9 +14,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestClient;
 
 class ModelFetchServiceTest {
@@ -189,5 +191,22 @@ class ModelFetchServiceTest {
         .containsExactly("GPT-4o", "OpenRouter Auto");
     assertThat(models.getFirst().getPromptPrice()).isEqualTo("0.000005");
     assertThat(models.getFirst().getCompletionPrice()).isEqualTo("0.000015");
+  }
+
+  @Test
+  void springContextInstantiatesServiceUsingInjectedPropertiesConstructor() {
+    try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+      context.register(OpenRouterProviderProperties.class, ModelFetchService.class);
+
+      context.refresh();
+
+      ModelFetchService modelFetchService = context.getBean(ModelFetchService.class);
+      OpenRouterProviderProperties injectedProperties =
+          context.getBean(OpenRouterProviderProperties.class);
+
+      assertThat(modelFetchService).isNotNull();
+      assertThat(ReflectionTestUtils.getField(modelFetchService, "openRouterProperties"))
+          .isSameAs(injectedProperties);
+    }
   }
 }
