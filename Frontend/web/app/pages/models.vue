@@ -179,7 +179,7 @@ onMounted(async () => {
                 :items="providerFilters"
                 value-attribute="value"
                 option-attribute="label"
-                class="min-w-52"
+                class="min-w-[13rem]"
               />
             </div>
           </div>
