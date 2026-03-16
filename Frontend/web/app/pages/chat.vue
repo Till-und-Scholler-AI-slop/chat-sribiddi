@@ -16,6 +16,7 @@ const {
   models,
   modelsError,
   modelsLoading,
+  reasoningMap,
   retryLastPrompt,
   sendPrompt,
   setModelForChat,
@@ -67,6 +68,10 @@ const formatTokenCount = (count: number | null | undefined): string => {
 }
 
 const getTokenUsage = (messageId: string) => tokenUsageMap.value[messageId] ?? null
+
+const getReasoning = (messageId: string) => reasoningMap.value[messageId] ?? null
+
+const reasoningExpanded = ref<Record<string, boolean>>({})
 
 const fileIcon = (mimeType: string): string => {
   if (mimeType.startsWith('image/')) return 'i-heroicons-photo'
@@ -275,6 +280,30 @@ const handleReload = async () => {
                   :spacing-offset="96"
                 >
                   <template #content="{ parts, message }">
+                    <template v-if="message?.role === 'assistant' && getReasoning(message.id)">
+                      <div class="mb-3 rounded-lg border border-gray-700/50 bg-gray-900/50 overflow-hidden">
+                        <button
+                          class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-400 hover:text-gray-300 transition-colors"
+                          @click="reasoningExpanded[message.id] = !reasoningExpanded[message.id]"
+                        >
+                          <UIcon
+                            name="i-heroicons-light-bulb"
+                            class="size-3.5 text-amber-400/70"
+                          />
+                          <span class="font-medium">Thinking</span>
+                          <UIcon
+                            :name="reasoningExpanded[message.id] ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
+                            class="size-3 ml-auto"
+                          />
+                        </button>
+                        <div
+                          v-if="reasoningExpanded[message.id]"
+                          class="px-3 pb-3 text-sm text-gray-400 whitespace-pre-wrap border-t border-gray-700/30"
+                        >
+                          {{ getReasoning(message.id) }}
+                        </div>
+                      </div>
+                    </template>
                     <MarkdownMessage :text="firstText(parts)" />
                     <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
                       <UBadge

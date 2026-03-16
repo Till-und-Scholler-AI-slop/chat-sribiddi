@@ -1,5 +1,5 @@
 import type { ChatStatus, UIMessage } from 'ai'
-import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, SendMessageResponse, TokenUsage } from '~/composables/useChatApi'
+import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, SendMessageResponse, StreamEvent, TokenUsage } from '~/composables/useChatApi'
 import { PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
 
@@ -88,6 +88,7 @@ export function useChatStore() {
     fetchChats,
     fetchChatMessages,
     sendMessage,
+    streamMessage,
     fetchModels,
     updateChat,
     deleteChat
@@ -100,6 +101,7 @@ export function useChatStore() {
   const modelsLoading = useState<boolean>('chat-models-loading', () => false)
   const modelsError = useState<string | null>('chat-models-error', () => null)
   const tokenUsageMap = useState<Record<string, TokenUsage>>('chat-token-usage', () => ({}))
+  const reasoningMap = useState<Record<string, string>>('chat-reasoning', () => ({}))
 
   const activeConversation = computed(() =>
     conversations.value.find(c => c.session.chatId === activeChatId.value) || null
@@ -145,6 +147,7 @@ export function useChatStore() {
       conversations.value = []
       activeChatId.value = null
       tokenUsageMap.value = {}
+      reasoningMap.value = {}
     }
   )
 
@@ -351,35 +354,80 @@ export function useChatStore() {
     const controller = new AbortController()
     conversation.activeRequest = controller
 
+    // Create assistant message placeholder for streaming
+    const assistantMessage: UIMessage = {
+      id: messageId(),
+      role: 'assistant',
+      parts: [{ type: 'text', text: '' }]
+    }
+    conversation.messages.push(assistantMessage)
+
     try {
-      const response = await sendMessage(
+      const input = {
+        content: text,
+        provider: model.provider,
+        modelId: model.value,
+        media: options?.media?.map(item => ({ mimeType: item.mimeType, data: item.data }))
+      }
+
+      await streamMessage(
         chatId,
-        {
-          content: text,
-          provider: model.provider,
-          modelId: model.value,
-          media: options?.media?.map(item => ({ mimeType: item.mimeType, data: item.data }))
+        input,
+        (event: StreamEvent) => {
+          const textPart = assistantMessage.parts.find(
+            (p): p is { type: 'text'; text: string } => p.type === 'text'
+          )
+
+          switch (event.type) {
+            case 'text':
+              if (textPart && event.content) {
+                textPart.text += event.content
+              }
+              break
+
+            case 'reasoning':
+              if (event.content) {
+                reasoningMap.value[assistantMessage.id] =
+                  (reasoningMap.value[assistantMessage.id] || '') + event.content
+              }
+              break
+
+            case 'done':
+              if (
+                event.promptTokens != null ||
+                event.generationTokens != null ||
+                event.totalTokens != null
+              ) {
+                tokenUsageMap.value[assistantMessage.id] = {
+                  promptTokens: event.promptTokens ?? null,
+                  generationTokens: event.generationTokens ?? null,
+                  totalTokens: event.totalTokens ?? null
+                }
+              }
+              break
+
+            case 'error':
+              conversation.error = event.content || 'Streaming error'
+              break
+          }
         },
         controller.signal
       )
 
-      const assistantMessage: UIMessage = {
-        id: messageId(),
-        role: 'assistant',
-        parts: [{ type: 'text', text: response?.message ?? extractAssistantText(response) }]
-      }
-
-      const usage = extractTokenUsage(response)
-      if (usage) {
-        tokenUsageMap.value[assistantMessage.id] = usage
-      }
-
-      conversation.messages.push(assistantMessage)
       conversation.status = 'ready'
       conversation.activeRequest = undefined
 
       return assistantMessage
     } catch (err) {
+      // Remove empty/partial assistant message on error
+      const textPart = assistantMessage.parts.find(
+        (p): p is { type: 'text'; text: string } => p.type === 'text'
+      )
+      if (!textPart?.text) {
+        const idx = conversation.messages.indexOf(assistantMessage)
+        if (idx !== -1) conversation.messages.splice(idx, 1)
+      }
+
       if (controller.signal.aborted) {
         conversation.error = 'Request cancelled.'
       } else {
@@ -415,6 +463,7 @@ export function useChatStore() {
     modelsError,
     defaultModel,
     tokenUsageMap,
+    reasoningMap,
     ensureModels,
     loadChatsFromBackend,
     loadMessagesForChat,

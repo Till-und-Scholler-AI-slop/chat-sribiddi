@@ -13,11 +13,13 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RequiredArgsConstructor
 @RequestMapping("/chats")
@@ -71,6 +73,19 @@ public class ChatController {
     validatePrincipal(principal);
 
     return ResponseEntity.ok(chatService.sendMessage(chatId, principal.getSubject(), request));
+  }
+
+  @PostMapping(
+      value = "/{chatId}/messages/stream",
+      produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+  public SseEmitter streamMessage(
+      @AuthenticationPrincipal OidcUser principal,
+      @PathVariable UUID chatId,
+      @Valid @RequestBody RequestDTO request) {
+
+    validatePrincipal(principal);
+
+    return chatService.streamMessage(chatId, principal.getSubject(), request);
   }
 
   @PatchMapping("/{chatId}")
