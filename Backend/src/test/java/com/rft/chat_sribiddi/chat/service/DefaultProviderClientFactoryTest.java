@@ -3,6 +3,7 @@ package com.rft.chat_sribiddi.chat.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -13,7 +14,7 @@ class DefaultProviderClientFactoryTest {
   @BeforeEach
   void setUp() {
     OpenAiProviderProperties props = new OpenAiProviderProperties();
-    factory = new DefaultProviderClientFactory(props);
+    factory = new DefaultProviderClientFactory(props, new OpenRouterProviderProperties());
   }
 
   @Test
@@ -45,5 +46,13 @@ class DefaultProviderClientFactoryTest {
 
     assertThat(holder1).isNotSameAs(holder2);
     assertThat(holder1.client()).isNotSameAs(holder2.client());
+  }
+
+  @Test
+  void buildOptions_openRouter_usesOpenAiCompatibleOptions() {
+    var options = factory.buildOptions(Provider.OPENROUTER, "openai/gpt-4o-mini", "or-key");
+
+    assertThat(options).isInstanceOf(OpenAiChatOptions.class);
+    assertThat(((OpenAiChatOptions) options).getModel()).isEqualTo("openai/gpt-4o-mini");
   }
 }

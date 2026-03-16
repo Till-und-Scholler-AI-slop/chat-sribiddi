@@ -1,6 +1,6 @@
 import type { ChatStatus, UIMessage } from 'ai'
 import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, SendMessageResponse, TokenUsage } from '~/composables/useChatApi'
-import { useChatApi } from '~/composables/useChatApi'
+import { PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
 
 type Conversation = {
@@ -152,9 +152,7 @@ export function useChatStore() {
     modelsLoading.value = true
     try {
       const results = await Promise.allSettled([
-        fetchModels('OPENAI'),
-        fetchModels('GOOGLE'),
-        fetchModels('CLAUDE')
+        ...PROVIDERS.map(provider => fetchModels(provider))
       ])
 
       const loaded: ModelOption[] = []

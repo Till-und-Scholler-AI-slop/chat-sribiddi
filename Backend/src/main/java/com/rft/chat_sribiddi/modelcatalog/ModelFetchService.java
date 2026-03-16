@@ -1,6 +1,7 @@
 package com.rft.chat_sribiddi.modelcatalog;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.rft.chat_sribiddi.chat.service.OpenRouterProviderProperties;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
@@ -27,11 +28,13 @@ public class ModelFetchService {
   private static final Logger log = LoggerFactory.getLogger(ModelFetchService.class);
 
   private final RestClient restClient;
+  private final OpenRouterProviderProperties openRouterProperties;
 
   /** Cache keyed by "{provider}:{sha256(apiKey)}" with a 5-minute TTL to avoid hammering provider APIs. */
   private final Cache<String, List<ModelOption>> modelCache;
 
-  public ModelFetchService() {
+  public ModelFetchService(OpenRouterProviderProperties openRouterProperties) {
+    this.openRouterProperties = openRouterProperties;
     HttpClient httpClient =
         HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
@@ -145,12 +148,134 @@ public class ModelFetchService {
         });
   }
 
+  public List<ModelOption> fetchOpenRouterModels(String apiKey) {
+    return modelCache.get(
+        cacheKey("openrouter", apiKey),
+        k -> {
+          try {
+            JsonNode response =
+                restClient
+                    .get()
+                    .uri(openRouterProperties.getModelCatalogUrl())
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            if (response == null || !response.has("data")) {
+              return List.of();
+            }
+
+            List<ModelOption> models = new ArrayList<>();
+            for (JsonNode model : response.get("data")) {
+              ModelOption option = toOpenRouterModelOption(model);
+              if (option != null) {
+                models.add(option);
+              }
+            }
+            models.sort(
+                Comparator.comparing(ModelOption::getLabel, Comparator.nullsLast(String::compareTo))
+                    .thenComparing(ModelOption::getId));
+            return models;
+          } catch (Exception e) {
+            log.warn("Failed to fetch OpenRouter models: {}", e.getMessage());
+            return List.of();
+          }
+        });
+  }
+
   private boolean isRelevantOpenAiModel(String id) {
     return id.startsWith("gpt-") || id.matches("^o\\d.*");
   }
 
   private boolean isRelevantGoogleModel(String id) {
     return id.startsWith("gemini-");
+  }
+
+  private ModelOption toOpenRouterModelOption(JsonNode model) {
+    String id = textOrNull(model, "id");
+    if (id == null || id.isBlank()) {
+      return null;
+    }
+
+    String label = firstNonBlank(textOrNull(model, "name"), textOrNull(model, "canonical_slug"), id);
+
+    ModelOption option = new ModelOption(id, label);
+    option.setCanonicalSlug(textOrNull(model, "canonical_slug"));
+    option.setCreated(longOrNull(model, "created"));
+    option.setDescription(textOrNull(model, "description"));
+    option.setContextLength(
+        integerOrNull(model, "context_length", integerOrNull(model.path("top_provider"), "context_length", null)));
+    option.setMaxCompletionTokens(integerOrNull(model.path("top_provider"), "max_completion_tokens", null));
+
+    JsonNode pricing = model.path("pricing");
+    option.setPromptPrice(textOrNull(pricing, "prompt"));
+    option.setCompletionPrice(textOrNull(pricing, "completion"));
+    option.setRequestPrice(textOrNull(pricing, "request"));
+    option.setImagePrice(textOrNull(pricing, "image"));
+
+    JsonNode architecture = model.path("architecture");
+    option.setModality(textOrNull(architecture, "modality"));
+    option.setInputModalities(stringList(architecture.path("input_modalities")));
+    option.setOutputModalities(stringList(architecture.path("output_modalities")));
+    option.setSupportedParameters(stringList(model.path("supported_parameters")));
+    return option;
+  }
+
+  private String textOrNull(JsonNode node, String fieldName) {
+    if (node == null || node.isMissingNode() || node.isNull()) {
+      return null;
+    }
+    JsonNode value = node.path(fieldName);
+    if (value.isMissingNode() || value.isNull()) {
+      return null;
+    }
+    String text = value.asText();
+    return text == null || text.isBlank() ? null : text;
+  }
+
+  private Long longOrNull(JsonNode node, String fieldName) {
+    if (node == null || node.isMissingNode() || node.isNull()) {
+      return null;
+    }
+    JsonNode value = node.path(fieldName);
+    if (!value.canConvertToLong()) {
+      return null;
+    }
+    return value.longValue();
+  }
+
+  private Integer integerOrNull(JsonNode node, String fieldName, Integer fallback) {
+    if (node == null || node.isMissingNode() || node.isNull()) {
+      return fallback;
+    }
+    JsonNode value = node.path(fieldName);
+    if (!value.canConvertToInt()) {
+      return fallback;
+    }
+    return value.intValue();
+  }
+
+  private List<String> stringList(JsonNode node) {
+    if (node == null || !node.isArray()) {
+      return List.of();
+    }
+    List<String> values = new ArrayList<>();
+    for (JsonNode item : node) {
+      String value = item.asText();
+      if (value != null && !value.isBlank()) {
+        values.add(value);
+      }
+    }
+    return values;
+  }
+
+  private String firstNonBlank(String... values) {
+    for (String value : values) {
+      if (value != null && !value.isBlank()) {
+        return value;
+      }
+    }
+    return null;
   }
 
   /** Returns a cache key using a SHA-256 hash of the API key to avoid storing raw credentials. */

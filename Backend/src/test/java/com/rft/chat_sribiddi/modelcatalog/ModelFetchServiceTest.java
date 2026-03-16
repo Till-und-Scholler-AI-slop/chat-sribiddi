@@ -2,6 +2,8 @@ package com.rft.chat_sribiddi.modelcatalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rft.chat_sribiddi.chat.service.OpenRouterProviderProperties;
 import java.lang.reflect.Method;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,7 +17,7 @@ class ModelFetchServiceTest {
 
   @BeforeEach
   void setUp() throws Exception {
-    service = new ModelFetchService();
+    service = new ModelFetchService(new OpenRouterProviderProperties());
     isRelevantOpenAiModel =
         ModelFetchService.class.getDeclaredMethod("isRelevantOpenAiModel", String.class);
     isRelevantOpenAiModel.setAccessible(true);
@@ -53,5 +55,54 @@ class ModelFetchServiceTest {
     assertThat((boolean) isRelevantGoogleModel.invoke(service, "gemini-3.1-pro-preview")).isTrue();
     assertThat((boolean) isRelevantGoogleModel.invoke(service, "gemini-2.5-flash")).isTrue();
     assertThat((boolean) isRelevantGoogleModel.invoke(service, "text-bison")).isFalse();
+  }
+
+  @Test
+  void toOpenRouterModelOption_mapsPricingAndContextFields() throws Exception {
+    Method toOpenRouterModelOption =
+        ModelFetchService.class.getDeclaredMethod(
+            "toOpenRouterModelOption", com.fasterxml.jackson.databind.JsonNode.class);
+    toOpenRouterModelOption.setAccessible(true);
+
+    var payload =
+        new ObjectMapper()
+            .readTree(
+                """
+                {
+                  "id": "openai/gpt-4o",
+                  "canonical_slug": "openai/gpt-4o",
+                  "name": "GPT-4o",
+                  "created": 1730000000,
+                  "description": "Fast flagship model",
+                  "context_length": 128000,
+                  "pricing": {
+                    "prompt": "0.000005",
+                    "completion": "0.000015",
+                    "request": "0",
+                    "image": "0"
+                  },
+                  "architecture": {
+                    "modality": "text->text",
+                    "input_modalities": ["text", "image"],
+                    "output_modalities": ["text"]
+                  },
+                  "top_provider": {
+                    "max_completion_tokens": 8192
+                  },
+                  "supported_parameters": ["temperature", "top_p"]
+                }
+                """);
+
+    var option =
+        (ModelCatalogProperties.ModelOption) toOpenRouterModelOption.invoke(service, payload);
+
+    assertThat(option.getId()).isEqualTo("openai/gpt-4o");
+    assertThat(option.getLabel()).isEqualTo("GPT-4o");
+    assertThat(option.getContextLength()).isEqualTo(128000);
+    assertThat(option.getPromptPrice()).isEqualTo("0.000005");
+    assertThat(option.getCompletionPrice()).isEqualTo("0.000015");
+    assertThat(option.getMaxCompletionTokens()).isEqualTo(8192);
+    assertThat(option.getSupportedParameters()).containsExactly("temperature", "top_p");
+    assertThat(option.getInputModalities()).containsExactly("text", "image");
   }
 }

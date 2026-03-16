@@ -150,6 +150,10 @@ const handleDelete = async (chatId: string) => {
 const goToSettings = () => {
   router.push('/settings')
 }
+
+const goToModels = () => {
+  router.push('/models')
+}
 </script>
 
 <template>
@@ -260,6 +264,13 @@ const goToSettings = () => {
         :aria-label="isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
         class="w-full justify-start"
         @click="toggleColorMode"
+      />
+      <UButton
+        variant="ghost"
+        icon="i-heroicons-cpu-chip"
+        :label="collapsed ? '' : 'Modelle'"
+        class="w-full justify-start"
+        @click="goToModels"
       />
       <UButton
         variant="ghost"

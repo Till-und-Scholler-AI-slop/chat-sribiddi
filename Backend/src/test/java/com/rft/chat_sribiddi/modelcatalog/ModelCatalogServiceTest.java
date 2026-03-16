@@ -30,6 +30,8 @@ class ModelCatalogServiceTest {
             List.of(new ModelOption("gemini-2.5-pro-preview-05-06", "Gemini 2.5 Pro"))));
     properties.setClaude(
         new ArrayList<>(List.of(new ModelOption("claude-sonnet-4-20250514", "Claude Sonnet 4"))));
+    properties.setOpenrouter(
+        new ArrayList<>(List.of(new ModelOption("openrouter/auto", "OpenRouter Auto"))));
     service = new ModelCatalogService(properties, modelFetchService);
   }
 
@@ -126,6 +128,35 @@ class ModelCatalogServiceTest {
     List<ModelOption> result = service.listClaudeModels("");
 
     assertThat(result).isEqualTo(properties.getClaude());
+    verifyNoInteractions(modelFetchService);
+  }
+
+  // --- OpenRouter ---
+
+  @Test
+  void listOpenRouterModels_returnsLiveResults_whenApiKeyProvidedAndFetchSucceeds() {
+    List<ModelOption> liveModels = List.of(new ModelOption("openai/gpt-4o", "GPT-4o"));
+    when(modelFetchService.fetchOpenRouterModels("or-key")).thenReturn(liveModels);
+
+    List<ModelOption> result = service.listOpenRouterModels("or-key");
+
+    assertThat(result).isEqualTo(liveModels);
+  }
+
+  @Test
+  void listOpenRouterModels_fallsBackToStatic_whenFetchReturnsEmpty() {
+    when(modelFetchService.fetchOpenRouterModels("or-key")).thenReturn(List.of());
+
+    List<ModelOption> result = service.listOpenRouterModels("or-key");
+
+    assertThat(result).isEqualTo(properties.getOpenrouter());
+  }
+
+  @Test
+  void listOpenRouterModels_doesNotFetch_whenApiKeyIsBlank() {
+    List<ModelOption> result = service.listOpenRouterModels("   ");
+
+    assertThat(result).isEqualTo(properties.getOpenrouter());
     verifyNoInteractions(modelFetchService);
   }
 }
