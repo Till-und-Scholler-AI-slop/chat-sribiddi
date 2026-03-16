@@ -485,6 +485,45 @@ class ChatServiceTest {
   }
 
   @Test
+  void streamMessage_providerError_sendsErrorEvent_andCompletesCleanly() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of("stored-key"));
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.stream()).thenReturn(streamResponseSpec);
+
+    when(streamResponseSpec.chatResponse())
+        .thenReturn(reactor.core.publisher.Flux.error(
+            new org.springframework.web.reactive.function.client.WebClientResponseException(
+                400, "Bad Request", null, null, null)));
+
+    var emitter = chatService.streamMessage(chatId, userId, request);
+
+    assertThat(emitter).isNotNull();
+
+    // Only user message should be persisted (no assistant message since stream errored)
+    ArgumentCaptor<MessageEntity> savedMessages = ArgumentCaptor.forClass(MessageEntity.class);
+    verify(messageRepository, times(1)).save(savedMessages.capture());
+    assertThat(savedMessages.getValue().getRole()).isEqualTo(Role.USER);
+  }
+
+  @Test
   void streamMessage_missingChat_throwsNotFound() {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.empty());
 

@@ -37,6 +37,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
+import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Slf4j
@@ -292,7 +294,7 @@ public class ChatService {
                         .data(
                             new StreamEventDTO(
                                 "error",
-                                "An error occurred while streaming the response.",
+                                extractProviderErrorMessage(error),
                                 null,
                                 null,
                                 null),
@@ -300,7 +302,7 @@ public class ChatService {
               } catch (IOException e) {
                 log.warn("Failed to send SSE error event", e);
               } finally {
-                emitter.completeWithError(error);
+                emitter.complete();
                 clientHolder.close();
               }
             },
@@ -347,6 +349,24 @@ public class ChatService {
     emitter.onError(e -> clientHolder.close());
 
     return emitter;
+  }
+
+  private String extractProviderErrorMessage(Throwable error) {
+    if (error instanceof WebClientResponseException webEx) {
+      return formatProviderError(webEx.getResponseBodyAsString(), webEx.getStatusCode().value());
+    }
+    if (error instanceof RestClientResponseException restEx) {
+      return formatProviderError(restEx.getResponseBodyAsString(), restEx.getStatusCode().value());
+    }
+    return "An error occurred while streaming the response.";
+  }
+
+  private static String formatProviderError(String responseBody, int statusCode) {
+    if (responseBody != null && !responseBody.isBlank()) {
+      return responseBody;
+    }
+    return "AI provider rejected the request (HTTP %d). Check your model and API key."
+        .formatted(statusCode);
   }
 
   private String extractReasoningContent(ChatResponse chunk) {
