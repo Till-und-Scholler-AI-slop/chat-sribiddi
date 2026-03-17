@@ -48,17 +48,36 @@ function handleClick(event: MouseEvent) {
     setTimeout(() => btn.classList.remove('copied'), 2000)
   }
 
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(code).then(showCopied).catch(() => {})
-  } else {
+  const copyWithExecCommand = () => {
     const ta = document.createElement('textarea')
     ta.value = code
     ta.style.position = 'fixed'
     ta.style.opacity = '0'
     document.body.appendChild(ta)
     ta.select()
-    try { document.execCommand('copy'); showCopied() } catch (_) {}
-    document.body.removeChild(ta)
+    try {
+      document.execCommand('copy')
+      showCopied()
+    } catch (_) {
+      // ignore failures in legacy copy fallback
+    } finally {
+      document.body.removeChild(ta)
+    }
+  }
+
+  const canUseNavigatorClipboard =
+    typeof navigator !== 'undefined' &&
+    typeof navigator.clipboard !== 'undefined' &&
+    typeof navigator.clipboard.writeText === 'function' &&
+    typeof isSecureContext !== 'undefined' &&
+    isSecureContext
+
+  if (canUseNavigatorClipboard) {
+    navigator.clipboard.writeText(code).then(showCopied).catch(() => {
+      copyWithExecCommand()
+    })
+  } else {
+    copyWithExecCommand()
   }
 }
 </script>
