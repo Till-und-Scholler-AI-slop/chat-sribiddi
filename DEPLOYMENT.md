@@ -14,7 +14,8 @@ Diese Repo nutzt zwei getrennte GitHub-Actions:
 1. Caddy läuft auf dem Host und terminiert TLS (Let's Encrypt) für `germinai.de`.
 2. Frontend-Container lauscht nur lokal auf `127.0.0.1:3000`.
 3. Backend-Container lauscht nur lokal auf `127.0.0.1:8080`.
-4. Caddy-Routing:
+4. Redis-Container dient als Cache-Backend für Model-Catalog-Daten.
+5. Caddy-Routing:
    - `https://germinai.de/` -> Frontend (`127.0.0.1:3000`)
    - `https://germinai.de/api/*` -> Backend (`127.0.0.1:8080`)
    - `https://germinai.de/login/oauth2/*` -> Backend (`127.0.0.1:8080`)
