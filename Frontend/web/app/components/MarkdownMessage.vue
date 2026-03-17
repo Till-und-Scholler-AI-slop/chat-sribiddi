@@ -30,7 +30,7 @@ const md = useState('markdown-it-instance', () => {
     const rawCode = tokens[idx].content
     const code = stripSingleTrailingNewline(rawCode)
     const inner = defaultFence(tokens, idx, options, env, self)
-    return `<div class="code-block-wrapper"><button class="copy-code-btn" title="Copy code" data-code="${escapeAttr(code)}">${COPY_ICON}${CHECK_ICON}</button>${inner}</div>`
+    return `<div class="code-block-wrapper"><button class="copy-code-btn" type="button" aria-label="Copy code to clipboard" title="Copy code" data-code="${escapeAttr(code)}">${COPY_ICON}${CHECK_ICON}</button>${inner}</div>`
   }
 
   return instance
