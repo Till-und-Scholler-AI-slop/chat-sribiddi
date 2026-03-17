@@ -94,11 +94,9 @@ public class ChatService {
         .orElseThrow(() -> new ChatNotFoundException(chatId));
     int pageSize =
         (limit != null && limit > 0) ? limit : chatProperties.getMessagePageSize();
-    List<MessageEntity> latest =
-        new ArrayList<>(
-            messageRepository.findByChatIdOrderByCreatedAtDesc(
-                chatId, PageRequest.of(0, pageSize)));
-    return latest.reversed();
+    return messageRepository
+        .findByChatIdOrderByCreatedAtDesc(chatId, PageRequest.of(0, pageSize))
+        .reversed();
   }
 
   @Transactional
