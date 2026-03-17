@@ -44,10 +44,11 @@ public class ChatController {
 
   @GetMapping
   public ResponseEntity<List<ChatResponseDTO>> listChats(
-      @AuthenticationPrincipal OidcUser principal) {
+      @AuthenticationPrincipal OidcUser principal,
+      @RequestParam(required = false) Integer limit) {
     validatePrincipal(principal);
     List<ChatResponseDTO> chats =
-        chatService.listChats(principal.getSubject()).stream()
+        chatService.listChats(principal.getSubject(), limit).stream()
             .map(ChatResponseDTO::from)
             .toList();
     return ResponseEntity.ok(chats);

@@ -1,5 +1,7 @@
 package com.rft.chat_sribiddi.modelcatalog;
 
+import java.io.Serial;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.AllArgsConstructor;
@@ -27,7 +29,9 @@ public class ModelCatalogProperties {
   @Setter
   @NoArgsConstructor
   @AllArgsConstructor
-  public static class ModelOption {
+  public static class ModelOption implements Serializable {
+    @Serial private static final long serialVersionUID = 1L;
+
     private String id;
     private String label;
     private String canonicalSlug;

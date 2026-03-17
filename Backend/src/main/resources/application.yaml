@@ -21,6 +21,13 @@ spring:
       idle-timeout: ${HIKARI_IDLE_TIMEOUT:300000}
       max-lifetime: ${HIKARI_MAX_LIFETIME:1800000}
       leak-detection-threshold: ${HIKARI_LEAK_DETECTION:0}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  threads:
+    virtual:
+      enabled: true
   autoconfigure:
     # Provider clients are created lazily per request in DefaultProviderClientFactory.
     # Disable Spring AI model auto-config so startup works without server-wide API keys.
@@ -152,6 +159,7 @@ app:
   chat:
     context-message-limit: ${CHAT_CONTEXT_MESSAGE_LIMIT:20}
     message-page-size: ${CHAT_MESSAGE_PAGE_SIZE:50}
+    chat-page-size: ${CHAT_PAGE_SIZE:50}
     max-media-attachments: ${CHAT_MAX_MEDIA_ATTACHMENTS:5}
     max-media-attachment-bytes: ${CHAT_MAX_MEDIA_ATTACHMENT_BYTES:5242880}   # 5 MB
     max-media-total-bytes: ${CHAT_MAX_MEDIA_TOTAL_BYTES:20971520}           # 20 MB

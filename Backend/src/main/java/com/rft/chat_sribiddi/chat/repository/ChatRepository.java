@@ -4,6 +4,7 @@ import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -15,6 +16,8 @@ public interface ChatRepository extends JpaRepository<ChatEntity, UUID> {
   Optional<ChatEntity> findByChatIdAndUserId(UUID chatId, String userId);
 
   List<ChatEntity> findByUserIdOrderByCreatedAtDesc(String userId);
+
+  List<ChatEntity> findByUserIdOrderByCreatedAtDesc(String userId, Pageable pageable);
 
   @Modifying
   @Query("DELETE FROM ChatEntity c WHERE c.userId = :userId")
