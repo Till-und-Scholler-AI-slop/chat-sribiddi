@@ -426,31 +426,32 @@ const submitEditMessage = async () => {
                       </div>
                     </template>
                     <template v-else>
-                      <div class="group relative">
-                        <MarkdownMessage :text="firstText(parts)" />
-                        <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
-                          <UBadge
-                            v-for="(file, idx) in getFileParts(parts)"
-                            :key="idx"
-                            variant="subtle"
-                            color="neutral"
-                            size="sm"
-                          >
-                            <UIcon :name="fileIcon(file.mediaType)" class="size-3.5 mr-1" />
-                            {{ file.filename || formatMimeType(file.mediaType) }}
-                          </UBadge>
+                      <div class="group flex items-start gap-1">
+                        <UButton
+                          v-if="message?.role === 'user' && isPersistedMessage(message.id) && status === 'ready'"
+                          class="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
+                          size="xs"
+                          color="neutral"
+                          variant="ghost"
+                          icon="i-heroicons-pencil-square"
+                          :padded="false"
+                          @click="startEditMessage(message.id, firstText(parts))"
+                        />
+                        <div>
+                          <MarkdownMessage :text="firstText(parts)" />
+                          <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
+                            <UBadge
+                              v-for="(file, idx) in getFileParts(parts)"
+                              :key="idx"
+                              variant="subtle"
+                              color="neutral"
+                              size="sm"
+                            >
+                              <UIcon :name="fileIcon(file.mediaType)" class="size-3.5 mr-1" />
+                              {{ file.filename || formatMimeType(file.mediaType) }}
+                            </UBadge>
+                          </div>
                         </div>
-                        <template v-if="message?.role === 'user' && isPersistedMessage(message.id) && !getFileParts(parts).length && status === 'ready'">
-                          <UButton
-                            class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                            size="xs"
-                            color="neutral"
-                            variant="ghost"
-                            icon="i-heroicons-pencil-square"
-                            :padded="false"
-                            @click="startEditMessage(message.id, firstText(parts))"
-                          />
-                        </template>
                       </div>
                       <template v-if="message?.role === 'assistant'">
                         <template v-for="usage in [getTokenUsage(message.id)]" :key="message.id">
@@ -503,23 +504,19 @@ const submitEditMessage = async () => {
 
         <UContainer class="pb-4 sm:pb-6 space-y-2">
           <div class="flex items-center gap-2 flex-wrap">
-            <label class="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-              <UIcon name="i-heroicons-paper-clip" />
-              <span>Add attachments</span>
-              <input
-                ref="fileInput"
-                type="file"
-                class="hidden"
-                multiple
-                @change="handleFiles"
-              >
-            </label>
+            <input
+              ref="fileInput"
+              type="file"
+              class="hidden"
+              multiple
+              @change="handleFiles"
+            >
             <UButton
               size="xs"
               variant="ghost"
               color="neutral"
               icon="i-heroicons-paper-clip"
-              label="Choose files"
+              label="Add attachments"
               @click="fileInput?.click()"
             />
             <UButton
