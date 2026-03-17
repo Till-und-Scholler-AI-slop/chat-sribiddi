@@ -381,7 +381,7 @@ public class ChatService {
     if (trimmed.isEmpty()) {
       return null;
     }
-    int maxLen = chatProperties.getMaxChatTitleLength();
+    int maxLen = Math.max(1, chatProperties.getMaxChatTitleLength());
     return trimmed.length() > maxLen ? trimmed.substring(0, maxLen) : trimmed;
   }
 
@@ -398,10 +398,15 @@ public class ChatService {
     if (title == null) {
       return null;
     }
-    chat.setTitle(title);
-    chatRepository.save(chat);
-    log.debug("Auto-titled chat {} from first message: \"{}\"", chat.getChatId(), title);
-    return title;
+    // Conditional update — only sets the title when it is still blank in the DB,
+    // ensuring the first message wins even under concurrent requests.
+    int updated = chatRepository.setTitleIfBlank(chat.getChatId(), title);
+    if (updated > 0) {
+      chat.setTitle(title);
+      log.debug("Auto-titled chat {}", chat.getChatId());
+      return title;
+    }
+    return null;
   }
 
   private void logStreamingError(UUID chatId, Throwable error) {

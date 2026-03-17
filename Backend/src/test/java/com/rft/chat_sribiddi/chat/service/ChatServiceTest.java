@@ -619,7 +619,7 @@ class ChatServiceTest {
     // title is null
 
     setupSendMessageMocks(chat, "key");
-    when(chatRepository.save(any(ChatEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+    when(chatRepository.setTitleIfBlank(eq(chatId), anyString())).thenReturn(1);
 
     RequestDTO request =
         new RequestDTO("Hello world", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
@@ -628,7 +628,7 @@ class ChatServiceTest {
 
     assertThat(result.chatTitle()).isEqualTo("Hello world");
     assertThat(chat.getTitle()).isEqualTo("Hello world");
-    verify(chatRepository, atLeastOnce()).save(chat);
+    verify(chatRepository).setTitleIfBlank(chatId, "Hello world");
   }
 
   @Test
@@ -661,7 +661,7 @@ class ChatServiceTest {
     chat.setUserId(userId);
 
     setupSendMessageMocks(chat, "key");
-    when(chatRepository.save(any(ChatEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+    when(chatRepository.setTitleIfBlank(eq(chatId), anyString())).thenReturn(1);
 
     RequestDTO request =
         new RequestDTO("A very long message that exceeds the limit", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
