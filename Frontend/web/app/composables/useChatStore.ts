@@ -415,10 +415,29 @@ export function useChatStore() {
     conversation.messages.push(message)
   }
 
-  const replaceMessage = (conversation: Conversation, messageId: string, message: UIMessage) => {
-    conversation.messages = conversation.messages.map(existing =>
-      existing.id === messageId ? message : existing
-    )
+  /**
+   * Replaces a streamed message using the slot captured when the placeholder was appended.
+   * The hint index is the fast path for chunk updates; the message id remains authoritative
+   * if the list has shifted before a replacement happens.
+   */
+  const replaceMessageAtIndex = (
+    conversation: Conversation,
+    hintIndex: number,
+    messageId: string,
+    message: UIMessage
+  ) => {
+    const targetIndex =
+      hintIndex >= 0 &&
+      hintIndex < conversation.messages.length &&
+      conversation.messages[hintIndex]?.id === messageId
+        ? hintIndex
+        : conversation.messages.findIndex(existing => existing.id === messageId)
+
+    if (targetIndex === -1) {
+      return
+    }
+
+    conversation.messages.splice(targetIndex, 1, message)
   }
 
   const removeMessageIfEmpty = (conversation: Conversation, message: UIMessage) => {
@@ -477,6 +496,7 @@ export function useChatStore() {
       parts: [{ type: 'text', text: '' }]
     }
     conversation.messages.push(assistantMessage)
+    const assistantMessageIndex = conversation.messages.length - 1
     let currentAssistantMessage = assistantMessage
     const streamStatus = {
       receivedDone: false,
@@ -502,7 +522,12 @@ export function useChatStore() {
                 streamStatus.receivedContent = true
                 conversation.status = 'streaming'
                 currentAssistantMessage = appendTextToMessage(currentAssistantMessage, event.content)
-                replaceMessage(conversation, assistantMessage.id, currentAssistantMessage)
+                replaceMessageAtIndex(
+                  conversation,
+                  assistantMessageIndex,
+                  assistantMessage.id,
+                  currentAssistantMessage
+                )
               }
               break
 
@@ -659,6 +684,7 @@ export function useChatStore() {
       parts: [{ type: 'text', text: '' }]
     }
     conversation.messages.push(assistantMessage)
+    const assistantMessageIndex = conversation.messages.length - 1
     let currentAssistantMessage = assistantMessage
     const streamStatus = {
       receivedDone: false,
@@ -684,7 +710,12 @@ export function useChatStore() {
                 streamStatus.receivedContent = true
                 conversation.status = 'streaming'
                 currentAssistantMessage = appendTextToMessage(currentAssistantMessage, event.content)
-                replaceMessage(conversation, assistantMessage.id, currentAssistantMessage)
+                replaceMessageAtIndex(
+                  conversation,
+                  assistantMessageIndex,
+                  assistantMessage.id,
+                  currentAssistantMessage
+                )
               }
               break
 

@@ -93,6 +93,15 @@ describe('parseSseEvents', () => {
     ])
   })
 
+  it('parses CR-delimited events when carriage returns are split from line feeds', () => {
+    const raw = 'event: text\rdata: {"type":"text","content":"Hello"}\r\revent: text\rdata: {"type":"text","content":" world"}\r\r'
+    const events = parseSseEvents(raw)
+    expect(events).toEqual([
+      { type: 'text', content: 'Hello' },
+      { type: 'text', content: ' world' }
+    ])
+  })
+
   it('parses data-only events without event field', () => {
     const raw = 'data: {"type":"text","content":"Hi"}\n\n'
     const events = parseSseEvents(raw)

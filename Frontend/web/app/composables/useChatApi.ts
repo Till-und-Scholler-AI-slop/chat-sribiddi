@@ -78,7 +78,7 @@ export type StreamEvent = {
 }
 
 function normalizeSsePayload(raw: string) {
-  return raw.replace(/\r\n/g, '\n')
+  return raw.replace(/\r\n?/g, '\n')
 }
 
 /**
@@ -382,7 +382,7 @@ export function useChatApi() {
 
       const trailing = decoder.decode()
       if (trailing) {
-        buffer += trailing
+        buffer += normalizeSsePayload(trailing)
       }
 
       // Process any remaining buffer
