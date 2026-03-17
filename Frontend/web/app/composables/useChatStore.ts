@@ -107,7 +107,14 @@ export function useChatStore() {
     conversations.value.find(c => c.session.chatId === activeChatId.value) || null
   )
 
-  const defaultModel = computed<ModelOption | null>(() => models.value[0] || null)
+  const defaultModel = computed<ModelOption | null>(() => {
+    const saved = settings.value.lastUsedModel
+    if (saved) {
+      const match = models.value.find(m => m.value === saved.value && m.provider === saved.provider)
+      if (match) return match
+    }
+    return models.value[0] || null
+  })
 
   const toUiMessage = (message: BackendMessage): UIMessage => {
     const role =
@@ -463,6 +470,10 @@ export function useChatStore() {
     return sendPrompt(chatId, lastPrompt, model, { appendUserMessage: false })
   }
 
+  const saveLastUsedModel = (model: ModelOption) => {
+    settings.value.lastUsedModel = model
+  }
+
   return {
     conversations,
     activeChatId,
@@ -479,6 +490,7 @@ export function useChatStore() {
     startChat,
     selectChat,
     setModelForChat,
+    saveLastUsedModel,
     renameChat,
     removeChat,
     sendPrompt,

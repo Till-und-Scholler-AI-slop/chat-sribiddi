@@ -18,6 +18,7 @@ const {
   modelsLoading,
   reasoningMap,
   retryLastPrompt,
+  saveLastUsedModel,
   sendPrompt,
   setModelForChat,
   startChat,
@@ -40,6 +41,7 @@ const selectedModel = computed<ModelOption | null>({
   set: value => {
     if (value && activeConversation.value) {
       setModelForChat(activeConversation.value.session.chatId, value)
+      saveLastUsedModel(value)
     }
   }
 })
