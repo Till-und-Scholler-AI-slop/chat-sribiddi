@@ -20,7 +20,8 @@ public record RequestDTO(
     @NotBlank(message = "modelId must not be blank") String modelId,
     String apiKey,
     @Size(max = 5, message = "media supports up to 5 attachments")
-        List<@NotNull(message = "media items must not be null") @Valid MediaAttachment> media) {
+        List<@NotNull(message = "media items must not be null") @Valid MediaAttachment> media,
+    Boolean webSearchEnabled) {
 
   public record MediaAttachment(
       @NotBlank(message = "mimeType must not be blank") String mimeType,
@@ -30,6 +31,7 @@ public record RequestDTO(
     OPENAI,
     GOOGLE,
     CLAUDE,
-    OPENROUTER
+    OPENROUTER,
+    BRAVE_SEARCH
   }
 }
