@@ -1,0 +1,23 @@
+name: Create UX Improvement Issues
+
+on:
+  push:
+    branches:
+      - copilot/create-user-experience-tickets
+
+jobs:
+  create-issues:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create UX improvement GitHub issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          chmod +x .github/scripts/create-ux-issues.sh
+          .github/scripts/create-ux-issues.sh
