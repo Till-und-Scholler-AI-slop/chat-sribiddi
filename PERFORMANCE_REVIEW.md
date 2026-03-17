@@ -43,7 +43,7 @@ The chat-sribiddi application is architecturally well-structured with a clean fe
 | Account Deletion | ✅ Batch JPQL deletes | Resolved |
 | SSE Buffer Parsing | ✅ O(n) index tracking | Resolved |
 | State Cleanup | ✅ Cleaned on chat deletion | Resolved |
-| Graceful Shutdown | ✅ 30s timeout configured | Resolved |
+| Graceful Shutdown | ✅ 10 min timeout configured | Resolved |
 | Actuator + Metrics | ✅ Prometheus + health endpoints | Resolved |
 | Chat Pagination | ✅ Paginated with configurable limit | Resolved |
 | Distributed Cache | ✅ Redis for model catalog | Resolved |
@@ -95,7 +95,7 @@ spring.datasource.hikari:
 
 ### 2.3 Server Thread Pool & Streaming
 
-**Problem:** Each SSE stream occupies a Tomcat worker thread for up to 10 minutes (the configured `stream-timeout-ms`). With the default 200 threads, only 200 concurrent streams are possible before all other requests start queuing.
+**Problem:** Each SSE stream occupies a Tomcat worker thread for up to 30 minutes (the configured `stream-timeout-ms`). With the default 200 threads, only 200 concurrent streams are possible before all other requests start queuing.
 
 **Implemented:** Explicit Tomcat thread pool configuration:
 ```yaml
@@ -159,10 +159,10 @@ This replaces loading all chat entities into memory with direct batch SQL delete
 server:
   shutdown: graceful
 spring.lifecycle:
-  timeout-per-shutdown-phase: 30s
+  timeout-per-shutdown-phase: 600s
 ```
 
-This gives active SSE streams up to 30 seconds to complete before the server forcefully stops.
+This gives active SSE streams up to 10 minutes to complete before the server forcefully stops. The extended timeout is necessary because pro AI models can reason for 10+ minutes, and a shorter shutdown window would sever in-flight streams during rolling deployments.
 
 ---
 
@@ -304,12 +304,12 @@ services:
 **Current Caddyfile** is functional but lacks:
 **Implemented:** Added timeouts and cache headers:
 ```
-# Backend API proxy with timeouts
+# Backend API proxy with timeouts (20 min for long-reasoning pro models)
 handle_path /api/* {
   reverse_proxy 127.0.0.1:8080 {
     transport http {
-      read_timeout 180s
-      write_timeout 180s
+      read_timeout 1200s
+      write_timeout 1200s
     }
   }
 }
@@ -399,4 +399,4 @@ This enables:
 - **`useChatStore.ts`** — Added cleanup of `tokenUsageMap`/`reasoningMap` on chat deletion
 
 ### Infrastructure
-- **`Caddyfile`** — Added reverse_proxy read/write timeouts (180s), static asset cache headers
+- **`Caddyfile`** — Added reverse_proxy read/write timeouts (1200s / 20 min for long-reasoning pro models), static asset cache headers

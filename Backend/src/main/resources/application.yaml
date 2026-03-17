@@ -10,6 +10,8 @@ server:
 
 spring:
   lifecycle:
+    # Raised to 10 min to allow in-flight SSE streams to finish during rolling deployments.
+    # Pro AI models can reason for 10+ minutes; a shorter window would sever active streams.
     timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:600s}
   application:
     name: chat-sribiddi
