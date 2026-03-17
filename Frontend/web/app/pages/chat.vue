@@ -432,17 +432,24 @@ const submitEditMessage = async () => {
                       </div>
                     </template>
                     <template v-else>
-                      <div class="group flex items-start gap-1">
-                        <UButton
+                      <div
+                        class="group flex items-start"
+                        :class="message?.role === 'user' && isPersistedMessage(message.id) && status === 'ready' ? '-ml-7 pl-7 gap-1' : ''"
+                      >
+                        <div
                           v-if="message?.role === 'user' && isPersistedMessage(message.id) && status === 'ready'"
-                          class="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
-                          size="xs"
-                          color="neutral"
-                          variant="ghost"
-                          icon="i-heroicons-pencil-square"
-                          :padded="false"
-                          @click="startEditMessage(message.id, firstText(parts))"
-                        />
+                          class="w-6 shrink-0 flex justify-end"
+                        >
+                          <UButton
+                            class="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5"
+                            size="xs"
+                            color="neutral"
+                            variant="ghost"
+                            icon="i-heroicons-pencil-square"
+                            :padded="false"
+                            @click="startEditMessage(message.id, firstText(parts))"
+                          />
+                        </div>
                         <div>
                           <MarkdownMessage :text="firstText(parts)" />
                           <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
