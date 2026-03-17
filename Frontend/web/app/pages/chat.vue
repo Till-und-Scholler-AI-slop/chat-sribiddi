@@ -56,6 +56,9 @@ const selectedModel = computed<ModelOption | null>({
 
 const status = computed(() => activeConversation.value?.status || 'ready')
 const errorMessage = computed(() => activeConversation.value?.error || modelsError.value)
+const promptError = computed(() =>
+  errorMessage.value ? new Error(errorMessage.value) : undefined
+)
 
 const firstText = (parts?: Array<{ type: string; text?: string }>) =>
   parts?.find(part => part.type === 'text' && typeof part.text === 'string')?.text || ''
@@ -87,6 +90,9 @@ const getReasoning = (messageId: string) => reasoningMap.value[messageId] ?? nul
  */
 const isPersistedMessage = (id: string | undefined) =>
   typeof id === 'string' && /^msg-\d+$/.test(id)
+
+const showEditMessageButton = (message?: { role?: string; id?: string }) =>
+  message?.role === 'user' && isPersistedMessage(message.id) && status.value === 'ready'
 
 const reasoningExpanded = ref<Record<string, boolean>>({})
 
@@ -164,8 +170,8 @@ const handleDragOver = (event: DragEvent) => {
 }
 
 const handleDragLeave = (event: DragEvent) => {
-  const target = event.currentTarget as HTMLElement
-  if (!event.relatedTarget || !target.contains(event.relatedTarget as Node)) {
+  // Clear the drag state only when the drag pointer leaves the browser window
+  if (!event.relatedTarget) {
     isDragOver.value = false
   }
 }
@@ -191,6 +197,9 @@ const handlePaste = async (event: ClipboardEvent) => {
 
 onMounted(async () => {
   document.addEventListener('paste', handlePaste)
+  document.addEventListener('dragover', handleDragOver)
+  document.addEventListener('dragleave', handleDragLeave)
+  document.addEventListener('drop', handleDrop)
   try {
     await ensureModels()
     await loadChatsFromBackend()
@@ -215,6 +224,9 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('paste', handlePaste)
+  document.removeEventListener('dragover', handleDragOver)
+  document.removeEventListener('dragleave', handleDragLeave)
+  document.removeEventListener('drop', handleDrop)
 })
 
 watch(activeChatId, async newId => {
@@ -427,23 +439,16 @@ const submitEditMessage = async () => {
                       </div>
                     </template>
                     <template v-else>
-                      <div class="group relative">
-                        <MarkdownMessage :text="firstText(parts)" />
-                        <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
-                          <UBadge
-                            v-for="(file, idx) in getFileParts(parts)"
-                            :key="idx"
-                            variant="subtle"
-                            color="neutral"
-                            size="sm"
-                          >
-                            <UIcon :name="fileIcon(file.mediaType)" class="size-3.5 mr-1" />
-                            {{ file.filename || formatMimeType(file.mediaType) }}
-                          </UBadge>
-                        </div>
-                        <template v-if="message?.role === 'user' && isPersistedMessage(message.id) && !getFileParts(parts).length && status === 'ready'">
+                      <div
+                        class="group flex items-start"
+                        :class="showEditMessageButton(message) ? '-ml-6 pl-6 gap-1' : ''"
+                      >
+                        <div
+                          v-if="showEditMessageButton(message)"
+                          class="w-6 shrink-0 flex justify-end"
+                        >
                           <UButton
-                            class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                            class="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5"
                             size="xs"
                             color="neutral"
                             variant="ghost"
@@ -451,7 +456,22 @@ const submitEditMessage = async () => {
                             :padded="false"
                             @click="startEditMessage(message.id, firstText(parts))"
                           />
-                        </template>
+                        </div>
+                        <div>
+                          <MarkdownMessage :text="firstText(parts)" />
+                          <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
+                            <UBadge
+                              v-for="(file, idx) in getFileParts(parts)"
+                              :key="idx"
+                              variant="subtle"
+                              color="neutral"
+                              size="sm"
+                            >
+                              <UIcon :name="fileIcon(file.mediaType)" class="size-3.5 mr-1" />
+                              {{ file.filename || formatMimeType(file.mediaType) }}
+                            </UBadge>
+                          </div>
+                        </div>
                       </div>
                       <template v-if="message?.role === 'assistant'">
                         <template v-for="usage in [getTokenUsage(message.id)]" :key="message.id">
@@ -485,42 +505,23 @@ const submitEditMessage = async () => {
     </template>
 
     <template #footer>
-      <div
-        class="relative transition-colors"
-        :class="isDragOver ? 'ring-2 ring-primary ring-inset bg-primary/5' : ''"
-        @dragover="handleDragOver"
-        @dragleave="handleDragLeave"
-        @drop="handleDrop"
-      >
-        <div
-          v-if="isDragOver"
-          class="absolute inset-0 flex items-center justify-center z-10 pointer-events-none"
-        >
-          <div class="flex flex-col items-center gap-2 text-primary">
-            <UIcon name="i-heroicons-arrow-down-tray" class="size-8" />
-            <span class="text-sm font-medium">Drop files to attach</span>
-          </div>
-        </div>
+      <div class="relative">
 
         <UContainer class="pb-4 sm:pb-6 space-y-2">
           <div class="flex items-center gap-2 flex-wrap">
-            <label class="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-              <UIcon name="i-heroicons-paper-clip" />
-              <span>Add attachments</span>
-              <input
-                ref="fileInput"
-                type="file"
-                class="hidden"
-                multiple
-                @change="handleFiles"
-              >
-            </label>
+            <input
+              ref="fileInput"
+              type="file"
+              class="hidden"
+              multiple
+              @change="handleFiles"
+            >
             <UButton
               size="xs"
               variant="ghost"
               color="neutral"
               icon="i-heroicons-paper-clip"
-              label="Choose files"
+              label="Add attachments"
               @click="fileInput?.click()"
             />
             <UButton
@@ -548,7 +549,7 @@ const submitEditMessage = async () => {
             </UBadge>
           </div>
 
-          <UChatPrompt v-model="input" :error="errorMessage" @submit="handleSubmit">
+          <UChatPrompt v-model="input" :error="promptError" @submit="handleSubmit">
             <template #header>
               <USelectMenu
                 v-model="selectedModel"
@@ -600,4 +601,16 @@ const submitEditMessage = async () => {
       </div>
     </template>
   </UDashboardPanel>
+
+  <Transition name="drag-overlay">
+    <div
+      v-if="isDragOver"
+      class="fixed inset-0 z-50 flex items-center justify-center pointer-events-none bg-primary/10 backdrop-blur-sm"
+    >
+      <div class="flex flex-col items-center gap-3 text-primary bg-gray-900/80 rounded-2xl px-10 py-8 ring-2 ring-primary ring-inset">
+        <UIcon name="i-heroicons-arrow-down-tray" class="size-12" />
+        <span class="text-lg font-semibold">Drop files to attach</span>
+      </div>
+    </div>
+  </Transition>
 </template>

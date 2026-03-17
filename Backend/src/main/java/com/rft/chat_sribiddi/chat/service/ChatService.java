@@ -451,7 +451,8 @@ public class ChatService {
 
     String customInstructions =
         userSettingsService.getCustomInstructions(userId).orElse(null);
-    List<Message> promptMessages = buildPromptMessages(chatId, validatedMedia, messageId, customInstructions);
+    List<Message> promptMessages =
+        buildPromptMessages(chatId, validatedMedia, messageId, customInstructions);
 
     String resolvedKey =
         Optional.ofNullable(requestDTO.apiKey())

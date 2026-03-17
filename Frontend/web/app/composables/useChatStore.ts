@@ -84,6 +84,64 @@ export function extractTokenUsage(response: SendMessageResponse | null): TokenUs
   }
 }
 
+export function appendTextToMessage(message: UIMessage, chunk: string): UIMessage {
+  let updated = false
+  const parts = message.parts.map(part => {
+    if (part.type !== 'text') return part
+    updated = true
+    return {
+      ...part,
+      text: `${part.text || ''}${chunk}`
+    }
+  })
+
+  return updated
+    ? { ...message, parts }
+    : {
+        ...message,
+        parts: [...message.parts, { type: 'text', text: chunk }]
+      }
+}
+
+export function getFirstTextContent(message: UIMessage): string {
+  return message.parts.find(
+    (part): part is { type: 'text'; text: string } => part.type === 'text'
+  )?.text || ''
+}
+
+export function resolveStreamOutcome(
+  status: {
+    receivedDone: boolean
+    receivedError: boolean
+    receivedContent: boolean
+  },
+  currentError: string | null
+): {
+  status: ChatStatus
+  error: string | null
+} {
+  if (status.receivedError) {
+    return {
+      status: 'error',
+      error: currentError || 'Streaming error'
+    }
+  }
+
+  if (!status.receivedDone) {
+    return {
+      status: 'error',
+      error: status.receivedContent
+        ? 'The response stream was interrupted before completion. Partial response shown.'
+        : 'The response stream was interrupted before completion.'
+    }
+  }
+
+  return {
+    status: 'ready',
+    error: currentError
+  }
+}
+
 export function useChatStore() {
   const {
     createChat,
@@ -357,6 +415,39 @@ export function useChatStore() {
     conversation.messages.push(message)
   }
 
+  /**
+   * Replaces a streamed message using the slot captured when the placeholder was appended.
+   * The hint index is the fast path for chunk updates; the message id remains authoritative
+   * if the list has shifted before a replacement happens.
+   */
+  const replaceMessageAtIndex = (
+    conversation: Conversation,
+    hintIndex: number,
+    messageId: string,
+    message: UIMessage
+  ) => {
+    const targetIndex =
+      hintIndex >= 0 &&
+      hintIndex < conversation.messages.length &&
+      conversation.messages[hintIndex]?.id === messageId
+        ? hintIndex
+        : conversation.messages.findIndex(existing => existing.id === messageId)
+
+    if (targetIndex === -1) {
+      return
+    }
+
+    conversation.messages.splice(targetIndex, 1, message)
+  }
+
+  const removeMessageIfEmpty = (conversation: Conversation, message: UIMessage) => {
+    if (getFirstTextContent(message)) {
+      return
+    }
+
+    conversation.messages = conversation.messages.filter(existing => existing.id !== message.id)
+  }
+
   const sendPrompt = async (
     chatId: string,
     text: string,
@@ -405,6 +496,13 @@ export function useChatStore() {
       parts: [{ type: 'text', text: '' }]
     }
     conversation.messages.push(assistantMessage)
+    const assistantMessageIndex = conversation.messages.length - 1
+    let currentAssistantMessage = assistantMessage
+    const streamStatus = {
+      receivedDone: false,
+      receivedError: false,
+      receivedContent: false
+    }
 
     try {
       const input = {
@@ -419,25 +517,35 @@ export function useChatStore() {
         chatId,
         input,
         (event: StreamEvent) => {
-          const textPart = assistantMessage.parts.find(
-            (p): p is { type: 'text'; text: string } => p.type === 'text'
-          )
-
           switch (event.type) {
             case 'text':
-              if (textPart && event.content) {
-                textPart.text += event.content
+              if (event.content) {
+                streamStatus.receivedContent = true
+                conversation.status = 'streaming'
+                currentAssistantMessage = appendTextToMessage(currentAssistantMessage, event.content)
+                replaceMessageAtIndex(
+                  conversation,
+                  assistantMessageIndex,
+                  assistantMessage.id,
+                  currentAssistantMessage
+                )
               }
               break
 
             case 'reasoning':
               if (event.content) {
-                reasoningMap.value[assistantMessage.id] =
-                  (reasoningMap.value[assistantMessage.id] || '') + event.content
+                streamStatus.receivedContent = true
+                conversation.status = 'streaming'
+                reasoningMap.value = {
+                  ...reasoningMap.value,
+                  [assistantMessage.id]:
+                    (reasoningMap.value[assistantMessage.id] || '') + event.content
+                }
               }
               break
 
             case 'done':
+              streamStatus.receivedDone = true
               if (event.chatTitle) {
                 conversation.session.title = event.chatTitle
               }
@@ -446,15 +554,19 @@ export function useChatStore() {
                 event.generationTokens != null ||
                 event.totalTokens != null
               ) {
-                tokenUsageMap.value[assistantMessage.id] = {
-                  promptTokens: event.promptTokens ?? null,
-                  generationTokens: event.generationTokens ?? null,
-                  totalTokens: event.totalTokens ?? null
+                tokenUsageMap.value = {
+                  ...tokenUsageMap.value,
+                  [assistantMessage.id]: {
+                    promptTokens: event.promptTokens ?? null,
+                    generationTokens: event.generationTokens ?? null,
+                    totalTokens: event.totalTokens ?? null
+                  }
                 }
               }
               break
 
             case 'error':
+              streamStatus.receivedError = true
               conversation.error = event.content || 'Streaming error'
               break
           }
@@ -462,19 +574,22 @@ export function useChatStore() {
         controller.signal
       )
 
-      conversation.status = 'ready'
       conversation.activeRequest = undefined
+      const outcome = resolveStreamOutcome(streamStatus, conversation.error)
+      conversation.status = outcome.status
+      conversation.error = outcome.error
 
-      return assistantMessage
+      if (outcome.status === 'error') {
+        if (!getFirstTextContent(currentAssistantMessage)) {
+          removeMessageIfEmpty(conversation, currentAssistantMessage)
+          return null
+        }
+      }
+
+      return currentAssistantMessage
     } catch (err) {
       // Remove empty/partial assistant message on error
-      const textPart = assistantMessage.parts.find(
-        (p): p is { type: 'text'; text: string } => p.type === 'text'
-      )
-      if (!textPart?.text) {
-        const idx = conversation.messages.indexOf(assistantMessage)
-        if (idx !== -1) conversation.messages.splice(idx, 1)
-      }
+      removeMessageIfEmpty(conversation, currentAssistantMessage)
 
       if (controller.signal.aborted) {
         conversation.error = 'Request cancelled.'
@@ -570,6 +685,13 @@ export function useChatStore() {
       parts: [{ type: 'text', text: '' }]
     }
     conversation.messages.push(assistantMessage)
+    const assistantMessageIndex = conversation.messages.length - 1
+    let currentAssistantMessage = assistantMessage
+    const streamStatus = {
+      receivedDone: false,
+      receivedError: false,
+      receivedContent: false
+    }
 
     try {
       const input = {
@@ -584,39 +706,53 @@ export function useChatStore() {
         backendId,
         input,
         (event: StreamEvent) => {
-          const textPart = assistantMessage.parts.find(
-            (p): p is { type: 'text'; text: string } => p.type === 'text'
-          )
-
           switch (event.type) {
             case 'text':
-              if (textPart && event.content) {
-                textPart.text += event.content
+              if (event.content) {
+                streamStatus.receivedContent = true
+                conversation.status = 'streaming'
+                currentAssistantMessage = appendTextToMessage(currentAssistantMessage, event.content)
+                replaceMessageAtIndex(
+                  conversation,
+                  assistantMessageIndex,
+                  assistantMessage.id,
+                  currentAssistantMessage
+                )
               }
               break
 
             case 'reasoning':
               if (event.content) {
-                reasoningMap.value[assistantMessage.id] =
-                  (reasoningMap.value[assistantMessage.id] || '') + event.content
+                streamStatus.receivedContent = true
+                conversation.status = 'streaming'
+                reasoningMap.value = {
+                  ...reasoningMap.value,
+                  [assistantMessage.id]:
+                    (reasoningMap.value[assistantMessage.id] || '') + event.content
+                }
               }
               break
 
             case 'done':
+              streamStatus.receivedDone = true
               if (
                 event.promptTokens != null ||
                 event.generationTokens != null ||
                 event.totalTokens != null
               ) {
-                tokenUsageMap.value[assistantMessage.id] = {
-                  promptTokens: event.promptTokens ?? null,
-                  generationTokens: event.generationTokens ?? null,
-                  totalTokens: event.totalTokens ?? null
+                tokenUsageMap.value = {
+                  ...tokenUsageMap.value,
+                  [assistantMessage.id]: {
+                    promptTokens: event.promptTokens ?? null,
+                    generationTokens: event.generationTokens ?? null,
+                    totalTokens: event.totalTokens ?? null
+                  }
                 }
               }
               break
 
             case 'error':
+              streamStatus.receivedError = true
               conversation.error = event.content || 'Streaming error'
               break
           }
@@ -624,16 +760,23 @@ export function useChatStore() {
         controller.signal
       )
 
-      conversation.status = 'ready'
       conversation.activeRequest = undefined
+      const outcome = resolveStreamOutcome(streamStatus, conversation.error)
+      conversation.status = outcome.status
+      conversation.error = outcome.error
 
-      return assistantMessage
+      if (outcome.status === 'error') {
+        if (!getFirstTextContent(currentAssistantMessage)) {
+          removeMessageIfEmpty(conversation, currentAssistantMessage)
+          return null
+        }
+      }
+
+      return currentAssistantMessage
     } catch (err) {
       // If the request was aborted, or streaming had already started (assistant has content),
       // keep the partial state. Otherwise restore the original messages.
-      const streamedText = assistantMessage.parts.find(
-        (p): p is { type: 'text'; text: string } => p.type === 'text'
-      )?.text
+      const streamedText = getFirstTextContent(currentAssistantMessage)
       if (!streamedText && !controller.signal.aborted) {
         // No content was streamed yet — restore the original message list
         conversation.messages = originalMessages
@@ -648,8 +791,7 @@ export function useChatStore() {
         }
       } else if (!streamedText) {
         // Aborted with no content — remove the empty assistant placeholder
-        const idx = conversation.messages.indexOf(assistantMessage)
-        if (idx !== -1) conversation.messages.splice(idx, 1)
+        removeMessageIfEmpty(conversation, currentAssistantMessage)
       }
 
       if (controller.signal.aborted) {
