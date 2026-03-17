@@ -13,17 +13,17 @@ public class UserSettingsService {
 
   private final UserRepository userRepository;
 
-  public Optional<String> getCustomInstructions(String providerId) {
+  public Optional<String> getCustomInstructions(String userId) {
     return userRepository
-        .findByProviderId(providerId)
+        .findByProviderId(userId)
         .map(User::getCustomInstructions);
   }
 
   @Transactional
-  public void saveCustomInstructions(String providerId, String customInstructions) {
+  public void saveCustomInstructions(String userId, String customInstructions) {
     User user =
         userRepository
-            .findByProviderId(providerId)
+            .findByProviderId(userId)
             .orElseThrow(
                 () -> new IllegalStateException("No account found for the current user"));
 
@@ -33,6 +33,6 @@ public class UserSettingsService {
             : null;
     user.setCustomInstructions(normalized);
     userRepository.save(user);
-    log.debug("Updated custom instructions for providerId={}", providerId);
+    log.debug("Updated custom instructions for userId={}", userId);
   }
 }

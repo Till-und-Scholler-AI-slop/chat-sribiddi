@@ -141,17 +141,17 @@ const refreshStatus = async () => {
 }
 
 onMounted(async () => {
-  try {
-    await refreshStatus()
-  } catch (err) {
-    console.error(err)
-    toast.add({
-      title: 'Could not load key status',
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
-      color: 'error'
-    })
-  }
-  await loadCustomInstructions()
+  const [, ] = await Promise.allSettled([
+    refreshStatus().catch(err => {
+      console.error(err)
+      toast.add({
+        title: 'Could not load key status',
+        description: err instanceof Error ? err.message : 'Backend not reachable.',
+        color: 'error'
+      })
+    }),
+    loadCustomInstructions()
+  ])
 })
 
 async function handleSave(provider: Provider) {
