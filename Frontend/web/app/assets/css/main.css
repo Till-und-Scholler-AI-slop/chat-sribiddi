@@ -116,8 +116,13 @@ body {
 .markdown-body .code-block-wrapper:hover .copy-code-btn {
   opacity: 0.6;
 }
-.markdown-body .copy-code-btn:hover {
-  opacity: 1 !important;
+.markdown-body .code-block-wrapper:hover .copy-code-btn:hover {
+  opacity: 1;
+}
+@media (hover: none) {
+  .markdown-body .copy-code-btn {
+    opacity: 0.6;
+  }
 }
 .markdown-body .copy-code-btn .check-icon {
   display: none;
