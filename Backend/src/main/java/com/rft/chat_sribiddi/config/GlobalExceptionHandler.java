@@ -83,6 +83,10 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
   }
 
+  /**
+   * Preserves provider HTTP 429 so the frontend can distinguish rate limits,
+   * while keeping other provider-side 4xx responses normalized to HTTP 400.
+   */
   private HttpStatus mapProviderStatus(HttpStatusCode statusCode) {
     if (statusCode.value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
       return HttpStatus.TOO_MANY_REQUESTS;
