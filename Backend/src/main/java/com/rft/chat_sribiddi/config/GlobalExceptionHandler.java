@@ -29,7 +29,7 @@ public class GlobalExceptionHandler {
   public ResponseEntity<Map<String, String>> handleDataIntegrity(DataIntegrityViolationException ex) {
     return ResponseEntity.status(HttpStatus.CONFLICT)
         .body(Map.of("message",
-            "Data integrity violation — the referenced chat may have been deleted."));
+            "A data integrity constraint was violated. The referenced resource may no longer exist."));
   }
 
   @ExceptionHandler(IllegalArgumentException.class)

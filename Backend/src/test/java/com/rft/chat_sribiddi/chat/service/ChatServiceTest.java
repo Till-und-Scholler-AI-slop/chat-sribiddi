@@ -676,6 +676,13 @@ class ChatServiceTest {
 
   // ── FK constraint violation tests ─────────────────────────────────────────
 
+  private static DataIntegrityViolationException chatFkViolation() {
+    return new DataIntegrityViolationException(
+        "could not execute statement",
+        new RuntimeException(
+            "ERROR: insert or update on table \"messages\" violates foreign key constraint \"messages_chat_id_fkey\""));
+  }
+
   @Test
   void sendMessage_fkViolationOnUserMessage_throwsChatNotFound() {
     ChatEntity chat = new ChatEntity();
@@ -685,13 +692,32 @@ class ChatServiceTest {
 
     // Simulate chat being deleted between lookup and message save
     when(messageRepository.save(any(MessageEntity.class)))
-        .thenThrow(new DataIntegrityViolationException("FK violation"));
+        .thenThrow(chatFkViolation());
 
     RequestDTO request =
         new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null);
 
     assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
         .isInstanceOf(ChatNotFoundException.class);
+  }
+
+  @Test
+  void sendMessage_nonChatFkViolation_rethrowsAsIs() {
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+
+    // Simulate an unrelated integrity violation (not the chat FK)
+    when(messageRepository.save(any(MessageEntity.class)))
+        .thenThrow(new DataIntegrityViolationException("some other constraint"));
+
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null);
+
+    assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
+        .isInstanceOf(DataIntegrityViolationException.class)
+        .hasMessageContaining("some other constraint");
   }
 
   @Test
@@ -727,7 +753,7 @@ class ChatServiceTest {
           }
           return entity;
         })
-        .thenThrow(new DataIntegrityViolationException("FK violation"));
+        .thenThrow(chatFkViolation());
 
     RequestDTO request =
         new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
