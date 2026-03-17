@@ -9,6 +9,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 
@@ -16,20 +18,25 @@ import org.springframework.ai.tool.annotation.ToolParam;
  * Spring AI tool that performs web searches via the Brave Search API.
  *
  * <p>Instances are created per-request with the user's API key and passed to the ChatClient via
- * {@code .tools(new BraveSearchTool(apiKey))}.
+ * {@code .tools(new BraveSearchTool(apiKey, httpClient, properties))}.
  */
 public class BraveSearchTool {
 
+  private static final Logger log = LoggerFactory.getLogger(BraveSearchTool.class);
+
   private static final String BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
-  private static final int MAX_RESULTS = 5;
-  private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
   private static final ObjectMapper MAPPER = new ObjectMapper();
-  private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
 
   private final String apiKey;
+  private final HttpClient httpClient;
+  private final int maxResults;
+  private final Duration requestTimeout;
 
-  public BraveSearchTool(String apiKey) {
+  public BraveSearchTool(String apiKey, HttpClient httpClient, WebSearchProperties properties) {
     this.apiKey = apiKey;
+    this.httpClient = httpClient;
+    this.maxResults = properties.getMaxResults();
+    this.requestTimeout = properties.getRequestTimeout();
   }
 
   @Tool(description = "Search the web for current information using Brave Search. "
@@ -40,21 +47,22 @@ public class BraveSearchTool {
     try {
       String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
       URI uri =
-          URI.create(BRAVE_SEARCH_URL + "?q=" + encodedQuery + "&count=" + MAX_RESULTS);
+          URI.create(BRAVE_SEARCH_URL + "?q=" + encodedQuery + "&count=" + maxResults);
 
       HttpRequest request =
           HttpRequest.newBuilder()
               .uri(uri)
               .header("Accept", "application/json")
               .header("X-Subscription-Token", apiKey)
-              .timeout(REQUEST_TIMEOUT)
+              .timeout(requestTimeout)
               .GET()
               .build();
 
       HttpResponse<String> response =
-          HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+          httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
       if (response.statusCode() != 200) {
+        log.warn("Brave Search API returned HTTP {}", response.statusCode());
         return "Web search failed (HTTP %d). Please try a different query."
             .formatted(response.statusCode());
       }
@@ -64,7 +72,8 @@ public class BraveSearchTool {
       Thread.currentThread().interrupt();
       return "Web search was interrupted.";
     } catch (Exception e) {
-      return "Web search failed: " + e.getMessage();
+      log.warn("Web search request failed", e);
+      return "Web search is currently unavailable. Please try again later.";
     }
   }
 
@@ -80,7 +89,7 @@ public class BraveSearchTool {
       StringBuilder sb = new StringBuilder("Web search results:\n\n");
       int count = 0;
       for (JsonNode result : webResults) {
-        if (count >= MAX_RESULTS) break;
+        if (count >= maxResults) break;
         count++;
 
         String title = result.path("title").asText("");
@@ -97,6 +106,7 @@ public class BraveSearchTool {
 
       return sb.toString().trim();
     } catch (Exception e) {
+      log.warn("Failed to parse Brave Search response", e);
       return "Failed to parse search results.";
     }
   }

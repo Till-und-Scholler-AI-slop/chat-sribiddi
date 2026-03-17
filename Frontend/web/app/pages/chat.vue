@@ -584,6 +584,7 @@ const submitEditMessage = async () => {
                   :color="webSearchEnabled ? 'primary' : 'neutral'"
                   :variant="webSearchEnabled ? 'soft' : 'ghost'"
                   size="sm"
+                  :aria-label="webSearchEnabled ? 'Disable web search' : 'Enable web search'"
                   @click="webSearchEnabled = !webSearchEnabled"
                 />
               </UTooltip>

@@ -16,6 +16,7 @@ import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.websearch.BraveSearchTool;
+import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.transaction.Transactional;
 import java.io.IOException;
 import java.time.Instant;
@@ -62,6 +63,8 @@ public class ChatService {
   private final ProviderClientFactory providerClientFactory;
   private final ChatProperties chatProperties;
   private final UserSettingsService userSettingsService;
+  private final WebSearchProperties webSearchProperties;
+  private final java.net.http.HttpClient webSearchHttpClient;
 
   public ChatService(
       ChatRepository chatRepository,
@@ -69,13 +72,16 @@ public class ChatService {
       ApiKeyService apiKeyService,
       ProviderClientFactory providerClientFactory,
       ChatProperties chatProperties,
-      UserSettingsService userSettingsService) {
+      UserSettingsService userSettingsService,
+      WebSearchProperties webSearchProperties) {
     this.chatRepository = chatRepository;
     this.messageRepository = messageRepository;
     this.apiKeyService = apiKeyService;
     this.providerClientFactory = providerClientFactory;
     this.chatProperties = chatProperties;
     this.userSettingsService = userSettingsService;
+    this.webSearchProperties = webSearchProperties;
+    this.webSearchHttpClient = java.net.http.HttpClient.newHttpClient();
   }
 
   @Transactional
@@ -931,6 +937,6 @@ public class ChatService {
   private Optional<BraveSearchTool> resolveWebSearchTool(String userId) {
     return apiKeyService
         .getKey(userId, Provider.BRAVE_SEARCH)
-        .map(BraveSearchTool::new);
+        .map(key -> new BraveSearchTool(key, webSearchHttpClient, webSearchProperties));
   }
 }

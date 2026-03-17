@@ -57,7 +57,7 @@ class ChatServiceTest {
   void setUp() {
     ChatProperties chatProperties = new ChatProperties();
     chatService =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, chatProperties, userSettingsService);
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, chatProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties());
     chatId = UUID.randomUUID();
     userId = "user-123";
 
@@ -332,7 +332,7 @@ class ChatServiceTest {
     ChatProperties customProperties = new ChatProperties();
     customProperties.setMaxMediaAttachments(1);
     ChatService customService =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, customProperties, userSettingsService);
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, customProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties());
 
     RequestDTO request =
         new RequestDTO(
@@ -659,7 +659,7 @@ class ChatServiceTest {
     ChatProperties longTitleProps = new ChatProperties();
     longTitleProps.setMaxChatTitleLength(10);
     ChatService serviceWithShortTitleLimit =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, longTitleProps, userSettingsService);
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, longTitleProps, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties());
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
