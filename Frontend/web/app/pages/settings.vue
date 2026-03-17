@@ -482,7 +482,7 @@ async function handleDeleteAccount() {
 
                 <UFormGroup
                     label="Brave Search API key"
-                    description="Used for web search within chat conversations. Get your key at brave.com/search/api."
+                    description="Used for web search within chat conversations. Get your key at https://brave.com/search/api/."
                     name="brave_search"
                 >
                   <UInput

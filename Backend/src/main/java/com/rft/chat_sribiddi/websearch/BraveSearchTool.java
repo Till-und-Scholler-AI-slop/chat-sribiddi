@@ -24,6 +24,7 @@ public class BraveSearchTool {
   private static final int MAX_RESULTS = 5;
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
 
   private final String apiKey;
 
@@ -51,7 +52,7 @@ public class BraveSearchTool {
               .build();
 
       HttpResponse<String> response =
-          HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+          HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
 
       if (response.statusCode() != 200) {
         return "Web search failed (HTTP %d). Please try a different query."
