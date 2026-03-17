@@ -2,11 +2,12 @@ germinai.de {
   encode zstd gzip
 
   # Backend API and OAuth endpoints go through /api.
+  # Timeouts raised to 20 min for pro models with extended reasoning (>10 min).
   handle_path /api/* {
     reverse_proxy 127.0.0.1:8080 {
       transport http {
-        read_timeout 180s
-        write_timeout 180s
+        read_timeout 1200s
+        write_timeout 1200s
       }
     }
   }

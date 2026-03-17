@@ -10,7 +10,7 @@ server:
 
 spring:
   lifecycle:
-    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:600s}
   application:
     name: chat-sribiddi
   datasource:
@@ -163,11 +163,11 @@ app:
     max-media-attachments: ${CHAT_MAX_MEDIA_ATTACHMENTS:5}
     max-media-attachment-bytes: ${CHAT_MAX_MEDIA_ATTACHMENT_BYTES:5242880}   # 5 MB
     max-media-total-bytes: ${CHAT_MAX_MEDIA_TOTAL_BYTES:20971520}           # 20 MB
-    stream-timeout-ms: ${CHAT_STREAM_TIMEOUT_MS:600000}                     # 10 min
+    stream-timeout-ms: ${CHAT_STREAM_TIMEOUT_MS:1800000}                     # 30 min
   ai:
     openai:
       connect-timeout: ${OPENAI_CONNECT_TIMEOUT:10s}
-      read-timeout: ${OPENAI_READ_TIMEOUT:180s}
+      read-timeout: ${OPENAI_READ_TIMEOUT:1200s}
     openrouter:
       base-url: ${OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
       completions-path: ${OPENROUTER_COMPLETIONS_PATH:/chat/completions}
