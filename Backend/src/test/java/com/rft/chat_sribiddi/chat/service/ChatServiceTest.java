@@ -532,4 +532,62 @@ class ChatServiceTest {
     assertThatThrownBy(() -> chatService.streamMessage(chatId, userId, request))
         .isInstanceOf(ChatNotFoundException.class);
   }
+
+  @Test
+  void extractProviderErrorMessage_parsesOpenAiJsonError() {
+    String openAiBody =
+        "{\"error\":{\"message\":\"The model `gpt-invalid` does not exist\","
+            + "\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"model_not_found\"}}";
+    var ex =
+        new org.springframework.web.reactive.function.client.WebClientResponseException(
+            400, "Bad Request", null, openAiBody.getBytes(), null);
+
+    String result = ChatService.extractProviderErrorMessage(ex);
+
+    assertThat(result).isEqualTo("The model `gpt-invalid` does not exist");
+  }
+
+  @Test
+  void extractProviderErrorMessage_returnsRawBody_whenNotJson() {
+    String rawBody = "Something went wrong";
+    var ex =
+        new org.springframework.web.reactive.function.client.WebClientResponseException(
+            500, "Internal Server Error", null, rawBody.getBytes(), null);
+
+    String result = ChatService.extractProviderErrorMessage(ex);
+
+    assertThat(result).isEqualTo("Something went wrong");
+  }
+
+  @Test
+  void extractProviderErrorMessage_fallsBack_whenBodyEmpty() {
+    var ex =
+        new org.springframework.web.reactive.function.client.WebClientResponseException(
+            400, "Bad Request", null, null, null);
+
+    String result = ChatService.extractProviderErrorMessage(ex);
+
+    assertThat(result).contains("HTTP 400");
+  }
+
+  @Test
+  void extractProviderErrorMessage_parsesTopLevelMessage() {
+    String body = "{\"message\":\"Rate limit exceeded\"}";
+    var ex =
+        new org.springframework.web.reactive.function.client.WebClientResponseException(
+            429, "Too Many Requests", null, body.getBytes(), null);
+
+    String result = ChatService.extractProviderErrorMessage(ex);
+
+    assertThat(result).isEqualTo("Rate limit exceeded");
+  }
+
+  @Test
+  void extractProviderErrorMessage_returnsGenericMessage_forNonProviderError() {
+    var ex = new RuntimeException("Something unexpected");
+
+    String result = ChatService.extractProviderErrorMessage(ex);
+
+    assertThat(result).isEqualTo("An error occurred while streaming the response.");
+  }
 }
