@@ -7,6 +7,7 @@ definePageMeta({
 
 const { hydrated} = useUserSettings()
 const {getStatus, saveKey, deleteKey} = useKeyApi()
+const {getCustomInstructions, saveCustomInstructions} = useInstructionsApi()
 const {deleteAccount} = useChatApi()
 const {models} = useChatStore()
 const {status: authStatus} = useAuth()
@@ -140,16 +141,17 @@ const refreshStatus = async () => {
 }
 
 onMounted(async () => {
-  try {
-    await refreshStatus()
-  } catch (err) {
-    console.error(err)
-    toast.add({
-      title: 'Could not load key status',
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
-      color: 'error'
-    })
-  }
+  await Promise.allSettled([
+    refreshStatus().catch(err => {
+      console.error(err)
+      toast.add({
+        title: 'Could not load key status',
+        description: err instanceof Error ? err.message : 'Backend not reachable.',
+        color: 'error'
+      })
+    }),
+    loadCustomInstructions()
+  ])
 })
 
 async function handleSave(provider: Provider) {
@@ -208,6 +210,42 @@ async function handleDelete(provider: Provider) {
 
 const showDeleteAccountModal = ref(false)
 const deletingAccount = ref(false)
+
+const customInstructions = ref('')
+const loadingInstructions = ref(true)
+const savingInstructions = ref(false)
+
+async function loadCustomInstructions() {
+  loadingInstructions.value = true
+  try {
+    const value = await getCustomInstructions()
+    customInstructions.value = value ?? ''
+  } catch (err) {
+    console.error(err)
+  } finally {
+    loadingInstructions.value = false
+  }
+}
+
+async function handleSaveInstructions() {
+  savingInstructions.value = true
+  try {
+    await saveCustomInstructions(customInstructions.value.trim() || null)
+    toast.add({
+      title: 'Custom instructions saved',
+      description: 'Your instructions will be appended to the system prompt.',
+      color: 'primary'
+    })
+  } catch (err) {
+    toast.add({
+      title: 'Could not save custom instructions',
+      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      color: 'error'
+    })
+  } finally {
+    savingInstructions.value = false
+  }
+}
 
 async function handleDeleteAccount() {
   deletingAccount.value = true
@@ -354,6 +392,39 @@ async function handleDeleteAccount() {
             </div>
           </UCard>
         
+
+          <UCard>
+            <div class="space-y-4">
+              <div class="space-y-1">
+                <div class="text-lg font-semibold">Custom instructions</div>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  Add personal instructions that will be appended to the system prompt in every conversation. The base system prompt is always preserved.
+                </p>
+              </div>
+              <USkeleton v-if="loadingInstructions" class="h-28" />
+              <div v-else class="space-y-3">
+                <UTextarea
+                    v-model="customInstructions"
+                    placeholder="e.g. Always reply in German. Prefer concise bullet-point answers."
+                    :rows="5"
+                    :maxlength="4000"
+                    autoresize
+                />
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-xs text-gray-400">{{ customInstructions.length }}&thinsp;/&thinsp;4000</span>
+                  <UButton
+                      type="button"
+                      color="primary"
+                      size="sm"
+                      icon="i-heroicons-check-circle"
+                      label="Save instructions"
+                      :loading="savingInstructions"
+                      @click="handleSaveInstructions"
+                  />
+                </div>
+              </div>
+            </div>
+          </UCard>
 
           <UCard class="border border-red-500/30">
             <div class="space-y-4">
