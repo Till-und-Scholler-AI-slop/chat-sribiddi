@@ -352,6 +352,7 @@ export function useChatApi() {
     let buffer = ''
 
     try {
+      let searchFrom = 0
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -359,15 +360,18 @@ export function useChatApi() {
         buffer += decoder.decode(value, { stream: true })
 
         // Process complete SSE events (delimited by double newline)
-        const parts = buffer.split(/\n\n/)
-        buffer = parts.pop() || ''
+        let idx: number
+        while ((idx = buffer.indexOf('\n\n', searchFrom)) !== -1) {
+          const part = buffer.substring(0, idx)
+          buffer = buffer.substring(idx + 2)
+          searchFrom = 0
 
-        for (const part of parts) {
           const events = parseSseEvents(part + '\n\n')
           for (const event of events) {
             onEvent(event)
           }
         }
+        searchFrom = Math.max(0, buffer.length - 1)
       }
 
       // Process any remaining buffer

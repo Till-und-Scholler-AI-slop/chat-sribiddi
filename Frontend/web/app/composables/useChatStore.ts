@@ -288,6 +288,15 @@ export function useChatStore() {
     const wasActive = activeChatId.value === chatId
     stop(chatId)
 
+    // Clean up token usage and reasoning entries for this chat's messages
+    const conversation = conversations.value.find(c => c.session.chatId === chatId)
+    if (conversation) {
+      for (const msg of conversation.messages) {
+        delete tokenUsageMap.value[msg.id]
+        delete reasoningMap.value[msg.id]
+      }
+    }
+
     await deleteChat(chatId)
     conversations.value = conversations.value.filter(c => c.session.chatId !== chatId)
 

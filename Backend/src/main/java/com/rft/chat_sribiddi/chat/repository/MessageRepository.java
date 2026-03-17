@@ -20,5 +20,9 @@ public interface MessageRepository extends JpaRepository<MessageEntity, Long> {
   @Query("DELETE FROM MessageEntity m WHERE m.chatId IN :chatIds")
   void deleteAllByChatIdIn(@Param("chatIds") Collection<UUID> chatIds);
 
+  @Modifying
+  @Query("DELETE FROM MessageEntity m WHERE EXISTS (SELECT 1 FROM ChatEntity c WHERE c.chatId = m.chatId AND c.userId = :userId)")
+  void deleteAllByUserId(@Param("userId") String userId);
+
   List<MessageEntity> findByChatIdOrderByCreatedAtDesc(UUID chatId, Pageable pageable);
 }

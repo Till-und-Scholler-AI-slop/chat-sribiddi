@@ -1,12 +1,17 @@
 services:
   db:
-    image: postgres:latest
-    ports: ["5432:5432"]
+    image: postgres:17-alpine
+    ports: ["127.0.0.1:5432:5432"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-    volumes: ["db:/var/lib/postgresql"]
+    volumes: ["db:/var/lib/postgresql/data"]
 
 volumes:
   db:
