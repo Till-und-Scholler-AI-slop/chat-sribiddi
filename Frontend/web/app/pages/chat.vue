@@ -141,8 +141,11 @@ const handleFiles = async (event: Event) => {
 }
 
 const handleDragOver = (event: DragEvent) => {
-  event.preventDefault()
-  isDragOver.value = true
+  const types = event.dataTransfer?.types
+  if (types && Array.from(types).includes('Files')) {
+    event.preventDefault()
+    isDragOver.value = true
+  }
 }
 
 const handleDragLeave = (event: DragEvent) => {
@@ -153,6 +156,10 @@ const handleDragLeave = (event: DragEvent) => {
 }
 
 const handleDrop = async (event: DragEvent) => {
+  const types = event.dataTransfer?.types
+  if (!types || !Array.from(types).includes('Files')) {
+    return
+  }
   event.preventDefault()
   isDragOver.value = false
   const files = Array.from(event.dataTransfer?.files || [])
