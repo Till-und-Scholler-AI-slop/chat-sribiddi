@@ -27,4 +27,7 @@ public class ChatProperties {
 
   /** SSE stream timeout in milliseconds (default: 30 minutes). */
   private long streamTimeoutMs = 1_800_000L;
+
+  /** Maximum character length for auto-generated chat titles (default: 100). */
+  private int maxChatTitleLength = 100;
 }

@@ -8,10 +8,12 @@ package com.rft.chat_sribiddi.chat.dto;
  * @param promptTokens token count (only on {@code done})
  * @param generationTokens token count (only on {@code done})
  * @param totalTokens token count (only on {@code done})
+ * @param chatTitle updated chat title when auto-set from the first message (only on {@code done})
  */
 public record StreamEventDTO(
     String type,
     String content,
     Long promptTokens,
     Long generationTokens,
-    Long totalTokens) {}
+    Long totalTokens,
+    String chatTitle) {}

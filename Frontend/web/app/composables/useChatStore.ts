@@ -436,6 +436,9 @@ export function useChatStore() {
               break
 
             case 'done':
+              if (event.chatTitle) {
+                conversation.session.title = event.chatTitle
+              }
               if (
                 event.promptTokens != null ||
                 event.generationTokens != null ||

@@ -74,6 +74,7 @@ export type StreamEvent = {
   promptTokens?: number | null
   generationTokens?: number | null
   totalTokens?: number | null
+  chatTitle?: string | null
 }
 
 /**

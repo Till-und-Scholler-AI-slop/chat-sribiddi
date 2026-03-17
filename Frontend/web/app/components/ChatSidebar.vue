@@ -60,8 +60,7 @@ const handleNewChat = async () => {
       return
     }
 
-    const index = conversations.value.length + 1
-    const session = await startChat(`Chat ${index}`)
+    const session = await startChat()
     selectChat(session.chatId)
     if (route.path !== '/chat') {
       router.push('/chat')
