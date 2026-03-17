@@ -11,6 +11,7 @@ const {
   conversations,
   defaultModel,
   ensureModels,
+  isFavorite,
   loadChatsFromBackend,
   loadMessagesForChat,
   models,
@@ -21,6 +22,7 @@ const {
   saveLastUsedModel,
   sendPrompt,
   setModelForChat,
+  sortedModels,
   startChat,
   stop,
   tokenUsageMap
@@ -400,7 +402,7 @@ const handleReload = async () => {
           <template #header>
             <USelectMenu
               v-model="selectedModel"
-              :items="models"
+              :items="sortedModels"
               class="w-56"
               :loading="modelsLoading"
               label-key="label"
@@ -413,9 +415,16 @@ const handleReload = async () => {
                 <UIcon name="i-heroicons-cpu-chip" />
               </template>
               <template #option="{ option }">
-                <div class="flex items-center justify-between">
-                  <span>{{ option.label }}</span>
-                  <UBadge :label="providerLabel(option.provider)" variant="soft" color="neutral" />
+                <div class="flex items-center justify-between gap-2 w-full">
+                  <span class="truncate">{{ option.label }}</span>
+                  <div class="flex items-center gap-1 flex-shrink-0">
+                    <UIcon
+                      v-if="isFavorite(option)"
+                      name="i-heroicons-star-solid"
+                      class="size-3 text-yellow-400"
+                    />
+                    <UBadge :label="providerLabel(option.provider)" variant="soft" color="neutral" />
+                  </div>
                 </div>
               </template>
             </USelectMenu>
