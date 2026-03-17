@@ -1,11 +1,8 @@
 package com.rft.chat_sribiddi.auth;
 
-import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyRepository;
-import java.util.List;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
@@ -35,12 +32,8 @@ public class AccountService {
 
     apiKeyRepository.deleteByUserId(providerId);
 
-    List<ChatEntity> chats = chatRepository.findByUserIdOrderByCreatedAtDesc(providerId);
-    if (!chats.isEmpty()) {
-      List<UUID> chatIds = chats.stream().map(ChatEntity::getChatId).toList();
-      messageRepository.deleteAllByChatIdIn(chatIds);
-      chatRepository.deleteAll(chats);
-    }
+    messageRepository.deleteAllByUserId(providerId);
+    chatRepository.deleteByUserId(providerId);
 
     userRepository.delete(user);
 
