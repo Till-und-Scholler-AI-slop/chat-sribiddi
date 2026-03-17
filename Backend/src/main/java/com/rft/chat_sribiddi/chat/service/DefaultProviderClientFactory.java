@@ -132,6 +132,8 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                     ChatClient.create(OpenAiChatModel.builder().openAiApi(openRouterApi).build());
                 return new ChatService.ClientHolder(chatClient, null);
               });
+      case BRAVE_SEARCH ->
+          throw new UnsupportedOperationException("BRAVE_SEARCH is not a chat model provider");
     };
   }
 
@@ -146,6 +148,8 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
               .build();
       case CLAUDE -> AnthropicChatOptions.builder().model(modelId).build();
       case OPENROUTER -> OpenAiChatOptions.builder().model(modelId).build();
+      case BRAVE_SEARCH ->
+          throw new UnsupportedOperationException("BRAVE_SEARCH is not a chat model provider");
     };
   }
 }

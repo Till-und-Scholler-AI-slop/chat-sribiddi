@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
+import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.StreamEventDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
@@ -14,6 +15,8 @@ import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import com.rft.chat_sribiddi.websearch.BraveSearchTool;
+import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.transaction.Transactional;
 import java.io.IOException;
 import java.time.Instant;
@@ -60,6 +63,8 @@ public class ChatService {
   private final ProviderClientFactory providerClientFactory;
   private final ChatProperties chatProperties;
   private final UserSettingsService userSettingsService;
+  private final WebSearchProperties webSearchProperties;
+  private final java.net.http.HttpClient webSearchHttpClient;
 
   public ChatService(
       ChatRepository chatRepository,
@@ -67,13 +72,16 @@ public class ChatService {
       ApiKeyService apiKeyService,
       ProviderClientFactory providerClientFactory,
       ChatProperties chatProperties,
-      UserSettingsService userSettingsService) {
+      UserSettingsService userSettingsService,
+      WebSearchProperties webSearchProperties) {
     this.chatRepository = chatRepository;
     this.messageRepository = messageRepository;
     this.apiKeyService = apiKeyService;
     this.providerClientFactory = providerClientFactory;
     this.chatProperties = chatProperties;
     this.userSettingsService = userSettingsService;
+    this.webSearchProperties = webSearchProperties;
+    this.webSearchHttpClient = java.net.http.HttpClient.newHttpClient();
   }
 
   @Transactional
@@ -170,7 +178,11 @@ public class ChatService {
           providerClientFactory.buildOptions(
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
-      var responseSpec = client.prompt().options(options).messages(promptMessages).call();
+      var promptSpec = client.prompt().options(options).messages(promptMessages);
+      if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
+        resolveWebSearchTool(userId).ifPresent(promptSpec::tools);
+      }
+      var responseSpec = promptSpec.call();
       chatResponse = responseSpec.chatResponse();
     }
 
@@ -267,10 +279,12 @@ public class ChatService {
     StringBuilder fullText = new StringBuilder();
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
 
-    client
-        .prompt()
-        .options(options)
-        .messages(promptMessages)
+    var streamPromptSpec = client.prompt().options(options).messages(promptMessages);
+    if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
+      resolveWebSearchTool(userId).ifPresent(streamPromptSpec::tools);
+    }
+
+    streamPromptSpec
         .stream()
         .chatResponse()
         .subscribe(
@@ -462,10 +476,12 @@ public class ChatService {
     StringBuilder fullText = new StringBuilder();
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
 
-    client
-        .prompt()
-        .options(options)
-        .messages(promptMessages)
+    var editPromptSpec = client.prompt().options(options).messages(promptMessages);
+    if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
+      resolveWebSearchTool(userId).ifPresent(editPromptSpec::tools);
+    }
+
+    editPromptSpec
         .stream()
         .chatResponse()
         .subscribe(
@@ -913,5 +929,15 @@ public class ChatService {
         log.warn("Failed to close provider client", e);
       }
     }
+  }
+
+  /**
+   * Resolves a {@link BraveSearchTool} for the given user if they have a Brave Search API key
+   * stored.
+   */
+  private Optional<BraveSearchTool> resolveWebSearchTool(String userId) {
+    return apiKeyService
+        .getKey(userId, Provider.BRAVE_SEARCH)
+        .map(key -> new BraveSearchTool(key, webSearchHttpClient, webSearchProperties));
   }
 }

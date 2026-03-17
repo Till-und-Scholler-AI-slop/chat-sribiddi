@@ -19,6 +19,7 @@ type KeyProviderStatus = {
   google: boolean
   claude: boolean
   openrouter: boolean
+  brave_search: boolean
 }
 
 type ProviderCard = {
@@ -95,6 +96,13 @@ const deletingProvider = reactive<Record<Provider, boolean>>({
   CLAUDE: false,
   OPENROUTER: false
 })
+
+const braveSearchKey = ref('')
+const braveSearchReveal = ref(false)
+const savingBraveSearch = ref(false)
+const deletingBraveSearch = ref(false)
+
+const braveSearchStatus = computed(() => status.value?.brave_search ?? false)
 
 const providerDisplay = (provider: Provider) =>
     provider === 'OPENAI'
@@ -205,6 +213,58 @@ async function handleDelete(provider: Provider) {
     })
   } finally {
     deletingProvider[provider] = false
+  }
+}
+
+async function handleSaveBraveSearch() {
+  const key = braveSearchKey.value.trim()
+  if (!key) {
+    toast.add({
+      title: 'Missing API key',
+      description: 'Enter a Brave Search API key first.',
+      color: 'warning'
+    })
+    return
+  }
+
+  savingBraveSearch.value = true
+  try {
+    await saveKey('BRAVE_SEARCH', key)
+    braveSearchKey.value = ''
+    await refreshStatus()
+    toast.add({
+      title: 'Brave Search key saved',
+      description: 'The key is now stored in the backend for your account.',
+      color: 'primary'
+    })
+  } catch (err) {
+    toast.add({
+      title: 'Could not save Brave Search key',
+      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      color: 'error'
+    })
+  } finally {
+    savingBraveSearch.value = false
+  }
+}
+
+async function handleDeleteBraveSearch() {
+  deletingBraveSearch.value = true
+  try {
+    await deleteKey('BRAVE_SEARCH')
+    await refreshStatus()
+    toast.add({
+      title: 'Brave Search key removed',
+      color: 'neutral'
+    })
+  } catch (err) {
+    toast.add({
+      title: 'Could not remove Brave Search key',
+      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      color: 'error'
+    })
+  } finally {
+    deletingBraveSearch.value = false
   }
 }
 
@@ -392,6 +452,87 @@ async function handleDeleteAccount() {
             </div>
           </UCard>
         
+
+          <UCard>
+            <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+              <div class="space-y-1">
+                <div class="text-lg font-semibold">Web Search</div>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  Configure the Brave Search API to enable web search in chat.
+                  The AI can search the web when the toggle is activated in the chat prompt.
+                </p>
+              </div>
+              <UBadge
+                  color="primary"
+                  variant="soft"
+                  :label="braveSearchStatus ? 'Brave Search key set' : 'Brave Search key missing'"
+              />
+            </div>
+
+            <UCard class="flex flex-col">
+              <div class="flex flex-col gap-5 h-full">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-base font-semibold">Brave Search</div>
+                  <UBadge
+                      variant="soft"
+                      :color="braveSearchStatus ? 'primary' : 'neutral'"
+                      :label="braveSearchStatus ? 'Stored' : 'Not stored'"
+                  />
+                </div>
+
+                <UFormGroup
+                    label="Brave Search API key"
+                    description="Used for web search within chat conversations. Get your key at https://brave.com/search/api/."
+                    name="brave_search"
+                >
+                  <UInput
+                      v-model="braveSearchKey"
+                      :type="braveSearchReveal ? 'text' : 'password'"
+                      placeholder="BSA..."
+                      icon="i-heroicons-lock-closed"
+                      autocomplete="off"
+                  />
+                </UFormGroup>
+
+                <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                      <UButton
+                          type="button"
+                          variant="ghost"
+                          color="neutral"
+                          size="sm"
+                          :icon="braveSearchReveal ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
+                          :label="braveSearchReveal ? 'Hide' : 'Show'"
+                          @click="braveSearchReveal = !braveSearchReveal"
+                      />
+                      <UButton
+                          type="button"
+                          color="primary"
+                          size="sm"
+                          icon="i-heroicons-check-circle"
+                          label="Save key"
+                          :loading="savingBraveSearch"
+                          :disabled="!braveSearchKey.trim() || savingBraveSearch || deletingBraveSearch"
+                          @click="handleSaveBraveSearch"
+                      />
+                    </div>
+                    <UButton
+                        type="button"
+                        variant="outline"
+                        color="error"
+                        size="sm"
+                        icon="i-heroicons-trash"
+                        label="Remove"
+                        :loading="deletingBraveSearch"
+                        :disabled="savingBraveSearch || deletingBraveSearch"
+                        @click="handleDeleteBraveSearch"
+                    />
+                  </div>
+                </div>
+              </div>
+            </UCard>
+          </UCard>
 
           <UCard>
             <div class="space-y-4">

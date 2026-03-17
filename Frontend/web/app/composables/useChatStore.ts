@@ -163,7 +163,7 @@ export function useChatStore() {
   const modelsError = useState<string | null>('chat-models-error', () => null)
   const tokenUsageMap = useState<Record<string, TokenUsage>>('chat-token-usage', () => ({}))
   const reasoningMap = useState<Record<string, string>>('chat-reasoning', () => ({}))
-
+  const webSearchEnabled = useState<boolean>('chat-web-search-enabled', () => false)
   const activeConversation = computed(() =>
     conversations.value.find(c => c.session.chatId === activeChatId.value) || null
   )
@@ -509,7 +509,8 @@ export function useChatStore() {
         content: text,
         provider: model.provider,
         modelId: model.value,
-        media: options?.media?.map(item => ({ mimeType: item.mimeType, data: item.data }))
+        media: options?.media?.map(item => ({ mimeType: item.mimeType, data: item.data })),
+        webSearchEnabled: webSearchEnabled.value || undefined
       }
 
       await streamMessage(
@@ -696,7 +697,8 @@ export function useChatStore() {
       const input = {
         content: newText,
         provider: model.provider,
-        modelId: model.value
+        modelId: model.value,
+        webSearchEnabled: webSearchEnabled.value || undefined
       }
 
       await editAndStreamMessage(
@@ -816,6 +818,7 @@ export function useChatStore() {
     defaultModel,
     tokenUsageMap,
     reasoningMap,
+    webSearchEnabled,
     isFavorite,
     toggleFavorite,
     ensureModels,

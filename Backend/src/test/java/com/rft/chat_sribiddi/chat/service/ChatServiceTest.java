@@ -57,7 +57,7 @@ class ChatServiceTest {
   void setUp() {
     ChatProperties chatProperties = new ChatProperties();
     chatService =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, chatProperties, userSettingsService);
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, chatProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties());
     chatId = UUID.randomUUID();
     userId = "user-123";
 
@@ -78,7 +78,7 @@ class ChatServiceTest {
   @Test
   void sendMessage_resolvesStoredKey_andPersistsMessages() {
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null, null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -125,7 +125,7 @@ class ChatServiceTest {
             "claude-key",
             List.of(
                 new RequestDTO.MediaAttachment(
-                    "image/png", Base64.getEncoder().encodeToString("png".getBytes()))));
+                    "image/png", Base64.getEncoder().encodeToString("png".getBytes()))), null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -174,7 +174,7 @@ class ChatServiceTest {
                 new RequestDTO.MediaAttachment(
                     "image/png", Base64.getEncoder().encodeToString("a".getBytes())),
                 new RequestDTO.MediaAttachment(
-                    "application/pdf", Base64.getEncoder().encodeToString("b".getBytes()))));
+                    "application/pdf", Base64.getEncoder().encodeToString("b".getBytes()))), null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -216,7 +216,7 @@ class ChatServiceTest {
             "claude-key",
             List.of(
                 new RequestDTO.MediaAttachment(
-                    "image/png", Base64.getEncoder().encodeToString("abc".getBytes()))));
+                    "image/png", Base64.getEncoder().encodeToString("abc".getBytes()))), null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -272,7 +272,7 @@ class ChatServiceTest {
             RequestDTO.Provider.CLAUDE,
             "claude-sonnet-4-5",
             "claude-key",
-            java.util.Arrays.asList((RequestDTO.MediaAttachment) null));
+            java.util.Arrays.asList((RequestDTO.MediaAttachment) null), null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -296,7 +296,7 @@ class ChatServiceTest {
             RequestDTO.Provider.CLAUDE,
             "claude-sonnet-4-5",
             "claude-key",
-            List.of(new RequestDTO.MediaAttachment("image/png", oversized)));
+            List.of(new RequestDTO.MediaAttachment("image/png", oversized)), null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -321,7 +321,7 @@ class ChatServiceTest {
   void sendMessage_missingChat_throwsNotFound() {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.empty());
 
-    RequestDTO request = new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemini", "key", null);
+    RequestDTO request = new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemini", "key", null, null);
 
     assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
         .isInstanceOf(ChatNotFoundException.class);
@@ -332,7 +332,7 @@ class ChatServiceTest {
     ChatProperties customProperties = new ChatProperties();
     customProperties.setMaxMediaAttachments(1);
     ChatService customService =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, customProperties, userSettingsService);
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, customProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties());
 
     RequestDTO request =
         new RequestDTO(
@@ -344,7 +344,7 @@ class ChatServiceTest {
                 new RequestDTO.MediaAttachment(
                     "image/png", Base64.getEncoder().encodeToString("a".getBytes())),
                 new RequestDTO.MediaAttachment(
-                    "image/png", Base64.getEncoder().encodeToString("b".getBytes()))));
+                    "image/png", Base64.getEncoder().encodeToString("b".getBytes()))), null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -359,7 +359,7 @@ class ChatServiceTest {
   @Test
   void sendMessage_extractsTokenUsage_andPersistsOnAssistantMessage() {
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -406,7 +406,7 @@ class ChatServiceTest {
   @Test
   void sendMessage_withDefaultMetadata_returnsZeroTokens() {
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemini", "key", null);
+        new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemini", "key", null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -440,7 +440,7 @@ class ChatServiceTest {
   @Test
   void streamMessage_emitsTextChunks_andPersistsAssistantMessage() {
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -492,7 +492,7 @@ class ChatServiceTest {
   @Test
   void streamMessage_providerError_sendsErrorEvent_andCompletesCleanly() {
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -532,7 +532,7 @@ class ChatServiceTest {
   void streamMessage_missingChat_throwsNotFound() {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.empty());
 
-    RequestDTO request = new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemini", "key", null);
+    RequestDTO request = new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemini", "key", null, null);
 
     assertThatThrownBy(() -> chatService.streamMessage(chatId, userId, request))
         .isInstanceOf(ChatNotFoundException.class);
@@ -627,7 +627,7 @@ class ChatServiceTest {
     when(chatRepository.setTitleIfBlank(eq(chatId), anyString())).thenReturn(1);
 
     RequestDTO request =
-        new RequestDTO("Hello world", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+        new RequestDTO("Hello world", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
 
     SendMessageResponseDTO result = chatService.sendMessage(chatId, userId, request);
 
@@ -646,7 +646,7 @@ class ChatServiceTest {
     setupSendMessageMocks(chat, "key");
 
     RequestDTO request =
-        new RequestDTO("Hello world", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+        new RequestDTO("Hello world", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
 
     SendMessageResponseDTO result = chatService.sendMessage(chatId, userId, request);
 
@@ -659,7 +659,7 @@ class ChatServiceTest {
     ChatProperties longTitleProps = new ChatProperties();
     longTitleProps.setMaxChatTitleLength(10);
     ChatService serviceWithShortTitleLimit =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, longTitleProps, userSettingsService);
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, longTitleProps, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties());
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -669,7 +669,7 @@ class ChatServiceTest {
     when(chatRepository.setTitleIfBlank(eq(chatId), anyString())).thenReturn(1);
 
     RequestDTO request =
-        new RequestDTO("A very long message that exceeds the limit", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+        new RequestDTO("A very long message that exceeds the limit", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
 
     SendMessageResponseDTO result = serviceWithShortTitleLimit.sendMessage(chatId, userId, request);
 
@@ -698,7 +698,7 @@ class ChatServiceTest {
         .thenThrow(chatFkViolation());
 
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null, null);
 
     assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
         .isInstanceOf(ChatNotFoundException.class);
@@ -716,7 +716,7 @@ class ChatServiceTest {
         .thenThrow(new DataIntegrityViolationException("some other constraint"));
 
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null, null);
 
     assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
         .isInstanceOf(DataIntegrityViolationException.class)
@@ -759,7 +759,7 @@ class ChatServiceTest {
         .thenThrow(chatFkViolation());
 
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
 
     assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
         .isInstanceOf(ChatNotFoundException.class);
@@ -768,7 +768,7 @@ class ChatServiceTest {
   @Test
   void streamMessage_chatDeletedDuringStream_skipsAssistantSave() {
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -811,7 +811,7 @@ class ChatServiceTest {
   void editAndStreamMessage_updatesMessage_deletesSubsequent_andStreamsNewResponse() {
     Long messageId = 42L;
     RequestDTO request =
-        new RequestDTO("updated content", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+        new RequestDTO("updated content", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -867,7 +867,7 @@ class ChatServiceTest {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.empty());
 
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null, null);
 
     assertThatThrownBy(() -> chatService.editAndStreamMessage(chatId, userId, 1L, request))
         .isInstanceOf(ChatNotFoundException.class);
@@ -882,7 +882,7 @@ class ChatServiceTest {
     when(messageRepository.findByIdAndChatId(99L, chatId)).thenReturn(Optional.empty());
 
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null, null);
 
     assertThatThrownBy(() -> chatService.editAndStreamMessage(chatId, userId, 99L, request))
         .isInstanceOf(IllegalArgumentException.class)
@@ -904,7 +904,7 @@ class ChatServiceTest {
     when(messageRepository.findByIdAndChatId(10L, chatId)).thenReturn(Optional.of(assistantMessage));
 
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null, null);
 
     assertThatThrownBy(() -> chatService.editAndStreamMessage(chatId, userId, 10L, request))
         .isInstanceOf(IllegalArgumentException.class)

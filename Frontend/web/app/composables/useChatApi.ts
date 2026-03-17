@@ -130,6 +130,7 @@ type SendMessageInput = {
   provider: Provider
   modelId: string
   media?: Array<Pick<MediaAttachment, 'mimeType' | 'data'>>
+  webSearchEnabled?: boolean
 }
 
 export const DEFAULT_BACKEND_BASE_URL = 'http://localhost:8080'
