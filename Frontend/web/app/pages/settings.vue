@@ -141,7 +141,7 @@ const refreshStatus = async () => {
 }
 
 onMounted(async () => {
-  const [, ] = await Promise.allSettled([
+  await Promise.allSettled([
     refreshStatus().catch(err => {
       console.error(err)
       toast.add({

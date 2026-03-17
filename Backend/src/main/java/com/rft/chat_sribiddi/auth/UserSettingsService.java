@@ -24,8 +24,11 @@ public class UserSettingsService {
     User user =
         userRepository
             .findByProviderId(userId)
-            .orElseThrow(
-                () -> new IllegalStateException("No account found for the current user"));
+            .orElseGet(() -> {
+              User newUser = new User();
+              newUser.setProviderId(userId);
+              return userRepository.save(newUser);
+            });
 
     String normalized =
         (customInstructions != null && !customInstructions.isBlank())
