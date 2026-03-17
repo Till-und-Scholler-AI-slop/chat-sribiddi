@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractAssistantText, extractTokenUsage, favoriteModelKey, parseAttachmentContext } from '../useChatStore'
+import { appendTextToMessage, extractAssistantText, extractTokenUsage, favoriteModelKey, parseAttachmentContext, resolveStreamOutcome } from '../useChatStore'
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {
@@ -136,5 +136,78 @@ describe('favoriteModelKey', () => {
     const gpt4Key = favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4', label: 'GPT-4' } as any)
     const gpt4oKey = favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4o', label: 'GPT-4o' } as any)
     expect(gpt4Key).not.toBe(gpt4oKey)
+  })
+})
+
+describe('appendTextToMessage', () => {
+  it('returns a new message with appended text for streaming updates', () => {
+    const original = {
+      id: 'msg-1',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'Hello' }]
+    } as any
+
+    const updated = appendTextToMessage(original, ' world')
+
+    expect(updated).toEqual({
+      id: 'msg-1',
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'Hello world' }]
+    })
+    expect(updated).not.toBe(original)
+    expect(updated.parts).not.toBe(original.parts)
+  })
+
+  it('preserves non-text parts while appending streamed text', () => {
+    const original = {
+      id: 'msg-2',
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: 'See' },
+        { type: 'file', mediaType: 'image/png', url: '' }
+      ]
+    } as any
+
+    const updated = appendTextToMessage(original, ' attached image')
+
+    expect(updated.parts).toEqual([
+      { type: 'text', text: 'See attached image' },
+      { type: 'file', mediaType: 'image/png', url: '' }
+    ])
+  })
+})
+
+describe('resolveStreamOutcome', () => {
+  it('marks completed streams as ready', () => {
+    expect(resolveStreamOutcome({
+      receivedDone: true,
+      receivedError: false,
+      receivedContent: true
+    }, null)).toEqual({
+      status: 'ready',
+      error: null
+    })
+  })
+
+  it('keeps SSE error events in error state', () => {
+    expect(resolveStreamOutcome({
+      receivedDone: false,
+      receivedError: true,
+      receivedContent: true
+    }, 'Provider timed out')).toEqual({
+      status: 'error',
+      error: 'Provider timed out'
+    })
+  })
+
+  it('surfaces interrupted streams with a partial-response message', () => {
+    expect(resolveStreamOutcome({
+      receivedDone: false,
+      receivedError: false,
+      receivedContent: true
+    }, null)).toEqual({
+      status: 'error',
+      error: 'The response stream was interrupted before completion. Partial response shown.'
+    })
   })
 })

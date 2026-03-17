@@ -435,7 +435,10 @@ public class ChatService {
 
     messageRepository.deleteByIdGreaterThanAndChatId(chatId, messageId);
 
-    List<Message> promptMessages = buildPromptMessages(chatId, validatedMedia, messageId);
+    String customInstructions =
+        userSettingsService.getCustomInstructions(userId).orElse(null);
+    List<Message> promptMessages =
+        buildPromptMessages(chatId, validatedMedia, messageId, customInstructions);
 
     String resolvedKey =
         Optional.ofNullable(requestDTO.apiKey())

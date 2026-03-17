@@ -55,6 +55,9 @@ const selectedModel = computed<ModelOption | null>({
 
 const status = computed(() => activeConversation.value?.status || 'ready')
 const errorMessage = computed(() => activeConversation.value?.error || modelsError.value)
+const promptError = computed(() =>
+  errorMessage.value ? new Error(errorMessage.value) : undefined
+)
 
 const firstText = (parts?: Array<{ type: string; text?: string }>) =>
   parts?.find(part => part.type === 'text' && typeof part.text === 'string')?.text || ''
@@ -545,7 +548,7 @@ const submitEditMessage = async () => {
             </UBadge>
           </div>
 
-          <UChatPrompt v-model="input" :error="errorMessage" @submit="handleSubmit">
+          <UChatPrompt v-model="input" :error="promptError" @submit="handleSubmit">
             <template #header>
               <USelectMenu
                 v-model="selectedModel"

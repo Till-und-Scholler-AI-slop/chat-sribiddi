@@ -77,6 +77,10 @@ export type StreamEvent = {
   chatTitle?: string | null
 }
 
+function normalizeSsePayload(raw: string) {
+  return raw.replace(/\r\n?/g, '\n')
+}
+
 /**
  * Parses a raw SSE chunk into individual stream events.
  * Each SSE message is delimited by a blank line and may contain
@@ -84,19 +88,20 @@ export type StreamEvent = {
  */
 export function parseSseEvents(raw: string): StreamEvent[] {
   const events: StreamEvent[] = []
-  const blocks = raw.split(/\n\n+/)
+  const blocks = normalizeSsePayload(raw).split(/\n\n+/)
 
   for (const block of blocks) {
     const trimmedBlock = block.trim()
     if (!trimmedBlock) continue
 
-    let dataLine = ''
+    const dataLines: string[] = []
     for (const line of trimmedBlock.split('\n')) {
       if (line.startsWith('data:')) {
-        dataLine = line.slice(5).trim()
+        dataLines.push(line.slice(5).trim())
       }
     }
 
+    const dataLine = dataLines.join('\n')
     if (!dataLine) continue
 
     try {
@@ -358,7 +363,7 @@ export function useChatApi() {
         const { done, value } = await reader.read()
         if (done) break
 
-        buffer += decoder.decode(value, { stream: true })
+        buffer += normalizeSsePayload(decoder.decode(value, { stream: true }))
 
         // Process complete SSE events (delimited by double newline)
         let idx: number
@@ -373,6 +378,11 @@ export function useChatApi() {
           }
         }
         searchFrom = Math.max(0, buffer.length - 1)
+      }
+
+      const trailing = decoder.decode()
+      if (trailing) {
+        buffer += normalizeSsePayload(trailing)
       }
 
       // Process any remaining buffer
