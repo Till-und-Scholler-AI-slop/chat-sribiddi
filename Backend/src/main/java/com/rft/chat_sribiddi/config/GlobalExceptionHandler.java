@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.client.RestClientResponseException;
@@ -68,8 +69,7 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(RestClientResponseException.class)
   public ResponseEntity<Map<String, String>> handleProviderResponse(RestClientResponseException ex) {
-    HttpStatus mappedStatus =
-        ex.getStatusCode().is4xxClientError() ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY;
+    HttpStatus mappedStatus = mapProviderStatus(ex.getStatusCode());
     String message = ChatService.formatProviderError(
         ex.getResponseBodyAsString(), ex.getStatusCode().value());
     return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
@@ -77,11 +77,17 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(WebClientResponseException.class)
   public ResponseEntity<Map<String, String>> handleWebClientResponse(WebClientResponseException ex) {
-    HttpStatus mappedStatus =
-        ex.getStatusCode().is4xxClientError() ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY;
+    HttpStatus mappedStatus = mapProviderStatus(ex.getStatusCode());
     String message = ChatService.formatProviderError(
         ex.getResponseBodyAsString(), ex.getStatusCode().value());
     return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
+  }
+
+  private HttpStatus mapProviderStatus(HttpStatusCode statusCode) {
+    if (statusCode.value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
+      return HttpStatus.TOO_MANY_REQUESTS;
+    }
+    return statusCode.is4xxClientError() ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY;
   }
 
   private boolean isTimeout(Throwable throwable) {
