@@ -6,7 +6,6 @@ import com.rft.chat_sribiddi.chat.service.OpenRouterProviderProperties;
 import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
 import java.io.IOException;
 import java.net.http.HttpClient;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -29,8 +28,10 @@ public class ModelFetchService {
   private final OpenRouterProviderProperties openRouterProperties;
 
   @Autowired
-  public ModelFetchService(OpenRouterProviderProperties openRouterProperties) {
-    this(createRestClient(), new ObjectMapper(), openRouterProperties);
+  public ModelFetchService(
+      OpenRouterProviderProperties openRouterProperties,
+      ModelCatalogHttpProperties httpProperties) {
+    this(createRestClient(httpProperties), new ObjectMapper(), openRouterProperties);
   }
 
   /** Package-private for focused tests that need to inject a mocked RestClient. */
@@ -273,11 +274,11 @@ public class ModelFetchService {
     return null;
   }
 
-  private static RestClient createRestClient() {
+  private static RestClient createRestClient(ModelCatalogHttpProperties properties) {
     HttpClient httpClient =
-        HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        HttpClient.newBuilder().connectTimeout(properties.getConnectTimeout()).build();
     JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
-    requestFactory.setReadTimeout(Duration.ofSeconds(10));
+    requestFactory.setReadTimeout(properties.getReadTimeout());
     return RestClient.builder().requestFactory(requestFactory).build();
   }
 }

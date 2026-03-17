@@ -26,11 +26,13 @@ class ModelFetchServiceTest {
   private ModelFetchService service;
   private Method isRelevantOpenAiModel;
   private OpenRouterProviderProperties openRouterProperties;
+  private ModelCatalogHttpProperties httpProperties;
 
   @BeforeEach
   void setUp() throws Exception {
     openRouterProperties = new OpenRouterProviderProperties();
-    service = new ModelFetchService(openRouterProperties);
+    httpProperties = new ModelCatalogHttpProperties();
+    service = new ModelFetchService(openRouterProperties, httpProperties);
     isRelevantOpenAiModel =
         ModelFetchService.class.getDeclaredMethod("isRelevantOpenAiModel", String.class);
     isRelevantOpenAiModel.setAccessible(true);
@@ -196,7 +198,7 @@ class ModelFetchServiceTest {
   @Test
   void springContextInstantiatesServiceUsingInjectedPropertiesConstructor() {
     try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
-      context.register(OpenRouterProviderProperties.class, ModelFetchService.class);
+      context.register(OpenRouterProviderProperties.class, ModelCatalogHttpProperties.class, ModelFetchService.class);
 
       context.refresh();
 
