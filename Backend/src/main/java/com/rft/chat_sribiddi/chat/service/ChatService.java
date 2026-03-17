@@ -39,6 +39,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -49,6 +50,8 @@ public class ChatService {
 
   private static final String SYSTEM_PROMPT =
       "You are a helpful assistant. Your answer must be structured in markdown.";
+
+  private static final String CHAT_FK_CONSTRAINT = "messages_chat_id_fkey";
 
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
@@ -199,7 +202,7 @@ public class ChatService {
     assistantMessage.setPromptTokens(promptTokens);
     assistantMessage.setGenerationTokens(generationTokens);
     assistantMessage.setTotalTokens(totalTokens);
-    messageRepository.save(assistantMessage);
+    saveMessageOrThrowIfChatMissing(assistantMessage);
 
     log.debug("Message persisted successfully");
 
@@ -345,7 +348,23 @@ public class ChatService {
                 assistantMessage.setPromptTokens(promptTokens);
                 assistantMessage.setGenerationTokens(generationTokens);
                 assistantMessage.setTotalTokens(totalTokens);
-                messageRepository.save(assistantMessage);
+
+                if (!chatRepository.existsById(chatId)) {
+                  log.warn("Chat {} was deleted during streaming — skipping assistant message save", chatId);
+                  sendChatDeletedError(emitter);
+                  return;
+                }
+
+                try {
+                  messageRepository.save(assistantMessage);
+                } catch (DataIntegrityViolationException ex) {
+                  if (isChatFkViolation(ex)) {
+                    log.warn("Failed to save assistant message for chat {} — chat no longer exists", chatId, ex);
+                    sendChatDeletedError(emitter);
+                    return;
+                  }
+                  throw ex;
+                }
 
                 emitter.send(
                     SseEmitter.event()
@@ -605,7 +624,62 @@ public class ChatService {
     entity.setRole(role);
     entity.setContext(context);
     entity.setCreatedAt(Instant.now());
-    return messageRepository.save(entity);
+    return saveMessageOrThrowIfChatMissing(entity);
+  }
+
+  /**
+   * Saves a message entity, converting a chat FK constraint violation into a
+   * {@link ChatNotFoundException} so callers get a clear "chat not found" error
+   * instead of a raw {@code DataIntegrityViolationException}.
+   * Non-chat-FK integrity violations are rethrown unchanged.
+   */
+  private MessageEntity saveMessageOrThrowIfChatMissing(MessageEntity entity) {
+    try {
+      return messageRepository.save(entity);
+    } catch (DataIntegrityViolationException ex) {
+      if (isChatFkViolation(ex)) {
+        log.warn("FK violation saving message for chat {} — chat no longer exists",
+            entity.getChatId(), ex);
+        throw new ChatNotFoundException(entity.getChatId());
+      }
+      throw ex;
+    }
+  }
+
+  /**
+   * Checks whether the given {@link DataIntegrityViolationException} was caused
+   * by the {@code messages_chat_id_fkey} foreign-key constraint.
+   */
+  private static boolean isChatFkViolation(DataIntegrityViolationException ex) {
+    Throwable cause = ex.getMostSpecificCause();
+    if (cause == null) {
+      return false;
+    }
+    String message = cause.getMessage();
+    return message != null && message.contains(CHAT_FK_CONSTRAINT);
+  }
+
+  /**
+   * Sends an SSE error event indicating the chat was deleted during streaming
+   * and completes the emitter. IOExceptions from a disconnected client are
+   * logged and swallowed.
+   */
+  private void sendChatDeletedError(SseEmitter emitter) {
+    try {
+      emitter.send(
+          SseEmitter.event()
+              .name("error")
+              .data(
+                  new StreamEventDTO(
+                      "error",
+                      "Chat was deleted while response was being generated.",
+                      null, null, null, null),
+                  MediaType.APPLICATION_JSON));
+    } catch (IOException e) {
+      log.warn("Failed to send SSE chat-deleted error event", e);
+    } finally {
+      emitter.complete();
+    }
   }
 
   private static Long safeLong(Number value) {

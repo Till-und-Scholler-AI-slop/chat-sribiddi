@@ -33,6 +33,7 @@ import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @ExtendWith(MockitoExtension.class)
 class ChatServiceTest {
@@ -442,6 +443,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(chatRepository.existsById(chatId)).thenReturn(true);
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
@@ -670,5 +672,133 @@ class ChatServiceTest {
 
     assertThat(result.chatTitle()).isEqualTo("A very lon");
     assertThat(chat.getTitle()).isEqualTo("A very lon");
+  }
+
+  // ── FK constraint violation tests ─────────────────────────────────────────
+
+  private static DataIntegrityViolationException chatFkViolation() {
+    return new DataIntegrityViolationException(
+        "could not execute statement",
+        new RuntimeException(
+            "ERROR: insert or update on table \"messages\" violates foreign key constraint \"messages_chat_id_fkey\""));
+  }
+
+  @Test
+  void sendMessage_fkViolationOnUserMessage_throwsChatNotFound() {
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+
+    // Simulate chat being deleted between lookup and message save
+    when(messageRepository.save(any(MessageEntity.class)))
+        .thenThrow(chatFkViolation());
+
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null);
+
+    assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
+        .isInstanceOf(ChatNotFoundException.class);
+  }
+
+  @Test
+  void sendMessage_nonChatFkViolation_rethrowsAsIs() {
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+
+    // Simulate an unrelated integrity violation (not the chat FK)
+    when(messageRepository.save(any(MessageEntity.class)))
+        .thenThrow(new DataIntegrityViolationException("some other constraint"));
+
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null);
+
+    assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
+        .isInstanceOf(DataIntegrityViolationException.class)
+        .hasMessageContaining("some other constraint");
+  }
+
+  @Test
+  void sendMessage_fkViolationOnAssistantMessage_throwsChatNotFound() {
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of("stored-key"));
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("pong")))));
+
+    AtomicLong ids = new AtomicLong(100);
+    // First save (user message) succeeds, second save (assistant message) throws FK violation
+    when(messageRepository.save(any(MessageEntity.class)))
+        .thenAnswer(invocation -> {
+          MessageEntity entity = invocation.getArgument(0);
+          if (entity.getId() == null) {
+            entity.setId(ids.getAndIncrement());
+          }
+          return entity;
+        })
+        .thenThrow(chatFkViolation());
+
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+
+    assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
+        .isInstanceOf(ChatNotFoundException.class);
+  }
+
+  @Test
+  void streamMessage_chatDeletedDuringStream_skipsAssistantSave() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of("stored-key"));
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.stream()).thenReturn(streamResponseSpec);
+
+    ChatResponse chunk = new ChatResponse(List.of(new Generation(new AssistantMessage("reply"))));
+    when(streamResponseSpec.chatResponse())
+        .thenReturn(reactor.core.publisher.Flux.just(chunk));
+
+    // Chat deleted during streaming — existsById returns false
+    when(chatRepository.existsById(chatId)).thenReturn(false);
+
+    var emitter = chatService.streamMessage(chatId, userId, request);
+    assertThat(emitter).isNotNull();
+
+    // Only user message should be saved (assistant message skipped because chat was deleted)
+    ArgumentCaptor<MessageEntity> savedMessages = ArgumentCaptor.forClass(MessageEntity.class);
+    verify(messageRepository, times(1)).save(savedMessages.capture());
+    assertThat(savedMessages.getValue().getRole()).isEqualTo(Role.USER);
   }
 }
