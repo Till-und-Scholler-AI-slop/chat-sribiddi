@@ -90,6 +90,42 @@ body {
   border-radius: 8px;
   overflow-x: auto;
 }
+.markdown-body .code-block-wrapper {
+  position: relative;
+}
+.markdown-body .copy-code-btn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  padding: 0.3rem;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  line-height: 0;
+}
+.markdown-body .code-block-wrapper:hover .copy-code-btn {
+  opacity: 0.6;
+}
+.markdown-body .copy-code-btn:hover {
+  opacity: 1 !important;
+}
+.markdown-body .copy-code-btn .check-icon {
+  display: none;
+}
+.markdown-body .copy-code-btn.copied .copy-icon {
+  display: none;
+}
+.markdown-body .copy-code-btn.copied .check-icon {
+  display: block;
+}
+.markdown-body .copy-code-btn.copied {
+  color: var(--ui-primary);
+  opacity: 1;
+}
 .markdown-body a {
   color: var(--color-gray-500); /* Stahlblau – secondary accent */
   text-decoration: underline;
