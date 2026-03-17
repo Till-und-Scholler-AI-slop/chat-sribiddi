@@ -112,6 +112,8 @@ const toDataUrl = (file: File) =>
     reader.readAsDataURL(file)
   })
 
+const isDragOver = ref(false)
+
 const clearAttachments = () => {
   attachments.value = []
   if (fileInput.value) {
@@ -123,33 +125,71 @@ const removeAttachment = (index: number) => {
   attachments.value.splice(index, 1)
 }
 
+const processFileList = async (files: File[]) => {
+  if (files.length === 0) return
+  const results = await Promise.allSettled(
+    files.map(async file => ({
+      name: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      data: await toDataUrl(file)
+    }))
+  )
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      attachments.value.push(result.value)
+    } else {
+      toast.add({
+        title: 'Upload failed',
+        description: result.reason instanceof Error ? result.reason.message : 'Could not read attachment.',
+        color: 'error'
+      })
+    }
+  }
+}
+
 const handleFiles = async (event: Event) => {
   const inputNode = event.target as HTMLInputElement
   const files = Array.from(inputNode.files || [])
-  if (files.length === 0) return
+  await processFileList(files)
+  inputNode.value = ''
+}
 
-  try {
-    const loaded = await Promise.all(
-      files.map(async file => ({
-        name: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        data: await toDataUrl(file)
-      }))
-    )
+const handleDragOver = (event: DragEvent) => {
+  const types = event.dataTransfer?.types
+  if (types && Array.from(types).includes('Files')) {
+    event.preventDefault()
+    isDragOver.value = true
+  }
+}
 
-    attachments.value.push(...loaded)
-  } catch (err) {
-    toast.add({
-      title: 'Upload failed',
-      description: err instanceof Error ? err.message : 'Could not read attachment.',
-      color: 'error'
-    })
-  } finally {
-    inputNode.value = ''
+const handleDragLeave = (event: DragEvent) => {
+  const target = event.currentTarget as HTMLElement
+  if (!event.relatedTarget || !target.contains(event.relatedTarget as Node)) {
+    isDragOver.value = false
+  }
+}
+
+const handleDrop = async (event: DragEvent) => {
+  event.preventDefault()
+  isDragOver.value = false
+  const types = event.dataTransfer?.types
+  if (!types || !Array.from(types).includes('Files')) {
+    return
+  }
+  const files = Array.from(event.dataTransfer?.files || [])
+  await processFileList(files)
+}
+
+const handlePaste = async (event: ClipboardEvent) => {
+  const files = Array.from(event.clipboardData?.files || [])
+  if (files.length > 0) {
+    event.preventDefault()
+    await processFileList(files)
   }
 }
 
 onMounted(async () => {
+  document.addEventListener('paste', handlePaste)
   try {
     await ensureModels()
     await loadChatsFromBackend()
@@ -170,6 +210,10 @@ onMounted(async () => {
   } finally {
     initializing.value = false
   }
+})
+
+onUnmounted(() => {
+  document.removeEventListener('paste', handlePaste)
 })
 
 watch(activeChatId, async newId => {
@@ -440,91 +484,109 @@ const submitEditMessage = async () => {
     </template>
 
     <template #footer>
-      <UContainer class="pb-4 sm:pb-6 space-y-2">
-        <div class="flex items-center gap-2 flex-wrap">
-          <label class="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-            <UIcon name="i-heroicons-paper-clip" />
-            <span>Add attachments</span>
-            <input
-              ref="fileInput"
-              type="file"
-              class="hidden"
-              multiple
-              @change="handleFiles"
-            >
-          </label>
-          <UButton
-            size="xs"
-            variant="ghost"
-            color="neutral"
-            icon="i-heroicons-paper-clip"
-            label="Choose files"
-            @click="fileInput?.click()"
-          />
-          <UButton
-            v-if="attachments.length"
-            size="xs"
-            variant="ghost"
-            color="neutral"
-            icon="i-heroicons-x-mark"
-            label="Clear"
-            @click="clearAttachments"
-          />
+      <div
+        class="relative transition-colors"
+        :class="isDragOver ? 'ring-2 ring-primary ring-inset bg-primary/5' : ''"
+        @dragover="handleDragOver"
+        @dragleave="handleDragLeave"
+        @drop="handleDrop"
+      >
+        <div
+          v-if="isDragOver"
+          class="absolute inset-0 flex items-center justify-center z-10 pointer-events-none"
+        >
+          <div class="flex flex-col items-center gap-2 text-primary">
+            <UIcon name="i-heroicons-arrow-down-tray" class="size-8" />
+            <span class="text-sm font-medium">Drop files to attach</span>
+          </div>
         </div>
 
-        <div v-if="attachments.length" class="flex flex-wrap gap-2">
-          <UBadge
-            v-for="(item, index) in attachments"
-            :key="`${item.name || item.mimeType}-${index}`"
-            variant="soft"
-            color="neutral"
-          >
-            <span class="mr-1">{{ item.name || item.mimeType }}</span>
-            <button class="inline-flex" @click="removeAttachment(index)">
-              <UIcon name="i-heroicons-x-mark" class="size-3" />
-            </button>
-          </UBadge>
-        </div>
+        <UContainer class="pb-4 sm:pb-6 space-y-2">
+          <div class="flex items-center gap-2 flex-wrap">
+            <label class="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+              <UIcon name="i-heroicons-paper-clip" />
+              <span>Add attachments</span>
+              <input
+                ref="fileInput"
+                type="file"
+                class="hidden"
+                multiple
+                @change="handleFiles"
+              >
+            </label>
+            <UButton
+              size="xs"
+              variant="ghost"
+              color="neutral"
+              icon="i-heroicons-paper-clip"
+              label="Choose files"
+              @click="fileInput?.click()"
+            />
+            <UButton
+              v-if="attachments.length"
+              size="xs"
+              variant="ghost"
+              color="neutral"
+              icon="i-heroicons-x-mark"
+              label="Clear"
+              @click="clearAttachments"
+            />
+          </div>
 
-        <UChatPrompt v-model="input" :error="errorMessage" @submit="handleSubmit">
-          <template #header>
-            <USelectMenu
-              v-model="selectedModel"
-              :items="sortedModels"
-              class="w-56"
-              :loading="modelsLoading"
-              label-key="label"
-              by="value"
-              placeholder="Pick model"
-              variant="subtle"
+          <div v-if="attachments.length" class="flex flex-wrap gap-2">
+            <UBadge
+              v-for="(item, index) in attachments"
+              :key="`${item.name || item.mimeType}-${index}`"
+              variant="soft"
               color="neutral"
             >
-              <template #leading>
-                <UIcon name="i-heroicons-cpu-chip" />
-              </template>
-              <template #option="{ option }">
-                <div class="flex items-center justify-between gap-2 w-full">
-                  <span class="truncate">{{ option.label }}</span>
-                  <div class="flex items-center gap-1 flex-shrink-0">
-                    <UIcon
-                      v-if="isFavorite(option)"
-                      name="i-heroicons-star-solid"
-                      class="size-3 text-yellow-400"
-                    />
-                    <UBadge :label="providerLabel(option.provider)" variant="soft" color="neutral" />
-                  </div>
-                </div>
-              </template>
-            </USelectMenu>
-          </template>
+              <span class="mr-1">{{ item.name || item.mimeType }}</span>
+              <button class="inline-flex" @click="removeAttachment(index)">
+                <UIcon name="i-heroicons-x-mark" class="size-3" />
+              </button>
+            </UBadge>
+          </div>
 
-          <UChatPromptSubmit
-            :status="status"
-            @stop="handleStop"
-            @reload="handleReload"
-          />
-        </UChatPrompt>
-      </UContainer>
+          <UChatPrompt v-model="input" :error="errorMessage" @submit="handleSubmit">
+            <template #header>
+              <USelectMenu
+                v-model="selectedModel"
+                :items="sortedModels"
+                class="w-56"
+                :loading="modelsLoading"
+                label-key="label"
+                by="value"
+                placeholder="Pick model"
+                variant="subtle"
+                color="neutral"
+              >
+                <template #leading>
+                  <UIcon name="i-heroicons-cpu-chip" />
+                </template>
+                <template #option="{ option }">
+                  <div class="flex items-center justify-between gap-2 w-full">
+                    <span class="truncate">{{ option.label }}</span>
+                    <div class="flex items-center gap-1 flex-shrink-0">
+                      <UIcon
+                        v-if="isFavorite(option)"
+                        name="i-heroicons-star-solid"
+                        class="size-3 text-yellow-400"
+                      />
+                      <UBadge :label="providerLabel(option.provider)" variant="soft" color="neutral" />
+                    </div>
+                  </div>
+                </template>
+              </USelectMenu>
+            </template>
+
+            <UChatPromptSubmit
+              :status="status"
+              @stop="handleStop"
+              @reload="handleReload"
+            />
+          </UChatPrompt>
+        </UContainer>
+      </div>
     </template>
   </UDashboardPanel>
 </template>
