@@ -84,10 +84,25 @@ describe('parseSseEvents', () => {
     expect(events[1]).toEqual({ type: 'text', content: ' world' })
   })
 
+  it('parses CRLF-delimited events progressively', () => {
+    const raw = 'event: text\r\ndata: {"type":"text","content":"Hello"}\r\n\r\nevent: text\r\ndata: {"type":"text","content":" world"}\r\n\r\n'
+    const events = parseSseEvents(raw)
+    expect(events).toEqual([
+      { type: 'text', content: 'Hello' },
+      { type: 'text', content: ' world' }
+    ])
+  })
+
   it('parses data-only events without event field', () => {
     const raw = 'data: {"type":"text","content":"Hi"}\n\n'
     const events = parseSseEvents(raw)
     expect(events).toEqual([{ type: 'text', content: 'Hi' }])
+  })
+
+  it('joins multi-line SSE data fields', () => {
+    const raw = 'data: {"type":"text",\ndata: "content":"Hello"}\n\n'
+    const events = parseSseEvents(raw)
+    expect(events).toEqual([{ type: 'text', content: 'Hello' }])
   })
 
   it('ignores empty input', () => {
