@@ -1,7 +1,9 @@
+import type { ModelOption } from '~/composables/useChatApi'
 import { DEFAULT_BACKEND_BASE_URL } from '~/composables/useChatApi'
 
 type UserSettings = {
   backendBaseUrl: string
+  lastUsedModel: ModelOption | null
 }
 
 const STORAGE_KEY = 'chat-sribiddi:user-settings:v2'
@@ -15,7 +17,8 @@ export function useUserSettings() {
       : DEFAULT_BACKEND_BASE_URL
 
   const state = useState<UserSettings>('user-settings', () => ({
-    backendBaseUrl: defaultBackend
+    backendBaseUrl: defaultBackend,
+    lastUsedModel: null
   }))
 
   const hydrated = useState<boolean>('user-settings-hydrated', () => false)
@@ -26,8 +29,13 @@ export function useUserSettings() {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<UserSettings>
+        const savedModel = parsed.lastUsedModel
         state.value = {
-          backendBaseUrl: parsed.backendBaseUrl?.trim() || defaultBackend
+          backendBaseUrl: parsed.backendBaseUrl?.trim() || defaultBackend,
+          lastUsedModel:
+            savedModel && typeof savedModel === 'object' && typeof savedModel.value === 'string' && typeof savedModel.provider === 'string'
+              ? savedModel
+              : null
         }
       } else {
         state.value.backendBaseUrl ||= defaultBackend
