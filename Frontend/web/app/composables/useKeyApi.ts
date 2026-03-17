@@ -5,32 +5,34 @@ type KeyStatus = {
   google: boolean
   claude: boolean
   openrouter: boolean
+  brave_search: boolean
 }
 
-const providerPath = (provider: Provider) => `/apikeys/${provider.toLowerCase()}`
+const providerPath = (provider: Provider | 'BRAVE_SEARCH') => `/apikeys/${provider.toLowerCase()}`
 
 export function useKeyApi() {
   const { requestJson } = useChatApi()
 
   const getStatus = async () => {
-    const [openai, google, claude, openrouter] = await Promise.all([
+    const [openai, google, claude, openrouter, brave_search] = await Promise.all([
       requestJson<boolean>(`${providerPath('OPENAI')}/exists`, { method: 'GET' }),
       requestJson<boolean>(`${providerPath('GOOGLE')}/exists`, { method: 'GET' }),
       requestJson<boolean>(`${providerPath('CLAUDE')}/exists`, { method: 'GET' }),
-      requestJson<boolean>(`${providerPath('OPENROUTER')}/exists`, { method: 'GET' })
+      requestJson<boolean>(`${providerPath('OPENROUTER')}/exists`, { method: 'GET' }),
+      requestJson<boolean>(`${providerPath('BRAVE_SEARCH')}/exists`, { method: 'GET' })
     ])
 
-    return { openai, google, claude, openrouter } satisfies KeyStatus
+    return { openai, google, claude, openrouter, brave_search } satisfies KeyStatus
   }
 
-  const saveKey = async (provider: Provider, apiKey: string) => {
+  const saveKey = async (provider: Provider | 'BRAVE_SEARCH', apiKey: string) => {
     return requestJson<void>(providerPath(provider), {
       method: 'PUT',
       body: JSON.stringify({ apiKey })
     })
   }
 
-  const deleteKey = async (provider: Provider) => {
+  const deleteKey = async (provider: Provider | 'BRAVE_SEARCH') => {
     return requestJson<void>(providerPath(provider), { method: 'DELETE' })
   }
 

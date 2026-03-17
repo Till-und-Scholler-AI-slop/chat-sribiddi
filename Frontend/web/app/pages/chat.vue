@@ -26,7 +26,8 @@ const {
   sortedModels,
   startChat,
   stop,
-  tokenUsageMap
+  tokenUsageMap,
+  webSearchEnabled
 } = useChatStore()
 
 const input = ref('')
@@ -577,6 +578,15 @@ const submitEditMessage = async () => {
                   </div>
                 </template>
               </USelectMenu>
+              <UTooltip :text="webSearchEnabled ? 'Web search enabled' : 'Web search disabled'">
+                <UButton
+                  :icon="webSearchEnabled ? 'i-heroicons-globe-alt-solid' : 'i-heroicons-globe-alt'"
+                  :color="webSearchEnabled ? 'primary' : 'neutral'"
+                  :variant="webSearchEnabled ? 'soft' : 'ghost'"
+                  size="sm"
+                  @click="webSearchEnabled = !webSearchEnabled"
+                />
+              </UTooltip>
             </template>
 
             <UChatPromptSubmit
