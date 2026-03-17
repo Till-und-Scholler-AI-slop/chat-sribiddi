@@ -411,7 +411,8 @@ public class ChatService {
       if (messageNode.isTextual() && !messageNode.asText().isBlank()) {
         return messageNode.asText();
       }
-    } catch (Exception ignored) {
+    } catch (Exception e) {
+      log.debug("Failed to parse provider error response as JSON", e);
     }
     return null;
   }
