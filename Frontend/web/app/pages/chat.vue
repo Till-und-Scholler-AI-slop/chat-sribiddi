@@ -115,21 +115,23 @@ const removeAttachment = (index: number) => {
 
 const processFileList = async (files: File[]) => {
   if (files.length === 0) return
-  try {
-    const loaded = await Promise.all(
-      files.map(async file => ({
-        name: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        data: await toDataUrl(file)
-      }))
-    )
-    attachments.value.push(...loaded)
-  } catch (err) {
-    toast.add({
-      title: 'Upload failed',
-      description: err instanceof Error ? err.message : 'Could not read attachment.',
-      color: 'error'
-    })
+  const results = await Promise.allSettled(
+    files.map(async file => ({
+      name: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      data: await toDataUrl(file)
+    }))
+  )
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      attachments.value.push(result.value)
+    } else {
+      toast.add({
+        title: 'Upload failed',
+        description: result.reason instanceof Error ? result.reason.message : 'Could not read attachment.',
+        color: 'error'
+      })
+    }
   }
 }
 
@@ -156,12 +158,12 @@ const handleDragLeave = (event: DragEvent) => {
 }
 
 const handleDrop = async (event: DragEvent) => {
+  event.preventDefault()
+  isDragOver.value = false
   const types = event.dataTransfer?.types
   if (!types || !Array.from(types).includes('Files')) {
     return
   }
-  event.preventDefault()
-  isDragOver.value = false
   const files = Array.from(event.dataTransfer?.files || [])
   await processFileList(files)
 }
