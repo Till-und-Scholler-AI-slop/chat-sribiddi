@@ -163,8 +163,8 @@ const handleDragOver = (event: DragEvent) => {
 }
 
 const handleDragLeave = (event: DragEvent) => {
-  const target = event.currentTarget as HTMLElement
-  if (!event.relatedTarget || !target.contains(event.relatedTarget as Node)) {
+  // Clear the drag state only when the drag pointer leaves the browser window
+  if (!event.relatedTarget) {
     isDragOver.value = false
   }
 }
@@ -190,6 +190,9 @@ const handlePaste = async (event: ClipboardEvent) => {
 
 onMounted(async () => {
   document.addEventListener('paste', handlePaste)
+  document.addEventListener('dragover', handleDragOver)
+  document.addEventListener('dragleave', handleDragLeave)
+  document.addEventListener('drop', handleDrop)
   try {
     await ensureModels()
     await loadChatsFromBackend()
@@ -214,6 +217,9 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('paste', handlePaste)
+  document.removeEventListener('dragover', handleDragOver)
+  document.removeEventListener('dragleave', handleDragLeave)
+  document.removeEventListener('drop', handleDrop)
 })
 
 watch(activeChatId, async newId => {
@@ -484,22 +490,7 @@ const submitEditMessage = async () => {
     </template>
 
     <template #footer>
-      <div
-        class="relative transition-colors"
-        :class="isDragOver ? 'ring-2 ring-primary ring-inset bg-primary/5' : ''"
-        @dragover="handleDragOver"
-        @dragleave="handleDragLeave"
-        @drop="handleDrop"
-      >
-        <div
-          v-if="isDragOver"
-          class="absolute inset-0 flex items-center justify-center z-10 pointer-events-none"
-        >
-          <div class="flex flex-col items-center gap-2 text-primary">
-            <UIcon name="i-heroicons-arrow-down-tray" class="size-8" />
-            <span class="text-sm font-medium">Drop files to attach</span>
-          </div>
-        </div>
+      <div class="relative">
 
         <UContainer class="pb-4 sm:pb-6 space-y-2">
           <div class="flex items-center gap-2 flex-wrap">
@@ -589,4 +580,16 @@ const submitEditMessage = async () => {
       </div>
     </template>
   </UDashboardPanel>
+
+  <Transition name="drag-overlay">
+    <div
+      v-if="isDragOver"
+      class="fixed inset-0 z-50 flex items-center justify-center pointer-events-none bg-primary/10 backdrop-blur-sm"
+    >
+      <div class="flex flex-col items-center gap-3 text-primary bg-gray-900/80 rounded-2xl px-10 py-8 ring-2 ring-primary ring-inset">
+        <UIcon name="i-heroicons-arrow-down-tray" class="size-12" />
+        <span class="text-lg font-semibold">Drop files to attach</span>
+      </div>
+    </div>
+  </Transition>
 </template>
