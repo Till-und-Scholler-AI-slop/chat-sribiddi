@@ -27,6 +27,8 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
+      timeout: ${REDIS_TIMEOUT:2s}
   threads:
     virtual:
       enabled: true
@@ -170,6 +172,9 @@ app:
     openai:
       connect-timeout: ${OPENAI_CONNECT_TIMEOUT:10s}
       read-timeout: ${OPENAI_READ_TIMEOUT:1200s}
+    model-catalog:
+      connect-timeout: ${MODEL_CATALOG_CONNECT_TIMEOUT:5s}
+      read-timeout: ${MODEL_CATALOG_READ_TIMEOUT:15s}
     openrouter:
       base-url: ${OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
       completions-path: ${OPENROUTER_COMPLETIONS_PATH:/chat/completions}
