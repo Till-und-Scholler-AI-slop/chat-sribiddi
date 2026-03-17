@@ -88,11 +88,17 @@ public class ChatService {
     return chatRepository.findByUserIdOrderByCreatedAtDesc(userId);
   }
 
-  public List<MessageEntity> listMessages(UUID chatId, String userId) {
+  public List<MessageEntity> listMessages(UUID chatId, String userId, Integer limit) {
     chatRepository
         .findByChatIdAndUserId(chatId, userId)
         .orElseThrow(() -> new ChatNotFoundException(chatId));
-    return messageRepository.findByChatIdOrderByCreatedAtAsc(chatId);
+    int pageSize =
+        (limit != null && limit > 0) ? limit : chatProperties.getMessagePageSize();
+    List<MessageEntity> latest =
+        new ArrayList<>(
+            messageRepository.findByChatIdOrderByCreatedAtDesc(
+                chatId, PageRequest.of(0, pageSize)));
+    return latest.reversed();
   }
 
   @Transactional

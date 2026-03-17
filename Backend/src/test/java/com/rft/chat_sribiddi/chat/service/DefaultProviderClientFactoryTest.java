@@ -18,7 +18,7 @@ class DefaultProviderClientFactoryTest {
   }
 
   @Test
-  void getClient_google_returnsInitializedClientHolderWithNullCloseable() {
+  void getClient_google_returnsInitializedClientHolder() {
     ChatService.ClientHolder holder = factory.getClient(Provider.GOOGLE, "fake-api-key");
 
     assertThat(holder).isNotNull();
@@ -27,16 +27,14 @@ class DefaultProviderClientFactoryTest {
   }
 
   @Test
-  void getClient_google_closeIsNoOp_andSubsequentCallSucceeds() throws Exception {
-    // Simulate try-with-resources: close() must be a no-op so the cached Google client
-    // remains open and reusable across multiple requests.
+  void getClient_google_cachedHolder_returnsSameInstanceForSameKey() {
     ChatService.ClientHolder first = factory.getClient(Provider.GOOGLE, "fake-api-key");
-    first.close(); // must not destroy the underlying cached Client
+    first.close(); // must not destroy the cached ClientHolder
 
     ChatService.ClientHolder second = factory.getClient(Provider.GOOGLE, "fake-api-key");
-    assertThat(second).isNotNull();
-    assertThat(second.client()).isNotNull();
-    assertThat(second.closeable()).isNull();
+
+    assertThat(second).isSameAs(first);
+    assertThat(second.client()).isSameAs(first.client());
   }
 
   @Test

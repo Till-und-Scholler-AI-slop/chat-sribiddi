@@ -13,6 +13,9 @@ public class ChatProperties {
 
   private int contextMessageLimit = 20;
 
+  /** Maximum number of messages returned when loading a chat conversation (default: 50). */
+  private int messagePageSize = 50;
+
   private int maxMediaAttachments = 5;
 
   private long maxMediaAttachmentBytes = 5L * 1024 * 1024;
