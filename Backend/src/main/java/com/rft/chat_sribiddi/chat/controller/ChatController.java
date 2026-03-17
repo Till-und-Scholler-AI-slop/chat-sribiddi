@@ -55,10 +55,12 @@ public class ChatController {
 
   @GetMapping("/{chatId}/messages")
   public ResponseEntity<List<MessageResponseDTO>> listMessages(
-      @AuthenticationPrincipal OidcUser principal, @PathVariable UUID chatId) {
+      @AuthenticationPrincipal OidcUser principal,
+      @PathVariable UUID chatId,
+      @RequestParam(required = false) Integer limit) {
     validatePrincipal(principal);
     List<MessageResponseDTO> messages =
-        chatService.listMessages(chatId, principal.getSubject()).stream()
+        chatService.listMessages(chatId, principal.getSubject(), limit).stream()
             .map(MessageResponseDTO::from)
             .toList();
     return ResponseEntity.ok(messages);

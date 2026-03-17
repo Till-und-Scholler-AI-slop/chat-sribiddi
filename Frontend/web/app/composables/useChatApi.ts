@@ -285,8 +285,9 @@ export function useChatApi() {
     return requestJson<ChatSession[]>('/chats', { method: 'GET' })
   }
 
-  const fetchChatMessages = async (chatId: string) => {
-    return requestJson<BackendMessage[]>(`/chats/${chatId}/messages`, { method: 'GET' })
+  const fetchChatMessages = async (chatId: string, limit?: number) => {
+    const params = limit ? `?limit=${limit}` : ''
+    return requestJson<BackendMessage[]>(`/chats/${chatId}/messages${params}`, { method: 'GET' })
   }
 
   const sendMessage = async (
