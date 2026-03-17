@@ -140,7 +140,7 @@ onMounted(async () => {
     await ensureModels()
     await loadChatsFromBackend()
     if (conversations.value.length === 0) {
-      await startChat('New chat')
+      await startChat()
     }
 
     if (activeConversation.value && !activeConversation.value.model && defaultModel.value) {
@@ -175,7 +175,7 @@ watch(activeChatId, async newId => {
 async function handleSubmit() {
   if (!input.value.trim() && attachments.value.length === 0) return
   if (!activeConversation.value) {
-    await startChat('New chat')
+    await startChat()
   }
 
   const conversation = activeConversation.value
@@ -253,7 +253,7 @@ const handleReload = async () => {
             title="No chat yet"
             description="Start a new chat to talk to the backend models."
           >
-            <UButton color="primary" icon="i-heroicons-plus" @click="startChat('New chat')">
+            <UButton color="primary" icon="i-heroicons-plus" @click="startChat()">
               Start chat
             </UButton>
           </UEmptyState>

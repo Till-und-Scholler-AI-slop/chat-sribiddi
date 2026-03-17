@@ -83,6 +83,7 @@ public class ChatService {
   @Transactional
   public ChatEntity createChat(ChatEntity chatEntity, String userId) {
     chatEntity.setUserId(userId);
+    chatEntity.setTitle(normalizeChatTitle(chatEntity.getTitle()));
     return chatRepository.save(chatEntity);
   }
 
@@ -117,9 +118,10 @@ public class ChatService {
   }
 
   public SendMessageResponseDTO sendMessage(UUID chatId, String userId, RequestDTO requestDTO) {
-    chatRepository
-        .findByChatIdAndUserId(chatId, userId)
-        .orElseThrow(() -> new ChatNotFoundException(chatId));
+    ChatEntity chat =
+        chatRepository
+            .findByChatIdAndUserId(chatId, userId)
+            .orElseThrow(() -> new ChatNotFoundException(chatId));
 
     List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
 
@@ -133,6 +135,8 @@ public class ChatService {
 
     MessageEntity persistedUserMessage =
         persistMessage(chatId, requestDTO.content(), Role.USER, userContext);
+
+    String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
 
     List<Message> promptMessages =
         buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId());
@@ -199,7 +203,7 @@ public class ChatService {
 
     log.debug("Message persisted successfully");
 
-    return new SendMessageResponseDTO(assistantResponse, promptTokens, generationTokens, totalTokens);
+    return new SendMessageResponseDTO(assistantResponse, promptTokens, generationTokens, totalTokens, updatedTitle);
   }
 
   /**
@@ -207,9 +211,10 @@ public class ChatService {
    * begins; the assistant message is persisted once the stream completes.
    */
   public SseEmitter streamMessage(UUID chatId, String userId, RequestDTO requestDTO) {
-    chatRepository
-        .findByChatIdAndUserId(chatId, userId)
-        .orElseThrow(() -> new ChatNotFoundException(chatId));
+    ChatEntity chat =
+        chatRepository
+            .findByChatIdAndUserId(chatId, userId)
+            .orElseThrow(() -> new ChatNotFoundException(chatId));
 
     List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
 
@@ -223,6 +228,8 @@ public class ChatService {
 
     MessageEntity persistedUserMessage =
         persistMessage(chatId, requestDTO.content(), Role.USER, userContext);
+
+    String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
 
     List<Message> promptMessages =
         buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId());
@@ -271,7 +278,7 @@ public class ChatService {
                       SseEmitter.event()
                           .name("text")
                           .data(
-                              new StreamEventDTO("text", text, null, null, null),
+                              new StreamEventDTO("text", text, null, null, null, null),
                               MediaType.APPLICATION_JSON));
                 }
 
@@ -281,7 +288,7 @@ public class ChatService {
                       SseEmitter.event()
                           .name("reasoning")
                           .data(
-                              new StreamEventDTO("reasoning", reasoning, null, null, null),
+                              new StreamEventDTO("reasoning", reasoning, null, null, null, null),
                               MediaType.APPLICATION_JSON));
                 }
 
@@ -305,6 +312,7 @@ public class ChatService {
                             new StreamEventDTO(
                                 "error",
                                 extractProviderErrorMessage(error),
+                                null,
                                 null,
                                 null,
                                 null),
@@ -344,7 +352,7 @@ public class ChatService {
                         .name("done")
                         .data(
                             new StreamEventDTO(
-                                "done", null, promptTokens, generationTokens, totalTokens),
+                                "done", null, promptTokens, generationTokens, totalTokens, updatedTitle),
                             MediaType.APPLICATION_JSON));
                 emitter.complete();
               } catch (IOException e) {
@@ -359,6 +367,41 @@ public class ChatService {
     emitter.onError(e -> clientHolder.close());
 
     return emitter;
+  }
+
+  /**
+   * Trims whitespace from the title and truncates it to {@code maxChatTitleLength}.
+   * Returns {@code null} if the result would be blank.
+   */
+  private String normalizeChatTitle(String title) {
+    if (title == null) {
+      return null;
+    }
+    String trimmed = title.trim();
+    if (trimmed.isEmpty()) {
+      return null;
+    }
+    int maxLen = chatProperties.getMaxChatTitleLength();
+    return trimmed.length() > maxLen ? trimmed.substring(0, maxLen) : trimmed;
+  }
+
+  /**
+   * Sets the chat title from the first message content if the chat currently has no title.
+   *
+   * @return the new title if it was auto-set, {@code null} otherwise
+   */
+  private String autoTitleChatIfNeeded(ChatEntity chat, String messageContent) {
+    if (chat.getTitle() != null && !chat.getTitle().isBlank()) {
+      return null;
+    }
+    String title = normalizeChatTitle(messageContent);
+    if (title == null) {
+      return null;
+    }
+    chat.setTitle(title);
+    chatRepository.save(chat);
+    log.debug("Auto-titled chat {} from first message: \"{}\"", chat.getChatId(), title);
+    return title;
   }
 
   private void logStreamingError(UUID chatId, Throwable error) {

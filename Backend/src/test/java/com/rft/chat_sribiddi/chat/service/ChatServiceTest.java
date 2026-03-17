@@ -590,4 +590,85 @@ class ChatServiceTest {
 
     assertThat(result).isEqualTo("An error occurred while streaming the response.");
   }
+
+  // ── Auto-title tests ────────────────────────────────────────────────────────
+
+  private void setupSendMessageMocks(ChatEntity chat, String apiKey) {
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of(apiKey));
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, apiKey))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(RequestDTO.Provider.OPENAI, "gpt-5.2", apiKey))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("ok")))));
+  }
+
+  @Test
+  void sendMessage_autoTitlesChat_whenChatHasNoTitle() {
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    // title is null
+
+    setupSendMessageMocks(chat, "key");
+    when(chatRepository.save(any(ChatEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    RequestDTO request =
+        new RequestDTO("Hello world", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+
+    SendMessageResponseDTO result = chatService.sendMessage(chatId, userId, request);
+
+    assertThat(result.chatTitle()).isEqualTo("Hello world");
+    assertThat(chat.getTitle()).isEqualTo("Hello world");
+    verify(chatRepository, atLeastOnce()).save(chat);
+  }
+
+  @Test
+  void sendMessage_doesNotOverwriteExistingTitle() {
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    chat.setTitle("My custom title");
+
+    setupSendMessageMocks(chat, "key");
+
+    RequestDTO request =
+        new RequestDTO("Hello world", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+
+    SendMessageResponseDTO result = chatService.sendMessage(chatId, userId, request);
+
+    assertThat(result.chatTitle()).isNull();
+    assertThat(chat.getTitle()).isEqualTo("My custom title");
+  }
+
+  @Test
+  void sendMessage_truncatesLongMessageForTitle() {
+    ChatProperties longTitleProps = new ChatProperties();
+    longTitleProps.setMaxChatTitleLength(10);
+    ChatService serviceWithShortTitleLimit =
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, longTitleProps);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+
+    setupSendMessageMocks(chat, "key");
+    when(chatRepository.save(any(ChatEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    RequestDTO request =
+        new RequestDTO("A very long message that exceeds the limit", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+
+    SendMessageResponseDTO result = serviceWithShortTitleLimit.sendMessage(chatId, userId, request);
+
+    assertThat(result.chatTitle()).isEqualTo("A very lon");
+    assertThat(chat.getTitle()).isEqualTo("A very lon");
+  }
 }
