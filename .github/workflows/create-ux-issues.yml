@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - copilot/create-user-experience-tickets
+  workflow_dispatch:
 
 jobs:
   create-issues:
