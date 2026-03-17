@@ -389,6 +389,203 @@ public class ChatService {
   }
 
   /**
+   * Edits an existing user message and streams a new AI response.
+   * All messages after the edited message are deleted before streaming begins.
+   */
+  @Transactional
+  public SseEmitter editAndStreamMessage(
+      UUID chatId, String userId, Long messageId, RequestDTO requestDTO) {
+    chatRepository
+        .findByChatIdAndUserId(chatId, userId)
+        .orElseThrow(() -> new ChatNotFoundException(chatId));
+
+    MessageEntity userMessage =
+        messageRepository
+            .findByIdAndChatId(messageId, chatId)
+            .orElseThrow(
+                () ->
+                    new IllegalArgumentException(
+                        "Message %d not found in chat %s".formatted(messageId, chatId)));
+
+    if (userMessage.getRole() != Role.USER) {
+      throw new IllegalArgumentException("Only user messages can be edited.");
+    }
+
+    List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
+
+    String userContext =
+        validatedMedia.isEmpty()
+            ? null
+            : "attachments:"
+                + validatedMedia.stream()
+                    .map(RequestDTO.MediaAttachment::mimeType)
+                    .collect(Collectors.joining(","));
+
+    userMessage.setMessage(requestDTO.content());
+    userMessage.setContext(userContext);
+    messageRepository.save(userMessage);
+
+    messageRepository.deleteByIdGreaterThanAndChatId(chatId, messageId);
+
+    List<Message> promptMessages = buildPromptMessages(chatId, validatedMedia, messageId);
+
+    String resolvedKey =
+        Optional.ofNullable(requestDTO.apiKey())
+            .filter(key -> !key.isBlank())
+            .or(() -> apiKeyService.getKey(userId, requestDTO.provider()))
+            .orElseThrow(
+                () ->
+                    new IllegalArgumentException(
+                        "No API key supplied and no stored key found for provider %s"
+                            .formatted(requestDTO.provider())));
+
+    SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
+
+    ClientHolder clientHolder =
+        providerClientFactory.getClient(requestDTO.provider(), resolvedKey);
+    var options =
+        providerClientFactory.buildOptions(
+            requestDTO.provider(), requestDTO.modelId(), resolvedKey);
+    var client = clientHolder.client();
+
+    StringBuilder fullText = new StringBuilder();
+    AtomicReference<Usage> lastUsage = new AtomicReference<>();
+
+    client
+        .prompt()
+        .options(options)
+        .messages(promptMessages)
+        .stream()
+        .chatResponse()
+        .subscribe(
+            chunk -> {
+              try {
+                String text =
+                    Optional.ofNullable(chunk)
+                        .map(ChatResponse::getResult)
+                        .map(Generation::getOutput)
+                        .map(AbstractMessage::getText)
+                        .orElse(null);
+
+                if (text != null && !text.isEmpty()) {
+                  fullText.append(text);
+                  emitter.send(
+                      SseEmitter.event()
+                          .name("text")
+                          .data(
+                              new StreamEventDTO("text", text, null, null, null, null),
+                              MediaType.APPLICATION_JSON));
+                }
+
+                String reasoning = extractReasoningContent(chunk);
+                if (reasoning != null && !reasoning.isEmpty()) {
+                  emitter.send(
+                      SseEmitter.event()
+                          .name("reasoning")
+                          .data(
+                              new StreamEventDTO("reasoning", reasoning, null, null, null, null),
+                              MediaType.APPLICATION_JSON));
+                }
+
+                if (chunk != null && chunk.getMetadata() != null) {
+                  Usage usage = chunk.getMetadata().getUsage();
+                  if (usage != null) {
+                    lastUsage.set(usage);
+                  }
+                }
+              } catch (IOException e) {
+                log.warn("Failed to send SSE event", e);
+              }
+            },
+            error -> {
+              logStreamingError(chatId, error);
+              try {
+                emitter.send(
+                    SseEmitter.event()
+                        .name("error")
+                        .data(
+                            new StreamEventDTO(
+                                "error",
+                                extractProviderErrorMessage(error),
+                                null,
+                                null,
+                                null,
+                                null),
+                            MediaType.APPLICATION_JSON));
+              } catch (IOException e) {
+                log.warn("Failed to send SSE error event", e);
+              } finally {
+                emitter.complete();
+                clientHolder.close();
+              }
+            },
+            () -> {
+              try {
+                String assistantResponse = fullText.toString();
+                Usage usage = lastUsage.get();
+
+                Long promptTokens = usage != null ? safeLong(usage.getPromptTokens()) : null;
+                Long generationTokens =
+                    usage != null ? safeLong(usage.getCompletionTokens()) : null;
+                Long totalTokens = usage != null ? safeLong(usage.getTotalTokens()) : null;
+
+                MessageEntity assistantMessage = new MessageEntity();
+                assistantMessage.setChatId(chatId);
+                assistantMessage.setMessage(assistantResponse);
+                assistantMessage.setRole(Role.ASSISTANT);
+                assistantMessage.setContext(
+                    "Contains last %d messages including system prompt"
+                        .formatted(promptMessages.size()));
+                assistantMessage.setCreatedAt(Instant.now());
+                assistantMessage.setPromptTokens(promptTokens);
+                assistantMessage.setGenerationTokens(generationTokens);
+                assistantMessage.setTotalTokens(totalTokens);
+
+                if (!chatRepository.existsById(chatId)) {
+                  log.warn(
+                      "Chat {} was deleted during streaming — skipping assistant message save",
+                      chatId);
+                  sendChatDeletedError(emitter);
+                  return;
+                }
+
+                try {
+                  messageRepository.save(assistantMessage);
+                } catch (DataIntegrityViolationException ex) {
+                  if (isChatFkViolation(ex)) {
+                    log.warn(
+                        "Failed to save assistant message for chat {} — chat no longer exists",
+                        chatId,
+                        ex);
+                    sendChatDeletedError(emitter);
+                    return;
+                  }
+                  throw ex;
+                }
+
+                emitter.send(
+                    SseEmitter.event()
+                        .name("done")
+                        .data(
+                            new StreamEventDTO(
+                                "done", null, promptTokens, generationTokens, totalTokens, null),
+                            MediaType.APPLICATION_JSON));
+                emitter.complete();
+              } catch (IOException e) {
+                log.warn("Failed to send SSE done event", e);
+                emitter.complete();
+              } finally {
+                clientHolder.close();
+              }
+            });
+
+    emitter.onTimeout(clientHolder::close);
+    emitter.onError(e -> clientHolder.close());
+
+    return emitter;
+  }
+
+  /**
    * Trims whitespace from the title and truncates it to {@code maxChatTitleLength}.
    * Returns {@code null} if the result would be blank.
    */

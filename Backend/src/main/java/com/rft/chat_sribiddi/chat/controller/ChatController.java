@@ -91,6 +91,20 @@ public class ChatController {
     return chatService.streamMessage(chatId, principal.getSubject(), request);
   }
 
+  @PostMapping(
+      value = "/{chatId}/messages/{messageId}/stream",
+      produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+  public SseEmitter editAndStreamMessage(
+      @AuthenticationPrincipal OidcUser principal,
+      @PathVariable UUID chatId,
+      @PathVariable Long messageId,
+      @Valid @RequestBody RequestDTO request) {
+
+    validatePrincipal(principal);
+
+    return chatService.editAndStreamMessage(chatId, principal.getSubject(), messageId, request);
+  }
+
   @PatchMapping("/{chatId}")
   public ResponseEntity<ChatResponseDTO> updateChatTitle(
       @AuthenticationPrincipal OidcUser principal,

@@ -801,4 +801,110 @@ class ChatServiceTest {
     verify(messageRepository, times(1)).save(savedMessages.capture());
     assertThat(savedMessages.getValue().getRole()).isEqualTo(Role.USER);
   }
+
+  // ── editAndStreamMessage tests ───────────────────────────────────────────────
+
+  @Test
+  void editAndStreamMessage_updatesMessage_deletesSubsequent_andStreamsNewResponse() {
+    Long messageId = 42L;
+    RequestDTO request =
+        new RequestDTO("updated content", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(chatRepository.existsById(chatId)).thenReturn(true);
+
+    MessageEntity userMessage = new MessageEntity();
+    userMessage.setId(messageId);
+    userMessage.setChatId(chatId);
+    userMessage.setRole(Role.USER);
+    userMessage.setMessage("original content");
+    when(messageRepository.findByIdAndChatId(messageId, chatId)).thenReturn(Optional.of(userMessage));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of("stored-key"));
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.stream()).thenReturn(streamResponseSpec);
+
+    ChatResponse chunk = new ChatResponse(List.of(new Generation(new AssistantMessage("new reply"))));
+    when(streamResponseSpec.chatResponse())
+        .thenReturn(reactor.core.publisher.Flux.just(chunk));
+
+    var emitter = chatService.editAndStreamMessage(chatId, userId, messageId, request);
+
+    assertThat(emitter).isNotNull();
+
+    // User message content must be updated
+    assertThat(userMessage.getMessage()).isEqualTo("updated content");
+
+    // deleteByIdGreaterThanAndChatId must be called to remove subsequent messages
+    verify(messageRepository).deleteByIdGreaterThanAndChatId(chatId, messageId);
+
+    // user message save (update) + assistant message save = 2 saves
+    ArgumentCaptor<MessageEntity> savedMessages = ArgumentCaptor.forClass(MessageEntity.class);
+    verify(messageRepository, times(2)).save(savedMessages.capture());
+    MessageEntity assistantMsg = savedMessages.getAllValues().get(1);
+    assertThat(assistantMsg.getRole()).isEqualTo(Role.ASSISTANT);
+    assertThat(assistantMsg.getMessage()).isEqualTo("new reply");
+  }
+
+  @Test
+  void editAndStreamMessage_missingChat_throwsNotFound() {
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.empty());
+
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null);
+
+    assertThatThrownBy(() -> chatService.editAndStreamMessage(chatId, userId, 1L, request))
+        .isInstanceOf(ChatNotFoundException.class);
+  }
+
+  @Test
+  void editAndStreamMessage_messageNotFound_throwsIllegalArgument() {
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByIdAndChatId(99L, chatId)).thenReturn(Optional.empty());
+
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null);
+
+    assertThatThrownBy(() -> chatService.editAndStreamMessage(chatId, userId, 99L, request))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("not found");
+  }
+
+  @Test
+  void editAndStreamMessage_nonUserMessage_throwsIllegalArgument() {
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+
+    MessageEntity assistantMessage = new MessageEntity();
+    assistantMessage.setId(10L);
+    assistantMessage.setChatId(chatId);
+    assistantMessage.setRole(Role.ASSISTANT);
+    assistantMessage.setMessage("assistant text");
+    when(messageRepository.findByIdAndChatId(10L, chatId)).thenReturn(Optional.of(assistantMessage));
+
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", "key", null);
+
+    assertThatThrownBy(() -> chatService.editAndStreamMessage(chatId, userId, 10L, request))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Only user messages can be edited");
+  }
 }

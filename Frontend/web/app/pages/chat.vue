@@ -10,6 +10,7 @@ const {
   activeChatId,
   conversations,
   defaultModel,
+  editMessage,
   ensureModels,
   isFavorite,
   loadChatsFromBackend,
@@ -33,6 +34,10 @@ const attachments = ref<MediaAttachment[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const initializing = ref(true)
 const toast = useToast()
+
+// Edit state
+const editingMessageId = ref<string | null>(null)
+const editingText = ref('')
 
 const selectedModel = computed<ModelOption | null>({
   get: () => {
@@ -74,6 +79,13 @@ const formatTokenCount = (count: number | null | undefined): string => {
 const getTokenUsage = (messageId: string) => tokenUsageMap.value[messageId] ?? null
 
 const getReasoning = (messageId: string) => reasoningMap.value[messageId] ?? null
+
+/**
+ * Returns true if a UI message id corresponds to a persisted backend message
+ * (i.e. has the "msg-{numericId}" format with a digits-only suffix).
+ */
+const isPersistedMessage = (id: string | undefined) =>
+  typeof id === 'string' && /^msg-\d+$/.test(id)
 
 const reasoningExpanded = ref<Record<string, boolean>>({})
 
@@ -223,6 +235,39 @@ const handleReload = async () => {
     })
   }
 }
+
+const startEditMessage = (messageId: string, currentText: string) => {
+  editingMessageId.value = messageId
+  editingText.value = currentText
+}
+
+const cancelEditMessage = () => {
+  editingMessageId.value = null
+  editingText.value = ''
+}
+
+const submitEditMessage = async () => {
+  const msgId = editingMessageId.value
+  const newText = editingText.value.trim()
+  if (!msgId || !newText) return
+
+  const conversation = activeConversation.value
+  const model = selectedModel.value
+  if (!conversation || !model) return
+
+  editingMessageId.value = null
+  editingText.value = ''
+
+  try {
+    await editMessage(conversation.session.chatId, msgId, newText, model)
+  } catch (err) {
+    toast.add({
+      title: 'Edit failed',
+      description: err instanceof Error ? err.message : 'Unable to edit message.',
+      color: 'error'
+    })
+  }
+}
 </script>
 
 <template>
@@ -308,38 +353,81 @@ const handleReload = async () => {
                         </div>
                       </div>
                     </template>
-                    <MarkdownMessage :text="firstText(parts)" />
-                    <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
-                      <UBadge
-                        v-for="(file, idx) in getFileParts(parts)"
-                        :key="idx"
-                        variant="subtle"
-                        color="neutral"
-                        size="sm"
-                      >
-                        <UIcon :name="fileIcon(file.mediaType)" class="size-3.5 mr-1" />
-                        {{ file.filename || formatMimeType(file.mediaType) }}
-                      </UBadge>
-                    </div>
-                    <template v-if="message?.role === 'assistant'">
-                      <template v-for="usage in [getTokenUsage(message.id)]" :key="message.id">
-                        <div
-                          v-if="usage"
-                          class="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400"
-                        >
-                          <span v-if="usage.promptTokens != null" class="inline-flex items-center gap-1">
-                            <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
-                            {{ formatTokenCount(usage.promptTokens) }}
-                          </span>
-                          <span v-if="usage.generationTokens != null" class="inline-flex items-center gap-1">
-                            <UIcon name="i-heroicons-arrow-down-tray" class="size-3" />
-                            {{ formatTokenCount(usage.generationTokens) }}
-                          </span>
-                          <span v-if="usage.totalTokens != null" class="inline-flex items-center gap-1">
-                            <UIcon name="i-heroicons-calculator" class="size-3" />
-                            {{ formatTokenCount(usage.totalTokens) }} tokens
-                          </span>
+                    <template v-if="message?.role === 'user' && message.id && editingMessageId === message.id">
+                      <div class="space-y-2">
+                        <textarea
+                          v-model="editingText"
+                          class="w-full min-h-[80px] rounded-lg bg-gray-800/60 border border-gray-600 text-sm text-gray-100 px-3 py-2 resize-y focus:outline-none focus:ring-1 focus:ring-sky-500"
+                          @keydown.enter.ctrl="submitEditMessage"
+                          @keydown.escape="cancelEditMessage"
+                        />
+                        <div class="flex items-center gap-2">
+                          <UButton
+                            size="xs"
+                            color="primary"
+                            icon="i-heroicons-check"
+                            label="Save & regenerate"
+                            :disabled="!editingText.trim()"
+                            @click="submitEditMessage"
+                          />
+                          <UButton
+                            size="xs"
+                            color="neutral"
+                            variant="ghost"
+                            icon="i-heroicons-x-mark"
+                            label="Cancel"
+                            @click="cancelEditMessage"
+                          />
                         </div>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <div class="group relative">
+                        <MarkdownMessage :text="firstText(parts)" />
+                        <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
+                          <UBadge
+                            v-for="(file, idx) in getFileParts(parts)"
+                            :key="idx"
+                            variant="subtle"
+                            color="neutral"
+                            size="sm"
+                          >
+                            <UIcon :name="fileIcon(file.mediaType)" class="size-3.5 mr-1" />
+                            {{ file.filename || formatMimeType(file.mediaType) }}
+                          </UBadge>
+                        </div>
+                        <template v-if="message?.role === 'user' && isPersistedMessage(message.id) && !getFileParts(parts).length && status === 'ready'">
+                          <UButton
+                            class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                            size="xs"
+                            color="neutral"
+                            variant="ghost"
+                            icon="i-heroicons-pencil-square"
+                            :padded="false"
+                            @click="startEditMessage(message.id, firstText(parts))"
+                          />
+                        </template>
+                      </div>
+                      <template v-if="message?.role === 'assistant'">
+                        <template v-for="usage in [getTokenUsage(message.id)]" :key="message.id">
+                          <div
+                            v-if="usage"
+                            class="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400"
+                          >
+                            <span v-if="usage.promptTokens != null" class="inline-flex items-center gap-1">
+                              <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
+                              {{ formatTokenCount(usage.promptTokens) }}
+                            </span>
+                            <span v-if="usage.generationTokens != null" class="inline-flex items-center gap-1">
+                              <UIcon name="i-heroicons-arrow-down-tray" class="size-3" />
+                              {{ formatTokenCount(usage.generationTokens) }}
+                            </span>
+                            <span v-if="usage.totalTokens != null" class="inline-flex items-center gap-1">
+                              <UIcon name="i-heroicons-calculator" class="size-3" />
+                              {{ formatTokenCount(usage.totalTokens) }} tokens
+                            </span>
+                          </div>
+                        </template>
                       </template>
                     </template>
                   </template>

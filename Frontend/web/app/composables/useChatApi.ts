@@ -304,12 +304,12 @@ export function useChatApi() {
   }
 
   /**
-   * Streams a chat response via Server-Sent Events.
-   * Calls `onEvent` for each parsed {@link StreamEvent}.
+   * Shared helper: performs a POST to `url`, then reads the SSE stream and
+   * calls `onEvent` for every parsed {@link StreamEvent}.
    */
-  const streamMessage = async (
-    chatId: string,
-    input: SendMessageInput,
+  const fetchSseStream = async (
+    url: string,
+    body: string,
     onEvent: (event: StreamEvent) => void,
     signal?: AbortSignal
   ) => {
@@ -326,11 +326,11 @@ export function useChatApi() {
       headers = withRequestUserId(headers, resolveUserId())
     }
 
-    const response = await fetch(buildUrl(`/chats/${chatId}/messages/stream`), {
+    const response = await fetch(url, {
       method: 'POST',
       credentials: 'include',
       headers,
-      body: JSON.stringify(input),
+      body,
       signal
     })
 
@@ -385,6 +385,43 @@ export function useChatApi() {
     } finally {
       reader.releaseLock()
     }
+  }
+
+  /**
+   * Streams a chat response via Server-Sent Events.
+   * Calls `onEvent` for each parsed {@link StreamEvent}.
+   */
+  const streamMessage = async (
+    chatId: string,
+    input: SendMessageInput,
+    onEvent: (event: StreamEvent) => void,
+    signal?: AbortSignal
+  ) => {
+    return fetchSseStream(
+      buildUrl(`/chats/${chatId}/messages/stream`),
+      JSON.stringify(input),
+      onEvent,
+      signal
+    )
+  }
+
+  /**
+   * Edits an existing user message and streams a new AI response.
+   * All messages after the edited message are deleted on the backend before streaming.
+   */
+  const editAndStreamMessage = async (
+    chatId: string,
+    messageId: number,
+    input: SendMessageInput,
+    onEvent: (event: StreamEvent) => void,
+    signal?: AbortSignal
+  ) => {
+    return fetchSseStream(
+      buildUrl(`/chats/${chatId}/messages/${messageId}/stream`),
+      JSON.stringify(input),
+      onEvent,
+      signal
+    )
   }
 
   const updateChat = async (chatId: string, input: UpdateChatInput) => {
@@ -454,6 +491,7 @@ export function useChatApi() {
     fetchChatMessages,
     sendMessage,
     streamMessage,
+    editAndStreamMessage,
     updateChat,
     deleteChat,
     deleteAccount,
