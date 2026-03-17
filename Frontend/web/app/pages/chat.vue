@@ -87,6 +87,9 @@ const getReasoning = (messageId: string) => reasoningMap.value[messageId] ?? nul
 const isPersistedMessage = (id: string | undefined) =>
   typeof id === 'string' && /^msg-\d+$/.test(id)
 
+const showEditMessageButton = (message?: { role?: string; id?: string }) =>
+  message?.role === 'user' && isPersistedMessage(message.id) && status.value === 'ready'
+
 const reasoningExpanded = ref<Record<string, boolean>>({})
 
 const fileIcon = (mimeType: string): string => {
@@ -434,10 +437,10 @@ const submitEditMessage = async () => {
                     <template v-else>
                       <div
                         class="group flex items-start"
-                        :class="message?.role === 'user' && isPersistedMessage(message.id) && status === 'ready' ? '-ml-7 pl-7 gap-1' : ''"
+                        :class="showEditMessageButton(message) ? '-ml-6 pl-6 gap-1' : ''"
                       >
                         <div
-                          v-if="message?.role === 'user' && isPersistedMessage(message.id) && status === 'ready'"
+                          v-if="showEditMessageButton(message)"
                           class="w-6 shrink-0 flex justify-end"
                         >
                           <UButton
