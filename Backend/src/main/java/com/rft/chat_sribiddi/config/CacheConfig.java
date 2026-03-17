@@ -1,8 +1,7 @@
 package com.rft.chat_sribiddi.config;
 
 import java.time.Duration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.Cache;
 import org.springframework.cache.annotation.CachingConfigurer;
 import org.springframework.cache.annotation.EnableCaching;
@@ -13,11 +12,10 @@ import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 
+@Slf4j
 @Configuration
 @EnableCaching
 public class CacheConfig implements CachingConfigurer {
-
-  private static final Logger log = LoggerFactory.getLogger(CacheConfig.class);
 
   @Bean
   public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
