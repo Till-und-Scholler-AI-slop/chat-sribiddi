@@ -11,6 +11,9 @@ RUN chmod +x gradlew && ./gradlew --no-daemon clean bootJar
 FROM eclipse-temurin:25-jre-noble
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 COPY --from=build /app/build/libs/*.jar /app/app.jar

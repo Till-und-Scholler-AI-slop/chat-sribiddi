@@ -150,7 +150,7 @@ chatRepository.deleteAll(chats);
 
 After:
 ```java
-messageRepository.deleteAllByUserId(providerId);
+messageRepository.deleteAllByUserId(providerId);  // EXISTS-correlated subquery
 chatRepository.deleteByUserId(providerId);
 ```
 
