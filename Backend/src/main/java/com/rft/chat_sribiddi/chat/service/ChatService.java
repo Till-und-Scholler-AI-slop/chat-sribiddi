@@ -51,6 +51,8 @@ public class ChatService {
   private static final String SYSTEM_PROMPT =
       "You are a helpful assistant. Your answer must be structured in markdown.";
 
+  private static final String CHAT_FK_CONSTRAINT = "messages_chat_id_fkey";
+
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
   private final ApiKeyService apiKeyService;
@@ -650,8 +652,11 @@ public class ChatService {
    */
   private static boolean isChatFkViolation(DataIntegrityViolationException ex) {
     Throwable cause = ex.getMostSpecificCause();
-    String message = cause != null ? cause.getMessage() : ex.getMessage();
-    return message != null && message.contains("messages_chat_id_fkey");
+    if (cause == null) {
+      return false;
+    }
+    String message = cause.getMessage();
+    return message != null && message.contains(CHAT_FK_CONSTRAINT);
   }
 
   /**
