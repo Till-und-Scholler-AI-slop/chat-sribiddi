@@ -39,6 +39,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -199,7 +200,7 @@ public class ChatService {
     assistantMessage.setPromptTokens(promptTokens);
     assistantMessage.setGenerationTokens(generationTokens);
     assistantMessage.setTotalTokens(totalTokens);
-    messageRepository.save(assistantMessage);
+    saveMessageOrThrowIfChatMissing(assistantMessage);
 
     log.debug("Message persisted successfully");
 
@@ -345,7 +346,38 @@ public class ChatService {
                 assistantMessage.setPromptTokens(promptTokens);
                 assistantMessage.setGenerationTokens(generationTokens);
                 assistantMessage.setTotalTokens(totalTokens);
-                messageRepository.save(assistantMessage);
+
+                if (!chatRepository.existsById(chatId)) {
+                  log.warn("Chat {} was deleted during streaming — skipping assistant message save", chatId);
+                  emitter.send(
+                      SseEmitter.event()
+                          .name("error")
+                          .data(
+                              new StreamEventDTO(
+                                  "error",
+                                  "Chat was deleted while response was being generated.",
+                                  null, null, null, null),
+                              MediaType.APPLICATION_JSON));
+                  emitter.complete();
+                  return;
+                }
+
+                try {
+                  messageRepository.save(assistantMessage);
+                } catch (DataIntegrityViolationException ex) {
+                  log.warn("Failed to save assistant message for chat {} — chat no longer exists", chatId, ex);
+                  emitter.send(
+                      SseEmitter.event()
+                          .name("error")
+                          .data(
+                              new StreamEventDTO(
+                                  "error",
+                                  "Chat was deleted while response was being generated.",
+                                  null, null, null, null),
+                              MediaType.APPLICATION_JSON));
+                  emitter.complete();
+                  return;
+                }
 
                 emitter.send(
                     SseEmitter.event()
@@ -605,7 +637,22 @@ public class ChatService {
     entity.setRole(role);
     entity.setContext(context);
     entity.setCreatedAt(Instant.now());
-    return messageRepository.save(entity);
+    return saveMessageOrThrowIfChatMissing(entity);
+  }
+
+  /**
+   * Saves a message entity, converting any FK constraint violation into a
+   * {@link ChatNotFoundException} so callers get a clear "chat not found" error
+   * instead of a raw {@code DataIntegrityViolationException}.
+   */
+  private MessageEntity saveMessageOrThrowIfChatMissing(MessageEntity entity) {
+    try {
+      return messageRepository.save(entity);
+    } catch (DataIntegrityViolationException ex) {
+      log.warn("FK violation saving message for chat {} — chat no longer exists",
+          entity.getChatId(), ex);
+      throw new ChatNotFoundException(entity.getChatId());
+    }
   }
 
   private static Long safeLong(Number value) {
