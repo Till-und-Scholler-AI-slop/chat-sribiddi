@@ -3,6 +3,7 @@ package com.rft.chat_sribiddi.chat.repository;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -25,4 +26,10 @@ public interface MessageRepository extends JpaRepository<MessageEntity, Long> {
   void deleteAllByUserId(@Param("userId") String userId);
 
   List<MessageEntity> findByChatIdOrderByCreatedAtDesc(UUID chatId, Pageable pageable);
+
+  Optional<MessageEntity> findByIdAndChatId(Long id, UUID chatId);
+
+  @Modifying
+  @Query("DELETE FROM MessageEntity m WHERE m.chatId = :chatId AND m.id > :afterMessageId")
+  void deleteByIdGreaterThanAndChatId(@Param("chatId") UUID chatId, @Param("afterMessageId") Long afterMessageId);
 }

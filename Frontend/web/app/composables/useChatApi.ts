@@ -387,6 +387,92 @@ export function useChatApi() {
     }
   }
 
+  /**
+   * Edits an existing user message and streams a new AI response.
+   * All messages after the edited message are deleted on the backend before streaming.
+   */
+  const editAndStreamMessage = async (
+    chatId: string,
+    messageId: number,
+    input: SendMessageInput,
+    onEvent: (event: StreamEvent) => void,
+    signal?: AbortSignal
+  ) => {
+    let headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+
+    const csrfToken = getCsrfToken()
+    if (csrfToken) {
+      headers['X-XSRF-TOKEN'] = csrfToken
+    }
+
+    if (import.meta.client) {
+      headers = withRequestUserId(headers, resolveUserId())
+    }
+
+    const response = await fetch(
+      buildUrl(`/chats/${chatId}/messages/${messageId}/stream`),
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+        body: JSON.stringify(input),
+        signal
+      }
+    )
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Not authenticated. Please log in via the Login page.')
+      }
+      const errorText = await readErrorText(response)
+      throw new Error(
+        errorText || `Request failed (${response.status} ${response.statusText})`
+      )
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('Response body is not readable')
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    try {
+      let searchFrom = 0
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+
+        let idx: number
+        while ((idx = buffer.indexOf('\n\n', searchFrom)) !== -1) {
+          const part = buffer.substring(0, idx)
+          buffer = buffer.substring(idx + 2)
+          searchFrom = 0
+
+          const events = parseSseEvents(part + '\n\n')
+          for (const event of events) {
+            onEvent(event)
+          }
+        }
+        searchFrom = Math.max(0, buffer.length - 1)
+      }
+
+      if (buffer.trim()) {
+        const events = parseSseEvents(buffer + '\n\n')
+        for (const event of events) {
+          onEvent(event)
+        }
+      }
+    } finally {
+      reader.releaseLock()
+    }
+  }
+
   const updateChat = async (chatId: string, input: UpdateChatInput) => {
     return requestJson<ChatSession>(`/chats/${chatId}`, {
       method: 'PATCH',
@@ -454,6 +540,7 @@ export function useChatApi() {
     fetchChatMessages,
     sendMessage,
     streamMessage,
+    editAndStreamMessage,
     updateChat,
     deleteChat,
     deleteAccount,

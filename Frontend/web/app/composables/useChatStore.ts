@@ -91,6 +91,7 @@ export function useChatStore() {
     fetchChatMessages,
     sendMessage,
     streamMessage,
+    editAndStreamMessage,
     fetchModels,
     updateChat,
     deleteChat
@@ -504,6 +505,146 @@ export function useChatStore() {
     settings.value.lastUsedModel = model
   }
 
+  /**
+   * Edits an existing user message (identified by its backend numeric id),
+   * truncates all subsequent messages in the UI, and streams a new AI response.
+   */
+  const editMessage = async (
+    chatId: string,
+    messageUiId: string,
+    newText: string,
+    model: ModelOption
+  ): Promise<UIMessage | null> => {
+    const conversation = conversations.value.find(c => c.session.chatId === chatId)
+    if (!conversation) {
+      throw new Error('No chat selected')
+    }
+
+    // Resolve the numeric backend id from the UI message id (format "msg-{id}")
+    const backendId = messageUiId.startsWith('msg-')
+      ? parseInt(messageUiId.slice(4), 10)
+      : NaN
+    if (isNaN(backendId)) {
+      throw new Error('Cannot edit a message that has not been persisted yet.')
+    }
+
+    stop(chatId)
+
+    // Find the message index in the UI list
+    const msgIndex = conversation.messages.findIndex(m => m.id === messageUiId)
+    if (msgIndex === -1) {
+      throw new Error('Message not found in conversation.')
+    }
+
+    // Update the message text in the UI and remove all subsequent messages
+    const messagesToRemove = conversation.messages.slice(msgIndex + 1)
+    for (const msg of messagesToRemove) {
+      delete tokenUsageMap.value[msg.id]
+      delete reasoningMap.value[msg.id]
+    }
+    conversation.messages.splice(msgIndex + 1)
+
+    const textPart = conversation.messages[msgIndex].parts.find(
+      (p): p is { type: 'text'; text: string } => p.type === 'text'
+    )
+    if (textPart) {
+      textPart.text = newText
+    }
+
+    conversation.status = 'submitted'
+    conversation.error = null
+    conversation.model = model
+    conversation.lastPrompt = newText
+
+    const controller = new AbortController()
+    conversation.activeRequest = controller
+
+    // Create assistant message placeholder for streaming
+    const assistantMessage: UIMessage = {
+      id: messageId(),
+      role: 'assistant',
+      parts: [{ type: 'text', text: '' }]
+    }
+    conversation.messages.push(assistantMessage)
+
+    try {
+      const input = {
+        content: newText,
+        provider: model.provider,
+        modelId: model.value
+      }
+
+      await editAndStreamMessage(
+        chatId,
+        backendId,
+        input,
+        (event: StreamEvent) => {
+          const textPart = assistantMessage.parts.find(
+            (p): p is { type: 'text'; text: string } => p.type === 'text'
+          )
+
+          switch (event.type) {
+            case 'text':
+              if (textPart && event.content) {
+                textPart.text += event.content
+              }
+              break
+
+            case 'reasoning':
+              if (event.content) {
+                reasoningMap.value[assistantMessage.id] =
+                  (reasoningMap.value[assistantMessage.id] || '') + event.content
+              }
+              break
+
+            case 'done':
+              if (
+                event.promptTokens != null ||
+                event.generationTokens != null ||
+                event.totalTokens != null
+              ) {
+                tokenUsageMap.value[assistantMessage.id] = {
+                  promptTokens: event.promptTokens ?? null,
+                  generationTokens: event.generationTokens ?? null,
+                  totalTokens: event.totalTokens ?? null
+                }
+              }
+              break
+
+            case 'error':
+              conversation.error = event.content || 'Streaming error'
+              break
+          }
+        },
+        controller.signal
+      )
+
+      conversation.status = 'ready'
+      conversation.activeRequest = undefined
+
+      return assistantMessage
+    } catch (err) {
+      const textPart = assistantMessage.parts.find(
+        (p): p is { type: 'text'; text: string } => p.type === 'text'
+      )
+      if (!textPart?.text) {
+        const idx = conversation.messages.indexOf(assistantMessage)
+        if (idx !== -1) conversation.messages.splice(idx, 1)
+      }
+
+      if (controller.signal.aborted) {
+        conversation.error = 'Request cancelled.'
+      } else {
+        conversation.error =
+          err instanceof Error ? err.message : 'Something went wrong while chatting.'
+      }
+      conversation.status = 'error'
+      conversation.activeRequest = undefined
+      return null
+    }
+  }
+
+
   return {
     conversations,
     activeChatId,
@@ -528,6 +669,7 @@ export function useChatStore() {
     removeChat,
     sendPrompt,
     retryLastPrompt,
+    editMessage,
     stop
   }
 }
