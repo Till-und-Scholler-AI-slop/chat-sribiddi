@@ -16,12 +16,15 @@ public class ChatProperties {
   /** Maximum number of messages returned when loading a chat conversation (default: 50). */
   private int messagePageSize = 50;
 
+  /** Maximum number of chats returned per page (default: 50). */
+  private int chatPageSize = 50;
+
   private int maxMediaAttachments = 5;
 
   private long maxMediaAttachmentBytes = 5L * 1024 * 1024;
 
   private long maxMediaTotalBytes = 20L * 1024 * 1024;
 
-  /** SSE stream timeout in milliseconds (default: 10 minutes). */
-  private long streamTimeoutMs = 600_000L;
+  /** SSE stream timeout in milliseconds (default: 30 minutes). */
+  private long streamTimeoutMs = 1_800_000L;
 }

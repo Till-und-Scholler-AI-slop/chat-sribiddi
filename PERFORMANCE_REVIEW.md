@@ -33,19 +33,22 @@
 
 ## 1. Executive Summary
 
-The chat-sribiddi application is architecturally well-structured with a clean feature-package pattern, proper DTO separation, and existing Caffeine caching for provider clients and model catalogs. However, several performance gaps can limit scalability beyond ~100 concurrent users:
+The chat-sribiddi application is architecturally well-structured with a clean feature-package pattern, proper DTO separation, and distributed Redis caching for model catalogs alongside Caffeine caching for provider clients. All critical and high-priority performance items have been addressed. The remaining deferred item is virtual scrolling for the message list.
 
 | Area | Current State | Risk Level |
 |------|---------------|------------|
-| DB Connection Pool | Spring defaults (10 conns) | 🔴 Critical |
-| Server Threads + SSE | Default Tomcat (200 threads, no virtual threads) | 🔴 Critical |
-| Docker Images | Unpinned versions, no JVM tuning | 🔴 Critical |
-| Account Deletion | Loads all chats into memory, no batch deletes | 🟡 High |
-| SSE Buffer Parsing | O(n²) re-splitting on each chunk | 🟡 High |
-| State Cleanup | Unbounded `tokenUsageMap` / `reasoningMap` | 🟡 High |
-| Graceful Shutdown | Not configured | 🟡 High |
-| Missing Actuator | No health checks, no metrics | 🟡 High |
-| Caddy Config | No timeouts, no caching headers | 🟠 Medium |
+| DB Connection Pool | ✅ HikariCP tuned (20 conns) | Resolved |
+| Server Threads + SSE | ✅ Virtual threads enabled | Resolved |
+| Docker Images | ✅ Pinned versions, non-root, JVM tuning | Resolved |
+| Account Deletion | ✅ Batch JPQL deletes | Resolved |
+| SSE Buffer Parsing | ✅ O(n) index tracking | Resolved |
+| State Cleanup | ✅ Cleaned on chat deletion | Resolved |
+| Graceful Shutdown | ✅ 10 min timeout configured | Resolved |
+| Actuator + Metrics | ✅ Prometheus + health endpoints | Resolved |
+| Chat Pagination | ✅ Paginated with configurable limit | Resolved |
+| Distributed Cache | ✅ Redis for model catalog | Resolved |
+| Caddy Config | ✅ Timeouts and caching headers | Resolved |
+| Virtual Scrolling | Not yet needed for current usage | 🟠 Medium |
 
 ---
 
@@ -63,16 +66,11 @@ These cover the hot paths (`listChats`, `listMessages`). ✅
 
 **Identified Query Issues:**
 
-| Query Pattern | Issue | Impact |
-|---------------|-------|--------|
-| `AccountService.deleteAccount()` | Loads ALL user chats into memory, then iterates | High memory for users with 1000+ chats |
-| `ChatService.listChats()` | No pagination — returns all chats for a user | Grows unbounded |
-| `ChatService.buildPromptMessages()` | Fetches messages DESC then reverses in-memory | Extra list copy (minor) |
-
-**Recommendations:**
-- Add pagination to `listChats()` endpoint for users with many conversations
-- Optimize `AccountService.deleteAccount()` to use a single `DELETE ... WHERE` cascading query instead of loading entities into memory
-- The in-memory reverse in `buildPromptMessages()` is acceptable for the context window size (20 messages max)
+| Query Pattern | Issue | Impact | Status |
+|---------------|-------|--------|--------|
+| `AccountService.deleteAccount()` | ~~Loads ALL user chats into memory~~ | ~~High memory~~ | ✅ Fixed — batch JPQL deletes |
+| `ChatService.listChats()` | ~~No pagination~~ | ~~Grows unbounded~~ | ✅ Fixed — paginated with `limit` param |
+| `ChatService.buildPromptMessages()` | Fetches messages DESC then reverses in-memory | Extra list copy (minor) | Acceptable (max 20 msgs) |
 
 ### 2.2 Connection Pool Tuning
 
@@ -97,7 +95,7 @@ spring.datasource.hikari:
 
 ### 2.3 Server Thread Pool & Streaming
 
-**Problem:** Each SSE stream occupies a Tomcat worker thread for up to 10 minutes (the configured `stream-timeout-ms`). With the default 200 threads, only 200 concurrent streams are possible before all other requests start queuing.
+**Problem:** Each SSE stream occupies a Tomcat worker thread for up to 30 minutes (the configured `stream-timeout-ms`). With the default 200 threads, only 200 concurrent streams are possible before all other requests start queuing.
 
 **Implemented:** Explicit Tomcat thread pool configuration:
 ```yaml
@@ -108,25 +106,23 @@ server.tomcat:
   connection-timeout: 20000
 ```
 
-**Future Recommendation:** Migrate streaming to virtual threads (available in Java 25) or reactive WebFlux to decouple stream lifecycle from platform threads.
+**Implemented:** Migrated to virtual threads via `spring.threads.virtual.enabled: true`. Each SSE stream now runs on a virtual thread, freeing platform threads for other work.
 
 ### 2.4 Caching Strategy
 
-**Current caching is effective:**
+**Current caching architecture:**
 
-| Cache | TTL | Max Size | Purpose |
-|-------|-----|----------|---------|
-| Provider clients (Caffeine) | 30 min idle | 200 per provider | Avoids re-creating HTTP clients |
-| Model catalog (Caffeine) | 5 min write | 500 entries | Avoids hammering provider APIs |
+| Cache | Backend | TTL | Purpose |
+|-------|---------|-----|---------|
+| Provider clients | Caffeine (in-process) | 30 min idle, max 200 per provider | Avoids re-creating HTTP clients |
+| Model catalog | Redis (distributed) | 5 min write | Shared across multiple backend instances |
 
 **Strengths:**
 - Cache keys for models use SHA-256 hashed API keys (no raw credentials stored)
 - Per-provider caches avoid cross-contamination
 - `closeable=null` means try-with-resources is a no-op for cached instances
-
-**Potential improvements:**
-- Add cache metrics via Micrometer (hit/miss/eviction rates)
-- Consider distributed cache (Redis) if deploying multiple backend instances
+- Model catalog uses `@Cacheable` annotations backed by Redis via Spring Cache abstraction
+- Redis enables cache sharing across multiple backend instances for horizontal scaling
 
 ### 2.5 Service Layer Optimizations
 
@@ -163,10 +159,10 @@ This replaces loading all chat entities into memory with direct batch SQL delete
 server:
   shutdown: graceful
 spring.lifecycle:
-  timeout-per-shutdown-phase: 30s
+  timeout-per-shutdown-phase: 600s
 ```
 
-This gives active SSE streams up to 30 seconds to complete before the server forcefully stops.
+This gives active SSE streams up to 10 minutes to complete before the server forcefully stops. The extended timeout is necessary because pro AI models can reason for 10+ minutes, and a shorter shutdown window would sever in-flight streams during rolling deployments.
 
 ---
 
@@ -306,18 +302,21 @@ services:
 ### 4.3 Reverse Proxy (Caddy)
 
 **Current Caddyfile** is functional but lacks:
-- Request timeouts for the backend proxy
-- Cache headers for static assets
-- Connection limits/rate limiting
-
-**Recommendations (not implemented — infrastructure concern):**
+**Implemented:** Added timeouts and cache headers:
 ```
-reverse_proxy 127.0.0.1:8080 {
-  transport http {
-    read_timeout 180s
-    write_timeout 180s
+# Backend API proxy with timeouts (20 min for long-reasoning pro models)
+handle_path /api/* {
+  reverse_proxy 127.0.0.1:8080 {
+    transport http {
+      read_timeout 1200s
+      write_timeout 1200s
+    }
   }
 }
+
+# Static asset caching for Nuxt frontend
+@static path /_nuxt/* /favicon.ico *.js *.css *.woff2 *.png *.svg *.jpg *.webp
+header @static Cache-Control "public, max-age=31536000, immutable"
 ```
 
 ---
@@ -336,7 +335,7 @@ reverse_proxy 127.0.0.1:8080 {
 
 ## 6. Monitoring & Observability
 
-**Current state:** No monitoring, no health endpoints, no metrics.
+**Current state:** ~~No monitoring, no health endpoints, no metrics.~~
 
 **Implemented:** Added Spring Boot Actuator with Prometheus metrics:
 ```kotlin
@@ -370,25 +369,34 @@ This enables:
 | 7 | AccountService batch delete optimization | 🟡 High | Medium | Prevents OOM on large accounts | ✅ Done |
 | 8 | Frontend SSE parsing optimization | 🟡 High | Low | Reduces CPU for long streams | ✅ Done |
 | 9 | Frontend state cleanup on chat deletion | 🟡 High | Low | Prevents memory leaks | ✅ Done |
-| 10 | Chat list pagination | 🟠 Medium | Medium | Needed for 1000+ chats | Deferred |
+| 10 | Chat list pagination | 🟠 Medium | Medium | Needed for 1000+ chats | ✅ Done |
 | 11 | Virtual scrolling for messages | 🟠 Medium | High | Needed for 500+ messages | Deferred |
-| 12 | Distributed cache (Redis) | 🟠 Medium | High | Needed for multi-instance | Deferred |
-| 13 | Virtual threads for SSE | 🟠 Medium | Medium | Better thread utilization | Deferred |
-| 14 | Caddy timeout/caching config | 🟠 Medium | Low | Infrastructure concern | Deferred |
+| 12 | Distributed cache (Redis) | 🟠 Medium | High | Needed for multi-instance | ✅ Done |
+| 13 | Virtual threads for SSE | 🟠 Medium | Medium | Better thread utilization | ✅ Done |
+| 14 | Caddy timeout/caching config | 🟠 Medium | Low | Infrastructure concern | ✅ Done |
 
 ---
 
 ## 8. Changes Implemented
 
 ### Backend
-- **`application.yaml`** — Added HikariCP pool config, Tomcat thread tuning, graceful shutdown, Actuator endpoints
-- **`build.gradle.kts`** — Added `spring-boot-starter-actuator` and `micrometer-registry-prometheus`
+- **`application.yaml`** — Added HikariCP pool config, Tomcat thread tuning, graceful shutdown, Actuator endpoints, Redis config, virtual threads, chat pagination config
+- **`build.gradle.kts`** — Added `spring-boot-starter-actuator`, `micrometer-registry-prometheus`, `spring-boot-starter-data-redis`, `spring-boot-starter-cache`
 - **`Dockerfile`** — Non-root user, JVM G1GC tuning, health check, pinned base image variant
-- **`compose.yaml`** — Pinned Postgres version, localhost binding, health check, proper volume path
+- **`compose.yaml`** — Pinned Postgres version, localhost binding, health check, Redis service
 - **`AccountService.java`** — Batch delete via JPQL instead of loading entities
-- **`ChatRepository.java`** — Added `deleteByUserId()` for batch deletion
+- **`ChatRepository.java`** — Added `deleteByUserId()` for batch deletion, paginated `findByUserIdOrderByCreatedAtDesc()`
 - **`MessageRepository.java`** — Added `deleteAllByUserId()` for batch deletion
+- **`ChatService.java`** — `listChats()` now supports paginated queries with configurable `limit`
+- **`ChatController.java`** — `listChats()` accepts optional `limit` query parameter
+- **`ChatProperties.java`** — Added `chatPageSize` property (default: 50)
+- **`CacheConfig.java`** — Redis-backed cache manager with model-catalog TTL of 5 minutes
+- **`ModelFetchService.java`** — Replaced Caffeine cache with `@Cacheable` annotations backed by Redis
+- **`ModelCatalogProperties.ModelOption`** — Implements `Serializable` for Redis storage
 
 ### Frontend
 - **`useChatApi.ts`** — Optimized SSE buffer parsing with index tracking
 - **`useChatStore.ts`** — Added cleanup of `tokenUsageMap`/`reasoningMap` on chat deletion
+
+### Infrastructure
+- **`Caddyfile`** — Added reverse_proxy read/write timeouts (1200s / 20 min for long-reasoning pro models), static asset cache headers

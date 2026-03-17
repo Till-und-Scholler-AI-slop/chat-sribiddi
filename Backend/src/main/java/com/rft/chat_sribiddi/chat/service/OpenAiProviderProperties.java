@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 public class OpenAiProviderProperties {
 
   private Duration connectTimeout = Duration.ofSeconds(10);
-  private Duration readTimeout = Duration.ofSeconds(180);
+  private Duration readTimeout = Duration.ofSeconds(1200);
 
   public Duration getConnectTimeout() {
     return connectTimeout;

@@ -84,8 +84,12 @@ public class ChatService {
     return chatRepository.save(chatEntity);
   }
 
-  public List<ChatEntity> listChats(String userId) {
-    return chatRepository.findByUserIdOrderByCreatedAtDesc(userId);
+  public List<ChatEntity> listChats(String userId, Integer limit) {
+    int pageSize =
+        (limit != null && limit > 0)
+            ? Math.min(limit, chatProperties.getChatPageSize())
+            : chatProperties.getChatPageSize();
+    return chatRepository.findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, pageSize));
   }
 
   public List<MessageEntity> listMessages(UUID chatId, String userId, Integer limit) {
