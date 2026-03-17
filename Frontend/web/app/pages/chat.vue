@@ -80,6 +80,13 @@ const getTokenUsage = (messageId: string) => tokenUsageMap.value[messageId] ?? n
 
 const getReasoning = (messageId: string) => reasoningMap.value[messageId] ?? null
 
+/**
+ * Returns true if a UI message id corresponds to a persisted backend message
+ * (i.e. has the "msg-{numericId}" format).
+ */
+const isPersistedMessage = (id: string | undefined) =>
+  typeof id === 'string' && id.startsWith('msg-') && !isNaN(parseInt(id.slice(4), 10))
+
 const reasoningExpanded = ref<Record<string, boolean>>({})
 
 const fileIcon = (mimeType: string): string => {
@@ -389,7 +396,7 @@ const submitEditMessage = async () => {
                             {{ file.filename || formatMimeType(file.mediaType) }}
                           </UBadge>
                         </div>
-                        <template v-if="message?.role === 'user' && message.id?.startsWith('msg-') && status === 'ready'">
+                        <template v-if="message?.role === 'user' && isPersistedMessage(message.id) && status === 'ready'">
                           <UButton
                             class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity"
                             size="xs"
