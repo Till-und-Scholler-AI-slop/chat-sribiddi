@@ -29,6 +29,11 @@ class CacheConfigTest {
   }
 
   @Test
+  void errorHandler_isRateLimitedInstance() {
+    assertThat(errorHandler).isInstanceOf(CacheConfig.RateLimitedCacheErrorHandler.class);
+  }
+
+  @Test
   void handleCacheGetError_doesNotThrow_onRedisConnectionFailure() {
     RuntimeException ex = new RedisConnectionFailureException("Unable to connect to Redis");
     assertThatCode(() -> errorHandler.handleCacheGetError(ex, cache, "key"))
@@ -54,5 +59,14 @@ class CacheConfigTest {
     RuntimeException ex = new RedisConnectionFailureException("Unable to connect to Redis");
     assertThatCode(() -> errorHandler.handleCacheClearError(ex, cache))
         .doesNotThrowAnyException();
+  }
+
+  @Test
+  void handleCacheGetError_doesNotThrow_onRapidRepeatCalls() {
+    RuntimeException ex = new RedisConnectionFailureException("Unable to connect to Redis");
+    for (int i = 0; i < 100; i++) {
+      assertThatCode(() -> errorHandler.handleCacheGetError(ex, cache, "key"))
+          .doesNotThrowAnyException();
+    }
   }
 }

@@ -1,6 +1,8 @@
 package com.rft.chat_sribiddi.config;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.Cache;
 import org.springframework.cache.annotation.CachingConfigurer;
@@ -16,6 +18,8 @@ import org.springframework.data.redis.connection.RedisConnectionFactory;
 @Configuration
 @EnableCaching
 public class CacheConfig implements CachingConfigurer {
+
+  static final Duration WARN_SUPPRESSION_PERIOD = Duration.ofSeconds(60);
 
   @Bean
   public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
@@ -37,26 +41,41 @@ public class CacheConfig implements CachingConfigurer {
 
   @Override
   public CacheErrorHandler errorHandler() {
-    return new CacheErrorHandler() {
-      @Override
-      public void handleCacheGetError(RuntimeException e, Cache cache, Object key) {
-        log.warn("Cache get failed for cache='{}': {}", cache.getName(), e.getMessage());
-      }
+    return new RateLimitedCacheErrorHandler();
+  }
 
-      @Override
-      public void handleCachePutError(RuntimeException e, Cache cache, Object key, Object value) {
-        log.warn("Cache put failed for cache='{}': {}", cache.getName(), e.getMessage());
-      }
+  static class RateLimitedCacheErrorHandler implements CacheErrorHandler {
+    private final AtomicReference<Instant> lastWarnTime = new AtomicReference<>(Instant.MIN);
 
-      @Override
-      public void handleCacheEvictError(RuntimeException e, Cache cache, Object key) {
-        log.warn("Cache evict failed for cache='{}': {}", cache.getName(), e.getMessage());
-      }
+    @Override
+    public void handleCacheGetError(RuntimeException e, Cache cache, Object key) {
+      logRateLimited("Cache get failed for cache='{}': {}", cache.getName(), e.getMessage());
+    }
 
-      @Override
-      public void handleCacheClearError(RuntimeException e, Cache cache) {
-        log.warn("Cache clear failed for cache='{}': {}", cache.getName(), e.getMessage());
+    @Override
+    public void handleCachePutError(RuntimeException e, Cache cache, Object key, Object value) {
+      logRateLimited("Cache put failed for cache='{}': {}", cache.getName(), e.getMessage());
+    }
+
+    @Override
+    public void handleCacheEvictError(RuntimeException e, Cache cache, Object key) {
+      logRateLimited("Cache evict failed for cache='{}': {}", cache.getName(), e.getMessage());
+    }
+
+    @Override
+    public void handleCacheClearError(RuntimeException e, Cache cache) {
+      logRateLimited("Cache clear failed for cache='{}': {}", cache.getName(), e.getMessage());
+    }
+
+    private void logRateLimited(String message, Object... args) {
+      Instant now = Instant.now();
+      Instant lastWarn = lastWarnTime.get();
+      if (Duration.between(lastWarn, now).compareTo(WARN_SUPPRESSION_PERIOD) >= 0
+          && lastWarnTime.compareAndSet(lastWarn, now)) {
+        log.warn(message, args);
+      } else {
+        log.debug(message, args);
       }
-    };
+    }
   }
 }

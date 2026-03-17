@@ -1,6 +1,7 @@
 package com.rft.chat_sribiddi.config;
 
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
+import com.rft.chat_sribiddi.chat.service.ChatService;
 import java.net.http.HttpTimeoutException;
 import java.util.HashMap;
 import java.util.Map;
@@ -61,11 +62,8 @@ public class GlobalExceptionHandler {
   public ResponseEntity<Map<String, String>> handleProviderResponse(RestClientResponseException ex) {
     HttpStatus mappedStatus =
         ex.getStatusCode().is4xxClientError() ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY;
-    String responseBody = ex.getResponseBodyAsString();
-    String message =
-        (responseBody == null || responseBody.isBlank())
-            ? "AI provider rejected the request. Check your model and API key."
-            : responseBody;
+    String message = ChatService.formatProviderError(
+        ex.getResponseBodyAsString(), ex.getStatusCode().value());
     return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
   }
 
@@ -73,11 +71,8 @@ public class GlobalExceptionHandler {
   public ResponseEntity<Map<String, String>> handleWebClientResponse(WebClientResponseException ex) {
     HttpStatus mappedStatus =
         ex.getStatusCode().is4xxClientError() ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY;
-    String responseBody = ex.getResponseBodyAsString();
-    String message =
-        (responseBody == null || responseBody.isBlank())
-            ? "AI provider rejected the request. Check your model and API key."
-            : responseBody;
+    String message = ChatService.formatProviderError(
+        ex.getResponseBodyAsString(), ex.getStatusCode().value());
     return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
   }
 

@@ -1,5 +1,7 @@
 package com.rft.chat_sribiddi.chat.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
@@ -294,7 +296,7 @@ public class ChatService {
               }
             },
             error -> {
-              log.error("Streaming error for chat {}", chatId, error);
+              logStreamingError(chatId, error);
               try {
                 emitter.send(
                     SseEmitter.event()
@@ -359,7 +361,19 @@ public class ChatService {
     return emitter;
   }
 
-  private String extractProviderErrorMessage(Throwable error) {
+  private void logStreamingError(UUID chatId, Throwable error) {
+    if (error instanceof WebClientResponseException webEx) {
+      log.warn("Streaming error for chat {} – provider returned HTTP {}: {}",
+          chatId, webEx.getStatusCode().value(), extractProviderErrorMessage(error));
+    } else if (error instanceof RestClientResponseException restEx) {
+      log.warn("Streaming error for chat {} – provider returned HTTP {}: {}",
+          chatId, restEx.getStatusCode().value(), extractProviderErrorMessage(error));
+    } else {
+      log.error("Streaming error for chat {}", chatId, error);
+    }
+  }
+
+  static String extractProviderErrorMessage(Throwable error) {
     if (error instanceof WebClientResponseException webEx) {
       return formatProviderError(webEx.getResponseBodyAsString(), webEx.getStatusCode().value());
     }
@@ -369,12 +383,38 @@ public class ChatService {
     return "An error occurred while streaming the response.";
   }
 
-  private static String formatProviderError(String responseBody, int statusCode) {
+  public static String formatProviderError(String responseBody, int statusCode) {
     if (responseBody != null && !responseBody.isBlank()) {
+      String parsed = parseErrorMessage(responseBody);
+      if (parsed != null) {
+        return parsed;
+      }
       return responseBody;
     }
     return "AI provider rejected the request (HTTP %d). Check your model and API key."
         .formatted(statusCode);
+  }
+
+  private static final ObjectMapper ERROR_MAPPER = new ObjectMapper();
+
+  static String parseErrorMessage(String responseBody) {
+    try {
+      JsonNode root = ERROR_MAPPER.readTree(responseBody);
+      JsonNode errorNode = root.path("error");
+      if (!errorNode.isMissingNode()) {
+        JsonNode messageNode = errorNode.path("message");
+        if (messageNode.isTextual() && !messageNode.asText().isBlank()) {
+          return messageNode.asText();
+        }
+      }
+      JsonNode messageNode = root.path("message");
+      if (messageNode.isTextual() && !messageNode.asText().isBlank()) {
+        return messageNode.asText();
+      }
+    } catch (Exception e) {
+      log.debug("Failed to parse provider error response as JSON", e);
+    }
+    return null;
   }
 
   private String extractReasoningContent(ChatResponse chunk) {
