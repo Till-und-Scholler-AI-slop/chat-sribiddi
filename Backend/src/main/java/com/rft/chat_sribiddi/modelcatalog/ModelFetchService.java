@@ -6,13 +6,9 @@ import com.rft.chat_sribiddi.chat.service.OpenRouterProviderProperties;
 import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
 import java.io.IOException;
 import java.net.http.HttpClient;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,7 +43,7 @@ public class ModelFetchService {
     this.openRouterProperties = openRouterProperties;
   }
 
-  @Cacheable(value = "model-catalog", key = "'openai:' + T(com.rft.chat_sribiddi.modelcatalog.ModelFetchService).hashApiKey(#apiKey)")
+  @Cacheable(value = "model-catalog", keyGenerator = "modelCatalogKeyGenerator")
   public List<ModelOption> fetchOpenAiModels(String apiKey) {
     try {
       JsonNode response =
@@ -76,7 +72,7 @@ public class ModelFetchService {
     }
   }
 
-  @Cacheable(value = "model-catalog", key = "'google:' + T(com.rft.chat_sribiddi.modelcatalog.ModelFetchService).hashApiKey(#apiKey)")
+  @Cacheable(value = "model-catalog", keyGenerator = "modelCatalogKeyGenerator")
   public List<ModelOption> fetchGoogleModels(String apiKey) {
     try {
       JsonNode response =
@@ -109,7 +105,7 @@ public class ModelFetchService {
     }
   }
 
-  @Cacheable(value = "model-catalog", key = "'claude:' + T(com.rft.chat_sribiddi.modelcatalog.ModelFetchService).hashApiKey(#apiKey)")
+  @Cacheable(value = "model-catalog", keyGenerator = "modelCatalogKeyGenerator")
   public List<ModelOption> fetchClaudeModels(String apiKey) {
     try {
       JsonNode response =
@@ -139,7 +135,7 @@ public class ModelFetchService {
     }
   }
 
-  @Cacheable(value = "model-catalog", key = "'openrouter:' + T(com.rft.chat_sribiddi.modelcatalog.ModelFetchService).hashApiKey(#apiKey)")
+  @Cacheable(value = "model-catalog", keyGenerator = "modelCatalogKeyGenerator")
   public List<ModelOption> fetchOpenRouterModels(String apiKey) {
     try {
       JsonNode response =
@@ -275,18 +271,6 @@ public class ModelFetchService {
       }
     }
     return null;
-  }
-
-  /** Returns a SHA-256 hash of the API key to avoid storing raw credentials in cache keys. */
-  public static String hashApiKey(String apiKey) {
-    try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      byte[] hash = digest.digest(apiKey.getBytes(StandardCharsets.UTF_8));
-      return HexFormat.of().formatHex(hash);
-    } catch (NoSuchAlgorithmException e) {
-      // SHA-256 is guaranteed to be available in all JVM implementations
-      throw new IllegalStateException("SHA-256 not available", e);
-    }
   }
 
   private static RestClient createRestClient() {

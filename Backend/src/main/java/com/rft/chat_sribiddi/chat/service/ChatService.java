@@ -86,7 +86,9 @@ public class ChatService {
 
   public List<ChatEntity> listChats(String userId, Integer limit) {
     int pageSize =
-        (limit != null && limit > 0) ? limit : chatProperties.getChatPageSize();
+        (limit != null && limit > 0)
+            ? Math.min(limit, chatProperties.getChatPageSize())
+            : chatProperties.getChatPageSize();
     return chatRepository.findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, pageSize));
   }
 

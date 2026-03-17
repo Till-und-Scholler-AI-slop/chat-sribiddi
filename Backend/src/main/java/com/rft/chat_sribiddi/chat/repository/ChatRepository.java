@@ -15,8 +15,6 @@ import org.springframework.stereotype.Repository;
 public interface ChatRepository extends JpaRepository<ChatEntity, UUID> {
   Optional<ChatEntity> findByChatIdAndUserId(UUID chatId, String userId);
 
-  List<ChatEntity> findByUserIdOrderByCreatedAtDesc(String userId);
-
   List<ChatEntity> findByUserIdOrderByCreatedAtDesc(String userId, Pageable pageable);
 
   @Modifying
