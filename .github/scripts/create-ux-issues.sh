@@ -19,8 +19,8 @@ create_issue_if_missing() {
   local existing
   existing=$(gh issue list --repo "$REPO" \
     --search "$title in:title" --state all \
-    --json title --jq '.[].title' 2>/dev/null \
-    | grep -Fx "$title" || true)
+    --json title --jq ".[] | select(.title == \"$title\") | .title" 2>/dev/null \
+    | head -1 || true)
   if [ -n "$existing" ]; then
     echo "Already exists, skipping: $title"
   else

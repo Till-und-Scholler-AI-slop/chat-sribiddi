@@ -1,9 +1,8 @@
 name: Create UX Improvement Issues
 
 on:
-  push:
-    branches:
-      - copilot/create-user-experience-tickets
+  # Allows the repo owner to trigger this one-time script manually from the
+  # GitHub Actions tab: Actions → "Create UX Improvement Issues" → Run workflow
   workflow_dispatch:
 
 jobs:
