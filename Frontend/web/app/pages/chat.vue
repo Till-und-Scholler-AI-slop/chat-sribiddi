@@ -82,10 +82,10 @@ const getReasoning = (messageId: string) => reasoningMap.value[messageId] ?? nul
 
 /**
  * Returns true if a UI message id corresponds to a persisted backend message
- * (i.e. has the "msg-{numericId}" format).
+ * (i.e. has the "msg-{numericId}" format with a digits-only suffix).
  */
 const isPersistedMessage = (id: string | undefined) =>
-  typeof id === 'string' && id.startsWith('msg-') && !isNaN(parseInt(id.slice(4), 10))
+  typeof id === 'string' && /^msg-\d+$/.test(id)
 
 const reasoningExpanded = ref<Record<string, boolean>>({})
 
@@ -396,7 +396,7 @@ const submitEditMessage = async () => {
                             {{ file.filename || formatMimeType(file.mediaType) }}
                           </UBadge>
                         </div>
-                        <template v-if="message?.role === 'user' && isPersistedMessage(message.id) && status === 'ready'">
+                        <template v-if="message?.role === 'user' && isPersistedMessage(message.id) && !getFileParts(parts).length && status === 'ready'">
                           <UButton
                             class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity"
                             size="xs"

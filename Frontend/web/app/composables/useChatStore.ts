@@ -520,13 +520,11 @@ export function useChatStore() {
       throw new Error('No chat selected')
     }
 
-    // Resolve the numeric backend id from the UI message id (format "msg-{id}")
-    const backendId = messageUiId.startsWith('msg-')
-      ? parseInt(messageUiId.slice(4), 10)
-      : NaN
-    if (isNaN(backendId)) {
+    // Only persisted messages have the "msg-{digits}" format
+    if (!/^msg-\d+$/.test(messageUiId)) {
       throw new Error('Cannot edit a message that has not been persisted yet.')
     }
+    const backendId = parseInt(messageUiId.slice(4), 10)
 
     stop(chatId)
 
@@ -535,6 +533,10 @@ export function useChatStore() {
     if (msgIndex === -1) {
       throw new Error('Message not found in conversation.')
     }
+
+    // Snapshot current state so we can restore on pre-request failure
+    const originalMessages = conversation.messages.slice()
+    const originalLastPrompt = conversation.lastPrompt
 
     // Update the message text in the UI and remove all subsequent messages
     const messagesToRemove = conversation.messages.slice(msgIndex + 1)
@@ -547,6 +549,7 @@ export function useChatStore() {
     const textPart = conversation.messages[msgIndex].parts.find(
       (p): p is { type: 'text'; text: string } => p.type === 'text'
     )
+    const originalText = textPart?.text ?? newText
     if (textPart) {
       textPart.text = newText
     }
@@ -624,10 +627,25 @@ export function useChatStore() {
 
       return assistantMessage
     } catch (err) {
-      const textPart = assistantMessage.parts.find(
+      // If the request was aborted, or streaming had already started (assistant has content),
+      // keep the partial state. Otherwise restore the original messages.
+      const streamedText = assistantMessage.parts.find(
         (p): p is { type: 'text'; text: string } => p.type === 'text'
-      )
-      if (!textPart?.text) {
+      )?.text
+      if (!streamedText && !controller.signal.aborted) {
+        // No content was streamed yet — restore the original message list
+        conversation.messages = originalMessages
+        if (textPart) {
+          textPart.text = originalText
+        }
+        conversation.lastPrompt = originalLastPrompt
+        // Clean up any entries for removed messages we can no longer see
+        for (const msg of messagesToRemove) {
+          delete tokenUsageMap.value[msg.id]
+          delete reasoningMap.value[msg.id]
+        }
+      } else if (!streamedText) {
+        // Aborted with no content — remove the empty assistant placeholder
         const idx = conversation.messages.indexOf(assistantMessage)
         if (idx !== -1) conversation.messages.splice(idx, 1)
       }

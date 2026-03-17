@@ -304,12 +304,12 @@ export function useChatApi() {
   }
 
   /**
-   * Streams a chat response via Server-Sent Events.
-   * Calls `onEvent` for each parsed {@link StreamEvent}.
+   * Shared helper: performs a POST to `url`, then reads the SSE stream and
+   * calls `onEvent` for every parsed {@link StreamEvent}.
    */
-  const streamMessage = async (
-    chatId: string,
-    input: SendMessageInput,
+  const fetchSseStream = async (
+    url: string,
+    body: string,
     onEvent: (event: StreamEvent) => void,
     signal?: AbortSignal
   ) => {
@@ -326,11 +326,11 @@ export function useChatApi() {
       headers = withRequestUserId(headers, resolveUserId())
     }
 
-    const response = await fetch(buildUrl(`/chats/${chatId}/messages/stream`), {
+    const response = await fetch(url, {
       method: 'POST',
       credentials: 'include',
       headers,
-      body: JSON.stringify(input),
+      body,
       signal
     })
 
@@ -388,6 +388,24 @@ export function useChatApi() {
   }
 
   /**
+   * Streams a chat response via Server-Sent Events.
+   * Calls `onEvent` for each parsed {@link StreamEvent}.
+   */
+  const streamMessage = async (
+    chatId: string,
+    input: SendMessageInput,
+    onEvent: (event: StreamEvent) => void,
+    signal?: AbortSignal
+  ) => {
+    return fetchSseStream(
+      buildUrl(`/chats/${chatId}/messages/stream`),
+      JSON.stringify(input),
+      onEvent,
+      signal
+    )
+  }
+
+  /**
    * Edits an existing user message and streams a new AI response.
    * All messages after the edited message are deleted on the backend before streaming.
    */
@@ -398,79 +416,12 @@ export function useChatApi() {
     onEvent: (event: StreamEvent) => void,
     signal?: AbortSignal
   ) => {
-    let headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    }
-
-    const csrfToken = getCsrfToken()
-    if (csrfToken) {
-      headers['X-XSRF-TOKEN'] = csrfToken
-    }
-
-    if (import.meta.client) {
-      headers = withRequestUserId(headers, resolveUserId())
-    }
-
-    const response = await fetch(
+    return fetchSseStream(
       buildUrl(`/chats/${chatId}/messages/${messageId}/stream`),
-      {
-        method: 'POST',
-        credentials: 'include',
-        headers,
-        body: JSON.stringify(input),
-        signal
-      }
+      JSON.stringify(input),
+      onEvent,
+      signal
     )
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error('Not authenticated. Please log in via the Login page.')
-      }
-      const errorText = await readErrorText(response)
-      throw new Error(
-        errorText || `Request failed (${response.status} ${response.statusText})`
-      )
-    }
-
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error('Response body is not readable')
-    }
-
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    try {
-      let searchFrom = 0
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-
-        let idx: number
-        while ((idx = buffer.indexOf('\n\n', searchFrom)) !== -1) {
-          const part = buffer.substring(0, idx)
-          buffer = buffer.substring(idx + 2)
-          searchFrom = 0
-
-          const events = parseSseEvents(part + '\n\n')
-          for (const event of events) {
-            onEvent(event)
-          }
-        }
-        searchFrom = Math.max(0, buffer.length - 1)
-      }
-
-      if (buffer.trim()) {
-        const events = parseSseEvents(buffer + '\n\n')
-        for (const event of events) {
-          onEvent(event)
-        }
-      }
-    } finally {
-      reader.releaseLock()
-    }
   }
 
   const updateChat = async (chatId: string, input: UpdateChatInput) => {

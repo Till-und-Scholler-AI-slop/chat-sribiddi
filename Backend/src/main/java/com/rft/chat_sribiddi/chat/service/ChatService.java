@@ -573,7 +573,7 @@ public class ChatService {
                 emitter.complete();
               } catch (IOException e) {
                 log.warn("Failed to send SSE done event", e);
-                emitter.completeWithError(e);
+                emitter.complete();
               } finally {
                 clientHolder.close();
               }
