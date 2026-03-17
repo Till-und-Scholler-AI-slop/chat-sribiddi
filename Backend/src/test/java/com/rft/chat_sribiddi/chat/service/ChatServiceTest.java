@@ -42,6 +42,7 @@ class ChatServiceTest {
   @Mock private MessageRepository messageRepository;
   @Mock private ApiKeyService apiKeyService;
   @Mock private ProviderClientFactory providerClientFactory;
+  @Mock private com.rft.chat_sribiddi.auth.UserSettingsService userSettingsService;
 
   @Mock private ChatClient chatClient;
   @Mock private ChatClient.ChatClientRequestSpec requestSpec;
@@ -56,9 +57,11 @@ class ChatServiceTest {
   void setUp() {
     ChatProperties chatProperties = new ChatProperties();
     chatService =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, chatProperties);
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, chatProperties, userSettingsService);
     chatId = UUID.randomUUID();
     userId = "user-123";
+
+    lenient().when(userSettingsService.getCustomInstructions(any())).thenReturn(java.util.Optional.empty());
 
     AtomicLong ids = new AtomicLong(100);
     lenient().when(messageRepository.save(any(MessageEntity.class)))
@@ -329,7 +332,7 @@ class ChatServiceTest {
     ChatProperties customProperties = new ChatProperties();
     customProperties.setMaxMediaAttachments(1);
     ChatService customService =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, customProperties);
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, customProperties, userSettingsService);
 
     RequestDTO request =
         new RequestDTO(
@@ -656,7 +659,7 @@ class ChatServiceTest {
     ChatProperties longTitleProps = new ChatProperties();
     longTitleProps.setMaxChatTitleLength(10);
     ChatService serviceWithShortTitleLimit =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, longTitleProps);
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, longTitleProps, userSettingsService);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);

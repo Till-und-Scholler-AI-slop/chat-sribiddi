@@ -12,6 +12,7 @@ import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
+import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import jakarta.transaction.Transactional;
 import java.io.IOException;
@@ -58,18 +59,21 @@ public class ChatService {
   private final ApiKeyService apiKeyService;
   private final ProviderClientFactory providerClientFactory;
   private final ChatProperties chatProperties;
+  private final UserSettingsService userSettingsService;
 
   public ChatService(
       ChatRepository chatRepository,
       MessageRepository messageRepository,
       ApiKeyService apiKeyService,
       ProviderClientFactory providerClientFactory,
-      ChatProperties chatProperties) {
+      ChatProperties chatProperties,
+      UserSettingsService userSettingsService) {
     this.chatRepository = chatRepository;
     this.messageRepository = messageRepository;
     this.apiKeyService = apiKeyService;
     this.providerClientFactory = providerClientFactory;
     this.chatProperties = chatProperties;
+    this.userSettingsService = userSettingsService;
   }
 
   @Transactional
@@ -141,8 +145,10 @@ public class ChatService {
 
     String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
 
+    String customInstructions =
+        userSettingsService.getCustomInstructions(userId).orElse(null);
     List<Message> promptMessages =
-        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId());
+        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId(), customInstructions);
     if (log.isTraceEnabled()) {
       log.trace("Prompt messages: {}", promptMessages);
     }
@@ -234,8 +240,10 @@ public class ChatService {
 
     String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
 
+    String customInstructions =
+        userSettingsService.getCustomInstructions(userId).orElse(null);
     List<Message> promptMessages =
-        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId());
+        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId(), customInstructions);
 
     String resolvedKey =
         Optional.ofNullable(requestDTO.apiKey())
@@ -500,14 +508,19 @@ public class ChatService {
   }
 
   private List<Message> buildPromptMessages(
-      UUID chatId, List<MediaAttachment> mediaAttachments, Long targetUserMessageId) {
+      UUID chatId, List<MediaAttachment> mediaAttachments, Long targetUserMessageId,
+      String customInstructions) {
     List<MessageEntity> latestMessages =
         new ArrayList<>(
             messageRepository.findByChatIdOrderByCreatedAtDesc(
                 chatId, PageRequest.of(0, chatProperties.getContextMessageLimit())));
 
     List<Message> messages = new ArrayList<>();
-    messages.add(new SystemMessage(SYSTEM_PROMPT));
+    String systemContent =
+        (customInstructions != null && !customInstructions.isBlank())
+            ? SYSTEM_PROMPT + "\n\n" + customInstructions
+            : SYSTEM_PROMPT;
+    messages.add(new SystemMessage(systemContent));
 
     List<MessageEntity> ordered = latestMessages.reversed();
     for (MessageEntity entity : ordered) {

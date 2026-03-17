@@ -21,4 +21,7 @@ public class User {
   private String email;
 
   private String providerId;
+
+  @Column(columnDefinition = "TEXT")
+  private String customInstructions;
 }
