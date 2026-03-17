@@ -3,6 +3,8 @@ import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, SendMes
 import { PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
 
+export const favoriteModelKey = (model: ModelOption) => `${model.provider}:${model.value}`
+
 type Conversation = {
   session: ChatSession
   messages: UIMessage[]
@@ -115,6 +117,31 @@ export function useChatStore() {
     }
     return models.value[0] || null
   })
+
+  const isFavorite = (model: ModelOption): boolean =>
+    settings.value.favoriteModels.includes(favoriteModelKey(model))
+
+  const toggleFavorite = (model: ModelOption) => {
+    const key = favoriteModelKey(model)
+    const favorites = settings.value.favoriteModels
+    if (favorites.includes(key)) {
+      settings.value.favoriteModels = favorites.filter(k => k !== key)
+    } else {
+      settings.value.favoriteModels = [...favorites, key]
+    }
+  }
+
+  const sortedModels = computed<ModelOption[]>(() =>
+    [...models.value].sort((a, b) => {
+      const aFav = isFavorite(a) ? 0 : 1
+      const bFav = isFavorite(b) ? 0 : 1
+      if (aFav !== bFav) return aFav - bFav
+      if (a.provider !== b.provider) {
+        return PROVIDERS.indexOf(a.provider) - PROVIDERS.indexOf(b.provider)
+      }
+      return a.label.localeCompare(b.label)
+    })
+  )
 
   const toUiMessage = (message: BackendMessage): UIMessage => {
     const role =
@@ -479,11 +506,14 @@ export function useChatStore() {
     activeChatId,
     activeConversation,
     models,
+    sortedModels,
     modelsLoading,
     modelsError,
     defaultModel,
     tokenUsageMap,
     reasoningMap,
+    isFavorite,
+    toggleFavorite,
     ensureModels,
     loadChatsFromBackend,
     loadMessagesForChat,

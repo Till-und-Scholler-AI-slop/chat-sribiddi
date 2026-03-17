@@ -4,6 +4,7 @@ import { DEFAULT_BACKEND_BASE_URL } from '~/composables/useChatApi'
 type UserSettings = {
   backendBaseUrl: string
   lastUsedModel: ModelOption | null
+  favoriteModels: string[]
 }
 
 const STORAGE_KEY = 'chat-sribiddi:user-settings:v2'
@@ -18,7 +19,8 @@ export function useUserSettings() {
 
   const state = useState<UserSettings>('user-settings', () => ({
     backendBaseUrl: defaultBackend,
-    lastUsedModel: null
+    lastUsedModel: null,
+    favoriteModels: []
   }))
 
   const hydrated = useState<boolean>('user-settings-hydrated', () => false)
@@ -35,7 +37,8 @@ export function useUserSettings() {
           lastUsedModel:
             savedModel && typeof savedModel === 'object' && typeof savedModel.value === 'string' && typeof savedModel.provider === 'string'
               ? savedModel
-              : null
+              : null,
+          favoriteModels: Array.isArray(parsed.favoriteModels) ? parsed.favoriteModels : []
         }
       } else {
         state.value.backendBaseUrl ||= defaultBackend

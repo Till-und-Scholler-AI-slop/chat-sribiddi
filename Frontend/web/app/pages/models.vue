@@ -9,11 +9,13 @@ definePageMeta({
 const {
   activeConversation,
   ensureModels,
+  isFavorite,
   models,
   modelsError,
   modelsLoading,
   setModelForChat,
-  startChat
+  startChat,
+  toggleFavorite
 } = useChatStore()
 
 const toast = useToast()
@@ -55,6 +57,9 @@ const searchableText = (model: ModelOption) =>
 
 const sortedModels = computed(() =>
   [...models.value].sort((left, right) => {
+    const leftFav = isFavorite(left) ? 0 : 1
+    const rightFav = isFavorite(right) ? 0 : 1
+    if (leftFav !== rightFav) return leftFav - rightFav
     if (left.provider !== right.provider) {
       return PROVIDERS.indexOf(left.provider) - PROVIDERS.indexOf(right.provider)
     }
@@ -239,14 +244,24 @@ onMounted(async () => {
                   </div>
                 </div>
 
-                <UButton
-                  color="primary"
-                  variant="soft"
-                  size="sm"
-                  icon="i-heroicons-arrow-right-circle"
-                  label="Use model"
-                  @click="useModel(model)"
-                />
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  <UButton
+                    :icon="isFavorite(model) ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
+                    :color="isFavorite(model) ? 'warning' : 'neutral'"
+                    variant="ghost"
+                    size="sm"
+                    :aria-label="isFavorite(model) ? 'Remove from favorites' : 'Add to favorites'"
+                    @click="toggleFavorite(model)"
+                  />
+                  <UButton
+                    color="primary"
+                    variant="soft"
+                    size="sm"
+                    icon="i-heroicons-arrow-right-circle"
+                    label="Use model"
+                    @click="useModel(model)"
+                  />
+                </div>
               </div>
 
               <p

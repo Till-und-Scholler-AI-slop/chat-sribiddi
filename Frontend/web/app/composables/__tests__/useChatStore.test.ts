@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractAssistantText, extractTokenUsage, parseAttachmentContext } from '../useChatStore'
+import { extractAssistantText, extractTokenUsage, favoriteModelKey, parseAttachmentContext } from '../useChatStore'
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {
@@ -118,5 +118,23 @@ describe('extractTokenUsage', () => {
       generationTokens: 0,
       totalTokens: 0
     })
+  })
+})
+
+describe('favoriteModelKey', () => {
+  it('generates a key from provider and model value', () => {
+    expect(favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4o', label: 'GPT-4o' } as any)).toBe('OPENAI:gpt-4o')
+  })
+
+  it('generates distinct keys for different providers', () => {
+    const openaiKey = favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4', label: 'GPT-4' } as any)
+    const claudeKey = favoriteModelKey({ provider: 'CLAUDE', value: 'gpt-4', label: 'GPT-4' } as any)
+    expect(openaiKey).not.toBe(claudeKey)
+  })
+
+  it('generates distinct keys for different model values', () => {
+    const gpt4Key = favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4', label: 'GPT-4' } as any)
+    const gpt4oKey = favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4o', label: 'GPT-4o' } as any)
+    expect(gpt4Key).not.toBe(gpt4oKey)
   })
 })
