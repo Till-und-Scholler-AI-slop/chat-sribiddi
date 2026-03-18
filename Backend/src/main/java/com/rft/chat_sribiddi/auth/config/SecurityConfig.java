@@ -45,7 +45,7 @@ public class SecurityConfig {
   @Value("${app.cors.allowed-origins}")
   private List<String> allowedOrigins;
 
-  @Value("${app.frontend-url:http://localhost:5173}")
+  @Value("${app.frontend-url:http://localhost:3000}")
   private String frontendUrl;
 
   @Bean
