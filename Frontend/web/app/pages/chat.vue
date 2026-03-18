@@ -373,13 +373,6 @@ const submitEditMessage = async () => {
 
 <template>
   <UDashboardPanel class="h-full flex flex-col">
-    <template #header>
-      <UDashboardNavbar
-        title="Chat"
-        :badge="modelsLoading ? 'Loading models…' : undefined"
-      />
-    </template>
-
     <template #body>
       <UContainer class="py-4 space-y-4 flex-1 overflow-hidden flex flex-col">
         <UAlert
