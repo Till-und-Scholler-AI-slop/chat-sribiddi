@@ -21,20 +21,16 @@ public class CustomOAuth2UserService extends OidcUserService {
   public OidcUser loadUser(OidcUserRequest userRequest) throws OAuth2AuthenticationException {
     OidcUser oidcUser = super.loadUser(userRequest);
 
-    String email = oidcUser.getEmail();
     String providerId = oidcUser.getSubject();
-    log.info("OIDC Login - Email: {}, ProviderId: {}", email, providerId);
 
     Optional<User> userOptional = userRepository.findByProviderId(providerId);
 
     if (userOptional.isEmpty()) {
       User user = new User();
-      user.setEmail(email);
+      user.setEmail(oidcUser.getEmail());
       user.setProviderId(providerId);
       userRepository.save(user);
-      log.info("Saved new user with providerId={}", providerId);
-    } else {
-      log.info("User already exists for providerId={}", providerId);
+      log.debug("Created new user for providerId={}", providerId);
     }
 
     return oidcUser;
