@@ -439,24 +439,17 @@ const submitEditMessage = async () => {
                       </div>
                     </template>
                     <template v-else>
-                      <div
-                        class="group flex items-start"
-                        :class="showEditMessageButton(message) ? '-ml-6 pl-6 gap-1' : ''"
-                      >
-                        <div
+                      <div class="group relative">
+                        <UButton
                           v-if="showEditMessageButton(message)"
-                          class="w-6 shrink-0 flex justify-end"
-                        >
-                          <UButton
-                            class="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5"
-                            size="xs"
-                            color="neutral"
-                            variant="ghost"
-                            icon="i-heroicons-pencil-square"
-                            :padded="false"
-                            @click="startEditMessage(message.id, firstText(parts))"
-                          />
-                        </div>
+                          class="absolute -left-7 top-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                          size="xs"
+                          color="neutral"
+                          variant="ghost"
+                          icon="i-heroicons-pencil-square"
+                          :padded="false"
+                          @click="startEditMessage(message.id, firstText(parts))"
+                        />
                         <div>
                           <MarkdownMessage :text="firstText(parts)" />
                           <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
