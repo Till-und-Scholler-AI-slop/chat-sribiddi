@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendTextToMessage, calculateMessageCost, extractAssistantText, extractTokenUsage, favoriteModelKey, formatCost, parseAttachmentContext, resolveStreamOutcome } from '../useChatStore'
+import { appendTextToMessage, calculateMessageCost, extractAssistantText, extractTokenUsage, favoriteModelKey, formatCost, formatRatePerMillion, parseAttachmentContext, resolveStreamOutcome } from '../useChatStore'
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {
@@ -287,5 +287,43 @@ describe('formatCost', () => {
 
   it('formats whole dollar amounts', () => {
     expect(formatCost(1.23)).toBe('$1.23')
+  })
+
+  it('returns dash for NaN', () => {
+    expect(formatCost(NaN)).toBe('—')
+  })
+
+  it('returns dash for Infinity', () => {
+    expect(formatCost(Infinity)).toBe('—')
+  })
+})
+
+describe('formatRatePerMillion', () => {
+  it('returns null for null input', () => {
+    expect(formatRatePerMillion(null)).toBeNull()
+  })
+
+  it('returns null for undefined input', () => {
+    expect(formatRatePerMillion(undefined)).toBeNull()
+  })
+
+  it('returns null for empty string', () => {
+    expect(formatRatePerMillion('')).toBeNull()
+  })
+
+  it('returns "$0" for zero price', () => {
+    expect(formatRatePerMillion('0')).toBe('$0')
+  })
+
+  it('formats a typical prompt price', () => {
+    expect(formatRatePerMillion('0.000005')).toBe('$5.00')
+  })
+
+  it('formats a sub-dollar per-million price with 4 decimals', () => {
+    expect(formatRatePerMillion('0.0000001')).toBe('$0.1000')
+  })
+
+  it('returns null for non-numeric string', () => {
+    expect(formatRatePerMillion('abc')).toBeNull()
   })
 })

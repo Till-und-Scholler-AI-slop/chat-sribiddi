@@ -80,6 +80,12 @@ export type MessageCost = {
   totalCost: number
 }
 
+export type MessagePricing = {
+  promptPrice: string | null
+  completionPrice: string | null
+  requestPrice: string | null
+}
+
 /**
  * Calculates the estimated cost for a message based on token usage and model pricing.
  * Pricing values are per-token strings from the OpenRouter API (e.g. "0.000005").
@@ -116,13 +122,29 @@ export function calculateMessageCost(
 
 /**
  * Formats a dollar cost into a human-readable string.
- * Uses adaptive precision: sub-cent costs show more decimal places.
+ * Uses adaptive precision: ≥ $0.01 → 2 decimals, $0.0001–$0.01 → 4 decimals,
+ * < $0.0001 → scientific notation (e.g. "$5.0e-5").
+ * Returns '$0.00' for zero and '—' for non-finite inputs (NaN, Infinity).
  */
 export function formatCost(cost: number): string {
+  if (!Number.isFinite(cost)) return '—'
   if (cost === 0) return '$0.00'
   if (cost < 0.0001) return `$${cost.toExponential(1)}`
   if (cost < 0.01) return `$${cost.toFixed(4)}`
   return `$${cost.toFixed(2)}`
+}
+
+/**
+ * Formats a per-token price string (from OpenRouter API) into a human-readable
+ * rate per 1M tokens. Returns null when the input is missing or not a number.
+ */
+export function formatRatePerMillion(priceStr: string | null | undefined): string | null {
+  if (!priceStr) return null
+  const rate = Number(priceStr)
+  if (Number.isNaN(rate)) return null
+  if (rate === 0) return '$0'
+  const perMillion = rate * 1_000_000
+  return perMillion >= 1 ? `$${perMillion.toFixed(2)}` : `$${perMillion.toFixed(4)}`
 }
 
 export function extractTokenUsage(response: SendMessageResponse | null): TokenUsage | null {
@@ -214,6 +236,7 @@ export function useChatStore() {
   const modelsLoading = useState<boolean>('chat-models-loading', () => false)
   const modelsError = useState<string | null>('chat-models-error', () => null)
   const tokenUsageMap = useState<Record<string, TokenUsage>>('chat-token-usage', () => ({}))
+  const messagePricingMap = useState<Record<string, MessagePricing>>('chat-message-pricing', () => ({}))
   const reasoningMap = useState<Record<string, string>>('chat-reasoning', () => ({}))
   const webSearchEnabled = useState<boolean>('chat-web-search-enabled', () => false)
   const activeConversation = computed(() =>
@@ -292,6 +315,7 @@ export function useChatStore() {
       conversations.value = []
       activeChatId.value = null
       tokenUsageMap.value = {}
+      messagePricingMap.value = {}
       reasoningMap.value = {}
     }
   )
@@ -438,6 +462,7 @@ export function useChatStore() {
     if (conversation) {
       for (const msg of conversation.messages) {
         delete tokenUsageMap.value[msg.id]
+        delete messagePricingMap.value[msg.id]
         delete reasoningMap.value[msg.id]
       }
     }
@@ -608,12 +633,13 @@ export function useChatStore() {
                   generationTokens: event.generationTokens ?? null,
                   totalTokens: event.totalTokens ?? null
                 }
+                messagePricingMap.value[assistantMessage.id] = {
+                  promptPrice: model.promptPrice ?? null,
+                  completionPrice: model.completionPrice ?? null,
+                  requestPrice: model.requestPrice ?? null
+                }
               }
               break
-
-            case 'error':
-              streamStatus.receivedError = true
-              conversation.error = event.content || 'Streaming error'
               break
           }
         },
@@ -704,6 +730,7 @@ export function useChatStore() {
     const messagesToRemove = conversation.messages.slice(msgIndex + 1)
     for (const msg of messagesToRemove) {
       delete tokenUsageMap.value[msg.id]
+      delete messagePricingMap.value[msg.id]
       delete reasoningMap.value[msg.id]
     }
     conversation.messages.splice(msgIndex + 1)
@@ -788,6 +815,11 @@ export function useChatStore() {
                   generationTokens: event.generationTokens ?? null,
                   totalTokens: event.totalTokens ?? null
                 }
+                messagePricingMap.value[assistantMessage.id] = {
+                  promptPrice: model.promptPrice ?? null,
+                  completionPrice: model.completionPrice ?? null,
+                  requestPrice: model.requestPrice ?? null
+                }
               }
               break
 
@@ -857,6 +889,7 @@ export function useChatStore() {
     modelsError,
     defaultModel,
     tokenUsageMap,
+    messagePricingMap,
     reasoningMap,
     webSearchEnabled,
     isFavorite,

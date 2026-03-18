@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
-import { calculateMessageCost, formatCost } from '~/composables/useChatStore'
+import { calculateMessageCost, formatCost, formatRatePerMillion } from '~/composables/useChatStore'
 
 definePageMeta({
   layout: 'default'
@@ -16,6 +16,7 @@ const {
   isFavorite,
   loadChatsFromBackend,
   loadMessagesForChat,
+  messagePricingMap,
   models,
   modelsError,
   modelsLoading,
@@ -96,7 +97,7 @@ const formatTokenCount = (count: number | null | undefined): string => {
 const getTokenUsage = (messageId: string) => tokenUsageMap.value[messageId] ?? null
 
 const getMessageCost = (messageId: string) =>
-  calculateMessageCost(getTokenUsage(messageId), selectedModel.value)
+  calculateMessageCost(getTokenUsage(messageId), messagePricingMap.value[messageId] ?? null)
 
 const getReasoning = (messageId: string) => reasoningMap.value[messageId] ?? null
 
@@ -126,15 +127,6 @@ const providerLabel = (provider: ModelOption['provider']) =>
       : provider === 'CLAUDE'
         ? 'Claude'
         : 'OpenRouter'
-
-const formatRatePerMillion = (priceStr: string | null | undefined): string | null => {
-  if (!priceStr) return null
-  const rate = Number(priceStr)
-  if (Number.isNaN(rate)) return null
-  if (rate === 0) return '$0'
-  const perMillion = rate * 1_000_000
-  return perMillion >= 1 ? `$${perMillion.toFixed(2)}` : `$${perMillion.toFixed(4)}`
-}
 
 const modelPricingSummary = computed(() => {
   const model = selectedModel.value
@@ -642,12 +634,14 @@ const submitEditMessage = async () => {
                   <div class="flex items-center justify-between gap-2 w-full">
                     <span class="truncate">{{ option.label }}</span>
                     <div class="flex items-center gap-1 flex-shrink-0">
-                      <span
-                        v-if="optionPriceLabel(option)"
-                        class="text-[10px] text-emerald-600 dark:text-emerald-400"
-                      >
-                        {{ optionPriceLabel(option) }}
-                      </span>
+                      <template v-for="priceLabel in [optionPriceLabel(option)]" :key="option.value">
+                        <span
+                          v-if="priceLabel"
+                          class="text-[10px] text-emerald-600 dark:text-emerald-400"
+                        >
+                          {{ priceLabel }}
+                        </span>
+                      </template>
                       <UIcon
                         v-if="isFavorite(option)"
                         name="i-heroicons-star-solid"
