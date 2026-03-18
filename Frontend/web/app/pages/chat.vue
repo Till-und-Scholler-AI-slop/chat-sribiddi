@@ -36,8 +36,10 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const initializing = ref(true)
 const toast = useToast()
 const messagesContainer = ref<HTMLElement | null>(null)
+const skipNextSmoothScroll = ref(false)
+let streamingRafId: number | null = null
 
-const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+const scrollToBottom = (behavior: 'smooth' | 'auto' = 'smooth') => {
   nextTick(() => {
     const el = messagesContainer.value
     if (el) {
@@ -249,27 +251,40 @@ watch(activeChatId, async newId => {
   }
 
   if (conversation.messages.length === 0) {
+    skipNextSmoothScroll.value = true
     await loadMessagesForChat(newId)
   }
-  scrollToBottom('instant')
+  scrollToBottom('auto')
 })
 
 // Scroll smoothly when a new message is added to the conversation
 watch(
   () => activeConversation.value?.messages?.length,
-  (newLength) => { if (newLength) scrollToBottom('smooth') },
+  (newLength) => {
+    if (!newLength) return
+    if (skipNextSmoothScroll.value) {
+      skipNextSmoothScroll.value = false
+      return
+    }
+    scrollToBottom('smooth')
+  },
 )
 
-// Scroll instantly while streaming (last message text grows in place)
+// Scroll while streaming (last message text grows in place), throttled per animation frame
 watch(
   () => {
     const msgs = activeConversation.value?.messages
     const last = msgs?.[msgs.length - 1]
-    if (!last) return undefined
-    const textPart = last.parts?.find((p: { type: string }) => p.type === 'text')
-    return textPart && 'text' in textPart ? (textPart as { type: string; text: string }).text : undefined
+    return last ? firstText(last.parts) : undefined
   },
-  (newText) => { if (newText !== undefined) scrollToBottom('instant') },
+  (newText) => {
+    if (!newText) return
+    if (streamingRafId !== null) return
+    streamingRafId = requestAnimationFrame(() => {
+      streamingRafId = null
+      scrollToBottom('auto')
+    })
+  },
 )
 
 async function handleSubmit() {
