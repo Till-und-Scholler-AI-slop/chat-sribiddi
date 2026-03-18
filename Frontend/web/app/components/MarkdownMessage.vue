@@ -33,7 +33,54 @@ const md = useState('markdown-it-instance', () => {
   return instance
 })
 
-const rendered = computed(() => md.value.render(props.text || ''))
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function renderMarkdown(text: string): string {
+  try {
+    return md.value.render(text)
+  } catch {
+    return `<pre style="white-space:pre-wrap">${escapeHtml(text)}</pre>`
+  }
+}
+
+// Throttle rendering to at most once per animation frame to prevent
+// main-thread blocking during streaming (especially with linkify + many URLs
+// in web-search responses where back-to-back md.render() calls freeze the page).
+const rendered = ref(renderMarkdown(props.text || ''))
+let rafId: number | undefined
+let lastRenderedText: string = props.text || ''
+
+watch(() => props.text, () => {
+  const text = props.text || ''
+  if (text === lastRenderedText) return
+  if (import.meta.server) {
+    lastRenderedText = text
+    rendered.value = renderMarkdown(text)
+    return
+  }
+  if (rafId == null) {
+    rafId = requestAnimationFrame(() => {
+      rafId = undefined
+      const current = props.text || ''
+      if (current === lastRenderedText) return
+      lastRenderedText = current
+      rendered.value = renderMarkdown(current)
+    })
+  }
+})
+
+onBeforeUnmount(() => {
+  if (rafId != null) {
+    cancelAnimationFrame(rafId)
+    rafId = undefined
+  }
+})
 
 const copyTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>()
 
