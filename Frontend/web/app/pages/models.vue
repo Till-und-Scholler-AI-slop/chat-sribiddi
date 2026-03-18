@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ModelOption, Provider } from '~/composables/useChatApi'
 import { PROVIDERS } from '~/composables/useChatApi'
+import { formatRatePerMillion } from '~/composables/useChatStore'
 
 definePageMeta({
   layout: 'default'
@@ -102,12 +103,9 @@ const formatTokenWindow = (value?: number | null) =>
   value == null ? 'Unknown' : `${formatInteger(value)} tokens`
 
 const toPriceLabel = (value?: string | null, suffix = '/ 1M tokens') => {
-  if (!value) return '—'
-  const numeric = Number(value)
-  if (Number.isNaN(numeric)) return value
-  const perMillion = numeric * 1_000_000
-  const decimals = numeric === 0 ? 0 : perMillion >= 1 ? 2 : 4
-  return `$${perMillion.toFixed(decimals)} ${suffix}`
+  const formatted = formatRatePerMillion(value)
+  if (formatted == null) return '—'
+  return `${formatted} ${suffix}`
 }
 
 const toRequestPriceLabel = (value?: string | null) => {

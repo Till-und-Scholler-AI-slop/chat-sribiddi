@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
+import { calculateMessageCost, formatCost, formatRatePerMillion } from '~/composables/useChatStore'
 
 definePageMeta({
   layout: 'default'
@@ -15,6 +16,7 @@ const {
   isFavorite,
   loadChatsFromBackend,
   loadMessagesForChat,
+  messagePricingMap,
   models,
   modelsError,
   modelsLoading,
@@ -94,6 +96,9 @@ const formatTokenCount = (count: number | null | undefined): string => {
 
 const getTokenUsage = (messageId: string) => tokenUsageMap.value[messageId] ?? null
 
+const getMessageCost = (messageId: string) =>
+  calculateMessageCost(getTokenUsage(messageId), messagePricingMap.value[messageId] ?? null)
+
 const getReasoning = (messageId: string) => reasoningMap.value[messageId] ?? null
 
 /**
@@ -122,6 +127,21 @@ const providerLabel = (provider: ModelOption['provider']) =>
       : provider === 'CLAUDE'
         ? 'Claude'
         : 'OpenRouter'
+
+const modelPricingSummary = computed(() => {
+  const model = selectedModel.value
+  const p = formatRatePerMillion(model?.promptPrice)
+  const c = formatRatePerMillion(model?.completionPrice)
+  if (!p && !c) return null
+
+  const parts: string[] = []
+  if (p != null) parts.push(`${p} in`)
+  if (c != null) parts.push(`${c} out`)
+  return parts.length ? `${parts.join(' / ')} per 1M tokens` : null
+})
+
+const optionPriceLabel = (option: ModelOption): string | null =>
+  formatRatePerMillion(option.promptPrice)
 
 const toDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -506,7 +526,7 @@ const submitEditMessage = async () => {
                         <template v-for="usage in [getTokenUsage(message.id)]" :key="message.id">
                           <div
                             v-if="usage"
-                            class="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400"
+                            class="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400 flex-wrap"
                           >
                             <span v-if="usage.promptTokens != null" class="inline-flex items-center gap-1">
                               <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
@@ -520,6 +540,15 @@ const submitEditMessage = async () => {
                               <UIcon name="i-heroicons-calculator" class="size-3" />
                               {{ formatTokenCount(usage.totalTokens) }} tokens
                             </span>
+                            <template v-for="cost in [getMessageCost(message.id)]" :key="`cost-${message.id}`">
+                              <span
+                                v-if="cost"
+                                class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"
+                              >
+                                <UIcon name="i-heroicons-banknotes" class="size-3" />
+                                {{ formatCost(cost.totalCost) }}
+                              </span>
+                            </template>
                           </div>
                         </template>
                       </template>
@@ -598,6 +627,14 @@ const submitEditMessage = async () => {
                   <div class="flex items-center justify-between gap-2 w-full">
                     <span class="truncate">{{ option.label }}</span>
                     <div class="flex items-center gap-1 flex-shrink-0">
+                      <template v-for="priceLabel in [optionPriceLabel(option)]" :key="option.value">
+                        <span
+                          v-if="priceLabel"
+                          class="text-[10px] text-emerald-600 dark:text-emerald-400"
+                        >
+                          {{ priceLabel }}
+                        </span>
+                      </template>
                       <UIcon
                         v-if="isFavorite(option)"
                         name="i-heroicons-star-solid"
@@ -618,6 +655,13 @@ const submitEditMessage = async () => {
                   @click="webSearchEnabled = !webSearchEnabled"
                 />
               </UTooltip>
+              <span
+                v-if="modelPricingSummary"
+                class="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1"
+              >
+                <UIcon name="i-heroicons-banknotes" class="size-3 text-emerald-500" />
+                {{ modelPricingSummary }}
+              </span>
             </template>
 
             <UChatPromptSubmit
