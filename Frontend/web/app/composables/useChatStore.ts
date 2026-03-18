@@ -536,11 +536,8 @@ export function useChatStore() {
               if (event.content) {
                 streamStatus.receivedContent = true
                 conversation.status = 'streaming'
-                reasoningMap.value = {
-                  ...reasoningMap.value,
-                  [assistantMessage.id]:
-                    (reasoningMap.value[assistantMessage.id] || '') + event.content
-                }
+                reasoningMap.value[assistantMessage.id] =
+                  (reasoningMap.value[assistantMessage.id] || '') + event.content
               }
               break
 
@@ -554,13 +551,10 @@ export function useChatStore() {
                 event.generationTokens != null ||
                 event.totalTokens != null
               ) {
-                tokenUsageMap.value = {
-                  ...tokenUsageMap.value,
-                  [assistantMessage.id]: {
-                    promptTokens: event.promptTokens ?? null,
-                    generationTokens: event.generationTokens ?? null,
-                    totalTokens: event.totalTokens ?? null
-                  }
+                tokenUsageMap.value[assistantMessage.id] = {
+                  promptTokens: event.promptTokens ?? null,
+                  generationTokens: event.generationTokens ?? null,
+                  totalTokens: event.totalTokens ?? null
                 }
               }
               break
@@ -725,11 +719,8 @@ export function useChatStore() {
               if (event.content) {
                 streamStatus.receivedContent = true
                 conversation.status = 'streaming'
-                reasoningMap.value = {
-                  ...reasoningMap.value,
-                  [assistantMessage.id]:
-                    (reasoningMap.value[assistantMessage.id] || '') + event.content
-                }
+                reasoningMap.value[assistantMessage.id] =
+                  (reasoningMap.value[assistantMessage.id] || '') + event.content
               }
               break
 
@@ -740,13 +731,10 @@ export function useChatStore() {
                 event.generationTokens != null ||
                 event.totalTokens != null
               ) {
-                tokenUsageMap.value = {
-                  ...tokenUsageMap.value,
-                  [assistantMessage.id]: {
-                    promptTokens: event.promptTokens ?? null,
-                    generationTokens: event.generationTokens ?? null,
-                    totalTokens: event.totalTokens ?? null
-                  }
+                tokenUsageMap.value[assistantMessage.id] = {
+                  promptTokens: event.promptTokens ?? null,
+                  generationTokens: event.generationTokens ?? null,
+                  totalTokens: event.totalTokens ?? null
                 }
               }
               break
