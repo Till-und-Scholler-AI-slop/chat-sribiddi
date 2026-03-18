@@ -54,8 +54,8 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
             (String _, ChatService.ClientHolder holder, RemovalCause _) -> {
               try {
                 holder.close();
-              } catch (Exception _) {
-                log.warn("Failed to close evicted provider client");
+              } catch (Exception e) {
+                log.warn("Failed to close evicted provider client", e);
               }
             })
         .build();

@@ -37,6 +37,7 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.content.Media;
 import org.springframework.core.io.ByteArrayResource;
@@ -186,8 +187,9 @@ public class ChatService {
     Long generationTokens = null;
     Long totalTokens = null;
 
-    if (chatResponse != null) {
-      Usage usage = chatResponse.getMetadata().getUsage();
+    Optional<Usage> usageOpt = extractUsage(chatResponse);
+    if (usageOpt.isPresent()) {
+      Usage usage = usageOpt.get();
       promptTokens = safeLong(usage.getPromptTokens());
       generationTokens = safeLong(usage.getCompletionTokens());
       totalTokens = safeLong(usage.getTotalTokens());
@@ -354,7 +356,7 @@ public class ChatService {
       AtomicReference<Usage> lastUsage, SseEmitter emitter) {
     try {
       String text =
-          Optional.of(chunk)
+          Optional.ofNullable(chunk)
               .map(ChatResponse::getResult)
               .map(Generation::getOutput)
               .map(AbstractMessage::getText)
@@ -380,10 +382,19 @@ public class ChatService {
                     MediaType.APPLICATION_JSON));
       }
 
-      lastUsage.set(chunk.getMetadata().getUsage());
+      extractUsage(chunk).ifPresent(lastUsage::set);
     } catch (IOException e) {
       log.warn("Failed to send SSE event", e);
+    } catch (Exception e) {
+      log.warn("Unexpected error processing stream chunk", e);
     }
+  }
+
+  private Optional<Usage> extractUsage(ChatResponse response) {
+    if (response == null) return Optional.empty();
+    ChatResponseMetadata metadata = response.getMetadata();
+    if (metadata == null) return Optional.empty();
+    return Optional.ofNullable(metadata.getUsage());
   }
 
   private void handleStreamError(
