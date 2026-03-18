@@ -31,23 +31,22 @@ class CurrentDateTimeToolTest {
   }
 
   @Test
-  void getCurrentDateTime_returnsFormattedDateWithDayNameAndTime() {
+  void getCurrentDateTime_returnsFormattedDateWithTwoCOMmasAndTime() {
     String result = tool.getCurrentDateTime();
 
     // The format is "EEEE, MMMM d, yyyy HH:mm:ss z"
-    // Verify the result contains two commas (after day name and after year) and colons (time)
-    assertThat(result).contains(",");
+    // "Wednesday, March 18, 2026 14:54:44 UTC" — two commas (after day name and after year)
+    assertThat(result.chars().filter(c -> c == ',').count()).isEqualTo(2);
     assertThat(result).contains(":");
   }
 
   @Test
-  void getCurrentDateTime_containsTimeZoneAbbreviation() {
+  void getCurrentDateTime_matchesExpectedPattern() {
     String result = tool.getCurrentDateTime();
-    String expectedZone = ZonedDateTime.now().getZone().getId();
 
-    // The formatted string includes the zone abbreviation (e.g. "UTC", "EST")
-    // Just verify the result is not empty and looks like a date string
+    // Format: "EEEE, MMMM d, yyyy HH:mm:ss z" with Locale.ENGLISH
+    // Day and month names are ASCII letters; zone abbreviation is non-whitespace
     assertThat(result).matches(
-        "\\w+, \\w+ \\d{1,2}, \\d{4} \\d{2}:\\d{2}:\\d{2} .+");
+        "[A-Za-z]+, [A-Za-z]+ \\d{1,2}, \\d{4} \\d{2}:\\d{2}:\\d{2} \\S+");
   }
 }

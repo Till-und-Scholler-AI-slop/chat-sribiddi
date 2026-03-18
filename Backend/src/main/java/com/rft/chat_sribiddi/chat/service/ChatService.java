@@ -58,8 +58,6 @@ public class ChatService {
 
   private static final String CHAT_FK_CONSTRAINT = "messages_chat_id_fkey";
 
-  private static final CurrentDateTimeTool CURRENT_DATE_TIME_TOOL = new CurrentDateTimeTool();
-
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
   private final ApiKeyService apiKeyService;
@@ -68,6 +66,7 @@ public class ChatService {
   private final UserSettingsService userSettingsService;
   private final WebSearchProperties webSearchProperties;
   private final java.net.http.HttpClient webSearchHttpClient;
+  private final CurrentDateTimeTool currentDateTimeTool;
 
   public ChatService(
       ChatRepository chatRepository,
@@ -76,7 +75,8 @@ public class ChatService {
       ProviderClientFactory providerClientFactory,
       ChatProperties chatProperties,
       UserSettingsService userSettingsService,
-      WebSearchProperties webSearchProperties) {
+      WebSearchProperties webSearchProperties,
+      CurrentDateTimeTool currentDateTimeTool) {
     this.chatRepository = chatRepository;
     this.messageRepository = messageRepository;
     this.apiKeyService = apiKeyService;
@@ -85,6 +85,7 @@ public class ChatService {
     this.userSettingsService = userSettingsService;
     this.webSearchProperties = webSearchProperties;
     this.webSearchHttpClient = java.net.http.HttpClient.newHttpClient();
+    this.currentDateTimeTool = currentDateTimeTool;
   }
 
   @Transactional
@@ -182,7 +183,7 @@ public class ChatService {
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(promptMessages);
-      promptSpec.tools(CURRENT_DATE_TIME_TOOL);
+      promptSpec.tools(currentDateTimeTool);
       if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
         resolveWebSearchTool(userId).ifPresent(promptSpec::tools);
       }
@@ -284,7 +285,7 @@ public class ChatService {
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
 
     var streamPromptSpec = client.prompt().options(options).messages(promptMessages);
-    streamPromptSpec.tools(CURRENT_DATE_TIME_TOOL);
+    streamPromptSpec.tools(currentDateTimeTool);
     if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
       resolveWebSearchTool(userId).ifPresent(streamPromptSpec::tools);
     }
@@ -482,7 +483,7 @@ public class ChatService {
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
 
     var editPromptSpec = client.prompt().options(options).messages(promptMessages);
-    editPromptSpec.tools(CURRENT_DATE_TIME_TOOL);
+    editPromptSpec.tools(currentDateTimeTool);
     if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
       resolveWebSearchTool(userId).ifPresent(editPromptSpec::tools);
     }
