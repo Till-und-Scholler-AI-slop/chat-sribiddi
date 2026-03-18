@@ -117,6 +117,14 @@ export function parseSseEvents(raw: string): StreamEvent[] {
   return events
 }
 
+/**
+ * SSE streams are complete once the backend emits either a final `done` event
+ * or an `error` event that already contains the terminal failure message.
+ */
+export function isTerminalStreamEvent(event: StreamEvent) {
+  return event.type === 'done' || event.type === 'error'
+}
+
 type CreateChatInput = {
   title?: string
 }
@@ -376,6 +384,10 @@ export function useChatApi() {
           const events = parseSseEvents(part + '\n\n')
           for (const event of events) {
             onEvent(event)
+            if (isTerminalStreamEvent(event)) {
+              await reader.cancel()
+              return
+            }
           }
         }
         searchFrom = Math.max(0, buffer.length - 1)
@@ -391,6 +403,10 @@ export function useChatApi() {
         const events = parseSseEvents(buffer + '\n\n')
         for (const event of events) {
           onEvent(event)
+          if (isTerminalStreamEvent(event)) {
+            await reader.cancel()
+            return
+          }
         }
       }
     } finally {

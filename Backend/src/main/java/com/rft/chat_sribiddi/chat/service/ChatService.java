@@ -682,6 +682,9 @@ public class ChatService {
       }
       return responseBody;
     }
+    if (statusCode == 429) {
+      return "AI provider rate limit exceeded (HTTP 429). Try again later, switch models/providers, or add credits if required.";
+    }
     return "AI provider rejected the request (HTTP %d). Check your model and API key."
         .formatted(statusCode);
   }

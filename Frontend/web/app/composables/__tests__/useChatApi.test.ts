@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { modelEndpointPath, normalizeBaseUrl, parseSseEvents, REQUEST_USER_ID_HEADER, withRequestUserId } from '../useChatApi'
+import {
+  isTerminalStreamEvent,
+  modelEndpointPath,
+  normalizeBaseUrl,
+  parseSseEvents,
+  REQUEST_USER_ID_HEADER,
+  withRequestUserId
+} from '../useChatApi'
 
 describe('normalizeBaseUrl', () => {
   it('removes trailing slash', () => {
@@ -127,5 +134,20 @@ describe('parseSseEvents', () => {
   it('ignores events without data field', () => {
     const raw = 'event: text\n\n'
     expect(parseSseEvents(raw)).toEqual([])
+  })
+})
+
+describe('isTerminalStreamEvent', () => {
+  it('treats done events as terminal', () => {
+    expect(isTerminalStreamEvent({ type: 'done' })).toBe(true)
+  })
+
+  it('treats error events as terminal', () => {
+    expect(isTerminalStreamEvent({ type: 'error', content: 'Rate limited' })).toBe(true)
+  })
+
+  it('keeps text and reasoning events non-terminal', () => {
+    expect(isTerminalStreamEvent({ type: 'text', content: 'Hello' })).toBe(false)
+    expect(isTerminalStreamEvent({ type: 'reasoning', content: 'Thinking' })).toBe(false)
   })
 })

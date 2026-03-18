@@ -576,6 +576,18 @@ class ChatServiceTest {
   }
 
   @Test
+  void extractProviderErrorMessage_returnsRateLimitFallback_when429BodyEmpty() {
+    var ex =
+        new org.springframework.web.reactive.function.client.WebClientResponseException(
+            429, "Too Many Requests", null, null, null);
+
+    String result = ChatService.extractProviderErrorMessage(ex);
+
+    assertThat(result).contains("rate limit exceeded");
+    assertThat(result).contains("HTTP 429");
+  }
+
+  @Test
   void extractProviderErrorMessage_parsesTopLevelMessage() {
     String body = "{\"message\":\"Rate limit exceeded\"}";
     var ex =
