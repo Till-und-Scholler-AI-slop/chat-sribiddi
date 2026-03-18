@@ -442,12 +442,13 @@ const submitEditMessage = async () => {
                       <div class="group relative">
                         <UButton
                           v-if="showEditMessageButton(message)"
-                          class="absolute -left-7 top-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                          class="absolute -left-7 top-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity"
                           size="xs"
                           color="neutral"
                           variant="ghost"
                           icon="i-heroicons-pencil-square"
                           :padded="false"
+                          aria-label="Edit message"
                           @click="startEditMessage(message.id, firstText(parts))"
                         />
                         <div>
