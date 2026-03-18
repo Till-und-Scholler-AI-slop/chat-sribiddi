@@ -127,35 +127,29 @@ const providerLabel = (provider: ModelOption['provider']) =>
         ? 'Claude'
         : 'OpenRouter'
 
+const formatRatePerMillion = (priceStr: string | null | undefined): string | null => {
+  if (!priceStr) return null
+  const rate = Number(priceStr)
+  if (Number.isNaN(rate)) return null
+  if (rate === 0) return '$0'
+  const perMillion = rate * 1_000_000
+  return perMillion >= 1 ? `$${perMillion.toFixed(2)}` : `$${perMillion.toFixed(4)}`
+}
+
 const modelPricingSummary = computed(() => {
   const model = selectedModel.value
-  if (!model?.promptPrice && !model?.completionPrice) return null
-  const promptRate = model.promptPrice ? Number(model.promptPrice) : null
-  const completionRate = model.completionPrice ? Number(model.completionPrice) : null
-  if ((promptRate == null || Number.isNaN(promptRate)) && (completionRate == null || Number.isNaN(completionRate))) return null
-
-  const fmtRate = (rate: number | null) => {
-    if (rate == null || Number.isNaN(rate)) return null
-    const perMillion = rate * 1_000_000
-    if (rate === 0) return '$0'
-    return perMillion >= 1 ? `$${perMillion.toFixed(2)}` : `$${perMillion.toFixed(4)}`
-  }
+  const p = formatRatePerMillion(model?.promptPrice)
+  const c = formatRatePerMillion(model?.completionPrice)
+  if (!p && !c) return null
 
   const parts: string[] = []
-  const p = fmtRate(promptRate)
-  const c = fmtRate(completionRate)
   if (p != null) parts.push(`${p} in`)
   if (c != null) parts.push(`${c} out`)
   return parts.length ? `${parts.join(' / ')} per 1M tokens` : null
 })
 
-const optionPriceLabel = (option: ModelOption): string | null => {
-  const rate = option.promptPrice ? Number(option.promptPrice) : null
-  if (rate == null || Number.isNaN(rate)) return null
-  const perMillion = rate * 1_000_000
-  if (rate === 0) return '$0'
-  return perMillion >= 1 ? `$${perMillion.toFixed(2)}` : `$${perMillion.toFixed(4)}`
-}
+const optionPriceLabel = (option: ModelOption): string | null =>
+  formatRatePerMillion(option.promptPrice)
 
 const toDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {

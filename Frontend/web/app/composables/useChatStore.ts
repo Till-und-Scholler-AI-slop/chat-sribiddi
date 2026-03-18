@@ -85,21 +85,26 @@ export type MessageCost = {
  * Pricing values are per-token strings from the OpenRouter API (e.g. "0.000005").
  * Returns null when no pricing or no usage data is available.
  */
+function parsePrice(value: string | null | undefined): number {
+  return value ? Number(value) : NaN
+}
+
 export function calculateMessageCost(
   usage: TokenUsage | null,
   model: { promptPrice?: string | null; completionPrice?: string | null; requestPrice?: string | null } | null | undefined
 ): MessageCost | null {
   if (!usage || !model) return null
 
-  const promptRate = model.promptPrice ? Number(model.promptPrice) : NaN
-  const completionRate = model.completionPrice ? Number(model.completionPrice) : NaN
-  const requestRate = model.requestPrice ? Number(model.requestPrice) : NaN
+  const promptRate = parsePrice(model.promptPrice)
+  const completionRate = parsePrice(model.completionPrice)
+  const requestRate = parsePrice(model.requestPrice)
 
   const hasPromptPricing = !Number.isNaN(promptRate) && usage.promptTokens != null
   const hasCompletionPricing = !Number.isNaN(completionRate) && usage.generationTokens != null
   const hasRequestPricing = !Number.isNaN(requestRate) && requestRate > 0
+  const hasAnyPricing = hasPromptPricing || hasCompletionPricing || hasRequestPricing
 
-  if (!hasPromptPricing && !hasCompletionPricing && !hasRequestPricing) return null
+  if (!hasAnyPricing) return null
 
   const promptCost = hasPromptPricing ? usage.promptTokens! * promptRate : null
   const completionCost = hasCompletionPricing ? usage.generationTokens! * completionRate : null
