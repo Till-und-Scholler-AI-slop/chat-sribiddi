@@ -15,6 +15,7 @@ import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import com.rft.chat_sribiddi.tools.CurrentDateTimeTool;
 import com.rft.chat_sribiddi.websearch.BraveSearchTool;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.transaction.Transactional;
@@ -56,6 +57,8 @@ public class ChatService {
       "You are a helpful assistant. Your answer must be structured in markdown.";
 
   private static final String CHAT_FK_CONSTRAINT = "messages_chat_id_fkey";
+
+  private static final CurrentDateTimeTool CURRENT_DATE_TIME_TOOL = new CurrentDateTimeTool();
 
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
@@ -179,6 +182,7 @@ public class ChatService {
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(promptMessages);
+      promptSpec.tools(CURRENT_DATE_TIME_TOOL);
       if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
         resolveWebSearchTool(userId).ifPresent(promptSpec::tools);
       }
@@ -280,6 +284,7 @@ public class ChatService {
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
 
     var streamPromptSpec = client.prompt().options(options).messages(promptMessages);
+    streamPromptSpec.tools(CURRENT_DATE_TIME_TOOL);
     if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
       resolveWebSearchTool(userId).ifPresent(streamPromptSpec::tools);
     }
@@ -477,6 +482,7 @@ public class ChatService {
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
 
     var editPromptSpec = client.prompt().options(options).messages(promptMessages);
+    editPromptSpec.tools(CURRENT_DATE_TIME_TOOL);
     if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
       resolveWebSearchTool(userId).ifPresent(editPromptSpec::tools);
     }
