@@ -35,6 +35,18 @@ const attachments = ref<MediaAttachment[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const initializing = ref(true)
 const toast = useToast()
+const messagesContainer = ref<HTMLElement | null>(null)
+const skipNextSmoothScroll = ref(false)
+let streamingRafId: number | null = null
+
+const scrollToBottom = (behavior: 'smooth' | 'auto' = 'smooth') => {
+  nextTick(() => {
+    const el = messagesContainer.value
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior })
+    }
+  })
+}
 
 // Edit state
 const editingMessageId = ref<string | null>(null)
@@ -239,9 +251,41 @@ watch(activeChatId, async newId => {
   }
 
   if (conversation.messages.length === 0) {
+    skipNextSmoothScroll.value = true
     await loadMessagesForChat(newId)
   }
+  scrollToBottom('auto')
 })
+
+// Scroll smoothly when a new message is added to the conversation
+watch(
+  () => activeConversation.value?.messages?.length,
+  (newLength) => {
+    if (!newLength) return
+    if (skipNextSmoothScroll.value) {
+      skipNextSmoothScroll.value = false
+      return
+    }
+    scrollToBottom('smooth')
+  },
+)
+
+// Scroll while streaming (last message text grows in place), throttled per animation frame
+watch(
+  () => {
+    const msgs = activeConversation.value?.messages
+    const last = msgs?.[msgs.length - 1]
+    return last ? firstText(last.parts) : undefined
+  },
+  (newText) => {
+    if (!newText) return
+    if (streamingRafId !== null) return
+    streamingRafId = requestAnimationFrame(() => {
+      streamingRafId = null
+      scrollToBottom('auto')
+    })
+  },
+)
 
 async function handleSubmit() {
   if (!input.value.trim() && attachments.value.length === 0) return
@@ -376,13 +420,11 @@ const submitEditMessage = async () => {
 
           <div class="flex-1 min-h-0">
             <UCard class="h-full" :ui="{ body: 'h-full overflow-hidden' }">
-              <div class="h-full overflow-y-auto pr-1">
+              <div ref="messagesContainer" class="h-full overflow-y-auto scrollbar-none">
                 <UChatMessages
                   class="h-full"
                   :messages="activeConversation.messages"
                   :status="status"
-                  :should-scroll-to-bottom="true"
-                  :auto-scroll="{ size: 'sm', color: 'neutral', variant: 'outline' }"
                   :spacing-offset="96"
                 >
                   <template #content="{ parts, message }">
