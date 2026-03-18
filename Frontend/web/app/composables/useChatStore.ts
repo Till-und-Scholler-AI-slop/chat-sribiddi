@@ -640,7 +640,6 @@ export function useChatStore() {
                 }
               }
               break
-              break
           }
         },
         controller.signal
