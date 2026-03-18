@@ -15,6 +15,7 @@ import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import com.rft.chat_sribiddi.tools.CurrentDateTimeTool;
 import com.rft.chat_sribiddi.websearch.BraveSearchTool;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.transaction.Transactional;
@@ -65,6 +66,7 @@ public class ChatService {
   private final UserSettingsService userSettingsService;
   private final WebSearchProperties webSearchProperties;
   private final java.net.http.HttpClient webSearchHttpClient;
+  private final CurrentDateTimeTool currentDateTimeTool;
 
   public ChatService(
       ChatRepository chatRepository,
@@ -73,7 +75,8 @@ public class ChatService {
       ProviderClientFactory providerClientFactory,
       ChatProperties chatProperties,
       UserSettingsService userSettingsService,
-      WebSearchProperties webSearchProperties) {
+      WebSearchProperties webSearchProperties,
+      CurrentDateTimeTool currentDateTimeTool) {
     this.chatRepository = chatRepository;
     this.messageRepository = messageRepository;
     this.apiKeyService = apiKeyService;
@@ -82,6 +85,7 @@ public class ChatService {
     this.userSettingsService = userSettingsService;
     this.webSearchProperties = webSearchProperties;
     this.webSearchHttpClient = java.net.http.HttpClient.newHttpClient();
+    this.currentDateTimeTool = currentDateTimeTool;
   }
 
   @Transactional
@@ -179,6 +183,7 @@ public class ChatService {
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(promptMessages);
+      promptSpec.tools(currentDateTimeTool);
       if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
         resolveWebSearchTool(userId).ifPresent(promptSpec::tools);
       }
@@ -280,6 +285,7 @@ public class ChatService {
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
 
     var streamPromptSpec = client.prompt().options(options).messages(promptMessages);
+    streamPromptSpec.tools(currentDateTimeTool);
     if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
       resolveWebSearchTool(userId).ifPresent(streamPromptSpec::tools);
     }
@@ -477,6 +483,7 @@ public class ChatService {
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
 
     var editPromptSpec = client.prompt().options(options).messages(promptMessages);
+    editPromptSpec.tools(currentDateTimeTool);
     if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
       resolveWebSearchTool(userId).ifPresent(editPromptSpec::tools);
     }
