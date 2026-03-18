@@ -57,6 +57,15 @@ body {
   --ui-primary: oklch(56% 0.236 351); /* #E5338A Magenta – dark mode */
 }
 
+/* ── Scrollbar ───────────────────────────────────────────────────────── */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 .markdown-body {
   font-size: 0.95rem;
   line-height: 1.6;
