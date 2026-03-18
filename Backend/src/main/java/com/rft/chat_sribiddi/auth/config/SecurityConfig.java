@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -50,7 +49,7 @@ public class SecurityConfig {
   private String frontendUrl;
 
   @Bean
-  SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+  SecurityFilterChain securityFilterChain(HttpSecurity http) {
     return http.cors(Customizer.withDefaults())
         .csrf(
             csrf ->
@@ -84,7 +83,7 @@ public class SecurityConfig {
             .flatMap(value -> Arrays.stream(value.split(",")))
             .map(String::trim)
             .filter(s -> !s.isEmpty())
-            .collect(Collectors.toList());
+            .toList();
     configuration.setAllowedOriginPatterns(originPatterns);
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("*"));

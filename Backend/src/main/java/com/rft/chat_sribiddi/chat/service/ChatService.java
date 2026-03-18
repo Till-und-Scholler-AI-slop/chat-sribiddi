@@ -24,12 +24,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AbstractMessage;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -37,6 +37,7 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.content.Media;
 import org.springframework.core.io.ByteArrayResource;
@@ -55,6 +56,13 @@ public class ChatService {
 
   private static final String SYSTEM_PROMPT =
       "You are a helpful assistant. Your answer must be structured in markdown.";
+
+  private static final String EVENT_ERROR = "error";
+
+  private static final String ATTACHMENTS_PREFIX = "attachments:";
+
+  private static final String NO_API_KEY_MESSAGE =
+      "No API key supplied and no stored key found for provider %s";
 
   private static final String CHAT_FK_CONSTRAINT = "messages_chat_id_fkey";
 
@@ -142,38 +150,12 @@ public class ChatService {
             .findByChatIdAndUserId(chatId, userId)
             .orElseThrow(() -> new ChatNotFoundException(chatId));
 
-    List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
-
-    String userContext =
-        validatedMedia.isEmpty()
-            ? null
-            : "attachments:"
-                + validatedMedia.stream()
-                    .map(RequestDTO.MediaAttachment::mimeType)
-                    .collect(Collectors.joining(","));
-
-    MessageEntity persistedUserMessage =
-        persistMessage(chatId, requestDTO.content(), Role.USER, userContext);
-
-    String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
-
-    String customInstructions =
-        userSettingsService.getCustomInstructions(userId).orElse(null);
-    List<Message> promptMessages =
-        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId(), customInstructions);
+    MessagePreparation prep = prepareUserMessage(chatId, chat, userId, requestDTO);
     if (log.isTraceEnabled()) {
-      log.trace("Prompt messages: {}", promptMessages);
+      log.trace("Prompt messages: {}", prep.promptMessages());
     }
 
-    String resolvedKey =
-        Optional.ofNullable(requestDTO.apiKey())
-            .filter(key -> !key.isBlank())
-            .or(() -> apiKeyService.getKey(userId, requestDTO.provider()))
-            .orElseThrow(
-                () ->
-                    new IllegalArgumentException(
-                        "No API key supplied and no stored key found for provider %s"
-                            .formatted(requestDTO.provider())));
+    String resolvedKey = resolveApiKey(userId, requestDTO);
 
     ChatResponse chatResponse;
     try (ClientHolder clientHolder =
@@ -182,13 +164,12 @@ public class ChatService {
           providerClientFactory.buildOptions(
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
-      var promptSpec = client.prompt().options(options).messages(promptMessages);
+      var promptSpec = client.prompt().options(options).messages(prep.promptMessages());
       promptSpec.tools(currentDateTimeTool);
       if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
         resolveWebSearchTool(userId).ifPresent(promptSpec::tools);
       }
-      var responseSpec = promptSpec.call();
-      chatResponse = responseSpec.chatResponse();
+      chatResponse = promptSpec.call().chatResponse();
     }
 
     if (log.isTraceEnabled()) {
@@ -206,13 +187,12 @@ public class ChatService {
     Long generationTokens = null;
     Long totalTokens = null;
 
-    if (chatResponse != null && chatResponse.getMetadata() != null) {
-      Usage usage = chatResponse.getMetadata().getUsage();
-      if (usage != null) {
-        promptTokens = safeLong(usage.getPromptTokens());
-        generationTokens = safeLong(usage.getCompletionTokens());
-        totalTokens = safeLong(usage.getTotalTokens());
-      }
+    Optional<Usage> usageOpt = extractUsage(chatResponse);
+    if (usageOpt.isPresent()) {
+      Usage usage = usageOpt.get();
+      promptTokens = safeLong(usage.getPromptTokens());
+      generationTokens = safeLong(usage.getCompletionTokens());
+      totalTokens = safeLong(usage.getTotalTokens());
     }
 
     MessageEntity assistantMessage = new MessageEntity();
@@ -220,7 +200,7 @@ public class ChatService {
     assistantMessage.setMessage(assistantResponse);
     assistantMessage.setRole(Role.ASSISTANT);
     assistantMessage.setContext(
-        "Contains last %d messages including system prompt".formatted(promptMessages.size()));
+        "Contains last %d messages including system prompt".formatted(prep.promptMessages().size()));
     assistantMessage.setCreatedAt(Instant.now());
     assistantMessage.setPromptTokens(promptTokens);
     assistantMessage.setGenerationTokens(generationTokens);
@@ -229,7 +209,7 @@ public class ChatService {
 
     log.debug("Message persisted successfully");
 
-    return new SendMessageResponseDTO(assistantResponse, promptTokens, generationTokens, totalTokens, updatedTitle);
+    return new SendMessageResponseDTO(assistantResponse, promptTokens, generationTokens, totalTokens, prep.updatedTitle());
   }
 
   /**
@@ -242,178 +222,10 @@ public class ChatService {
             .findByChatIdAndUserId(chatId, userId)
             .orElseThrow(() -> new ChatNotFoundException(chatId));
 
-    List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
+    MessagePreparation prep = prepareUserMessage(chatId, chat, userId, requestDTO);
 
-    String userContext =
-        validatedMedia.isEmpty()
-            ? null
-            : "attachments:"
-                + validatedMedia.stream()
-                    .map(RequestDTO.MediaAttachment::mimeType)
-                    .collect(Collectors.joining(","));
-
-    MessageEntity persistedUserMessage =
-        persistMessage(chatId, requestDTO.content(), Role.USER, userContext);
-
-    String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
-
-    String customInstructions =
-        userSettingsService.getCustomInstructions(userId).orElse(null);
-    List<Message> promptMessages =
-        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId(), customInstructions);
-
-    String resolvedKey =
-        Optional.ofNullable(requestDTO.apiKey())
-            .filter(key -> !key.isBlank())
-            .or(() -> apiKeyService.getKey(userId, requestDTO.provider()))
-            .orElseThrow(
-                () ->
-                    new IllegalArgumentException(
-                        "No API key supplied and no stored key found for provider %s"
-                            .formatted(requestDTO.provider())));
-
-    SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
-
-    ClientHolder clientHolder =
-        providerClientFactory.getClient(requestDTO.provider(), resolvedKey);
-    var options =
-        providerClientFactory.buildOptions(
-            requestDTO.provider(), requestDTO.modelId(), resolvedKey);
-    var client = clientHolder.client();
-
-    StringBuilder fullText = new StringBuilder();
-    AtomicReference<Usage> lastUsage = new AtomicReference<>();
-
-    var streamPromptSpec = client.prompt().options(options).messages(promptMessages);
-    streamPromptSpec.tools(currentDateTimeTool);
-    if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
-      resolveWebSearchTool(userId).ifPresent(streamPromptSpec::tools);
-    }
-
-    streamPromptSpec
-        .stream()
-        .chatResponse()
-        .subscribe(
-            chunk -> {
-              try {
-                String text =
-                    Optional.ofNullable(chunk)
-                        .map(ChatResponse::getResult)
-                        .map(Generation::getOutput)
-                        .map(AbstractMessage::getText)
-                        .orElse(null);
-
-                if (text != null && !text.isEmpty()) {
-                  fullText.append(text);
-                  emitter.send(
-                      SseEmitter.event()
-                          .name("text")
-                          .data(
-                              new StreamEventDTO("text", text, null, null, null, null),
-                              MediaType.APPLICATION_JSON));
-                }
-
-                String reasoning = extractReasoningContent(chunk);
-                if (reasoning != null && !reasoning.isEmpty()) {
-                  emitter.send(
-                      SseEmitter.event()
-                          .name("reasoning")
-                          .data(
-                              new StreamEventDTO("reasoning", reasoning, null, null, null, null),
-                              MediaType.APPLICATION_JSON));
-                }
-
-                if (chunk != null && chunk.getMetadata() != null) {
-                  Usage usage = chunk.getMetadata().getUsage();
-                  if (usage != null) {
-                    lastUsage.set(usage);
-                  }
-                }
-              } catch (IOException e) {
-                log.warn("Failed to send SSE event", e);
-              }
-            },
-            error -> {
-              logStreamingError(chatId, error);
-              try {
-                emitter.send(
-                    SseEmitter.event()
-                        .name("error")
-                        .data(
-                            new StreamEventDTO(
-                                "error",
-                                extractProviderErrorMessage(error),
-                                null,
-                                null,
-                                null,
-                                null),
-                            MediaType.APPLICATION_JSON));
-              } catch (IOException e) {
-                log.warn("Failed to send SSE error event", e);
-              } finally {
-                emitter.complete();
-                clientHolder.close();
-              }
-            },
-            () -> {
-              try {
-                String assistantResponse = fullText.toString();
-                Usage usage = lastUsage.get();
-
-                Long promptTokens = usage != null ? safeLong(usage.getPromptTokens()) : null;
-                Long generationTokens =
-                    usage != null ? safeLong(usage.getCompletionTokens()) : null;
-                Long totalTokens = usage != null ? safeLong(usage.getTotalTokens()) : null;
-
-                MessageEntity assistantMessage = new MessageEntity();
-                assistantMessage.setChatId(chatId);
-                assistantMessage.setMessage(assistantResponse);
-                assistantMessage.setRole(Role.ASSISTANT);
-                assistantMessage.setContext(
-                    "Contains last %d messages including system prompt"
-                        .formatted(promptMessages.size()));
-                assistantMessage.setCreatedAt(Instant.now());
-                assistantMessage.setPromptTokens(promptTokens);
-                assistantMessage.setGenerationTokens(generationTokens);
-                assistantMessage.setTotalTokens(totalTokens);
-
-                if (!chatRepository.existsById(chatId)) {
-                  log.warn("Chat {} was deleted during streaming — skipping assistant message save", chatId);
-                  sendChatDeletedError(emitter);
-                  return;
-                }
-
-                try {
-                  messageRepository.save(assistantMessage);
-                } catch (DataIntegrityViolationException ex) {
-                  if (isChatFkViolation(ex)) {
-                    log.warn("Failed to save assistant message for chat {} — chat no longer exists", chatId, ex);
-                    sendChatDeletedError(emitter);
-                    return;
-                  }
-                  throw ex;
-                }
-
-                emitter.send(
-                    SseEmitter.event()
-                        .name("done")
-                        .data(
-                            new StreamEventDTO(
-                                "done", null, promptTokens, generationTokens, totalTokens, updatedTitle),
-                            MediaType.APPLICATION_JSON));
-                emitter.complete();
-              } catch (IOException e) {
-                log.warn("Failed to send SSE done event", e);
-                emitter.completeWithError(e);
-              } finally {
-                clientHolder.close();
-              }
-            });
-
-    emitter.onTimeout(clientHolder::close);
-    emitter.onError(e -> clientHolder.close());
-
-    return emitter;
+    return createAndSubscribeStream(
+        userId, requestDTO, prep.promptMessages(), chatId, prep.updatedTitle());
   }
 
   /**
@@ -440,14 +252,7 @@ public class ChatService {
     }
 
     List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
-
-    String userContext =
-        validatedMedia.isEmpty()
-            ? null
-            : "attachments:"
-                + validatedMedia.stream()
-                    .map(RequestDTO.MediaAttachment::mimeType)
-                    .collect(Collectors.joining(","));
+    String userContext = buildMediaContext(validatedMedia);
 
     userMessage.setMessage(requestDTO.content());
     userMessage.setContext(userContext);
@@ -460,163 +265,224 @@ public class ChatService {
     List<Message> promptMessages =
         buildPromptMessages(chatId, validatedMedia, messageId, customInstructions);
 
-    String resolvedKey =
-        Optional.ofNullable(requestDTO.apiKey())
-            .filter(key -> !key.isBlank())
-            .or(() -> apiKeyService.getKey(userId, requestDTO.provider()))
-            .orElseThrow(
-                () ->
-                    new IllegalArgumentException(
-                        "No API key supplied and no stored key found for provider %s"
-                            .formatted(requestDTO.provider())));
+    return createAndSubscribeStream(userId, requestDTO, promptMessages, chatId, null);
+  }
 
+  private record MessagePreparation(
+      String updatedTitle,
+      List<Message> promptMessages) {}
+
+  private String buildMediaContext(List<MediaAttachment> validatedMedia) {
+    return validatedMedia.isEmpty()
+        ? null
+        : ATTACHMENTS_PREFIX
+            + validatedMedia.stream()
+                .map(RequestDTO.MediaAttachment::mimeType)
+                .collect(Collectors.joining(","));
+  }
+
+  private String resolveApiKey(String userId, RequestDTO requestDTO) {
+    return Optional.ofNullable(requestDTO.apiKey())
+        .filter(key -> !key.isBlank())
+        .or(() -> apiKeyService.getKey(userId, requestDTO.provider()))
+        .orElseThrow(
+            () ->
+                new IllegalArgumentException(
+                    NO_API_KEY_MESSAGE.formatted(requestDTO.provider())));
+  }
+
+  private MessagePreparation prepareUserMessage(
+      UUID chatId, ChatEntity chat, String userId, RequestDTO requestDTO) {
+    List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
+    String userContext = buildMediaContext(validatedMedia);
+    MessageEntity persistedUserMessage = persistMessage(chatId, requestDTO.content(), userContext);
+    String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
+    String customInstructions = userSettingsService.getCustomInstructions(userId).orElse(null);
+    List<Message> promptMessages =
+        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId(), customInstructions);
+    return new MessagePreparation(updatedTitle, promptMessages);
+  }
+
+  private SseEmitter createAndSubscribeStream(
+      String userId, RequestDTO requestDTO, List<Message> promptMessages,
+      UUID chatId, String updatedTitle) {
+    String resolvedKey = resolveApiKey(userId, requestDTO);
     SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
-
     ClientHolder clientHolder =
         providerClientFactory.getClient(requestDTO.provider(), resolvedKey);
     var options =
         providerClientFactory.buildOptions(
             requestDTO.provider(), requestDTO.modelId(), resolvedKey);
     var client = clientHolder.client();
+    var promptSpec = client.prompt().options(options).messages(promptMessages);
+    promptSpec.tools(currentDateTimeTool);
+    if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
+      resolveWebSearchTool(userId).ifPresent(promptSpec::tools);
+    }
+    subscribeToStream(promptSpec, emitter, clientHolder, chatId, promptMessages.size(), updatedTitle);
+    return emitter;
+  }
+
+  /**
+   * Subscribes to the streaming response and wires up SSE event emission, assistant message
+   * persistence, and resource cleanup. Shared by {@code streamMessage} and {@code editAndStreamMessage}.
+   */
+  private void subscribeToStream(
+      ChatClient.ChatClientRequestSpec promptSpec,
+      SseEmitter emitter,
+      ClientHolder clientHolder,
+      UUID chatId,
+      int promptMessageCount,
+      String updatedTitle) {
 
     StringBuilder fullText = new StringBuilder();
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
 
-    var editPromptSpec = client.prompt().options(options).messages(promptMessages);
-    editPromptSpec.tools(currentDateTimeTool);
-    if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
-      resolveWebSearchTool(userId).ifPresent(editPromptSpec::tools);
-    }
-
-    editPromptSpec
+    promptSpec
         .stream()
         .chatResponse()
         .subscribe(
-            chunk -> {
-              try {
-                String text =
-                    Optional.ofNullable(chunk)
-                        .map(ChatResponse::getResult)
-                        .map(Generation::getOutput)
-                        .map(AbstractMessage::getText)
-                        .orElse(null);
-
-                if (text != null && !text.isEmpty()) {
-                  fullText.append(text);
-                  emitter.send(
-                      SseEmitter.event()
-                          .name("text")
-                          .data(
-                              new StreamEventDTO("text", text, null, null, null, null),
-                              MediaType.APPLICATION_JSON));
-                }
-
-                String reasoning = extractReasoningContent(chunk);
-                if (reasoning != null && !reasoning.isEmpty()) {
-                  emitter.send(
-                      SseEmitter.event()
-                          .name("reasoning")
-                          .data(
-                              new StreamEventDTO("reasoning", reasoning, null, null, null, null),
-                              MediaType.APPLICATION_JSON));
-                }
-
-                if (chunk != null && chunk.getMetadata() != null) {
-                  Usage usage = chunk.getMetadata().getUsage();
-                  if (usage != null) {
-                    lastUsage.set(usage);
-                  }
-                }
-              } catch (IOException e) {
-                log.warn("Failed to send SSE event", e);
-              }
-            },
-            error -> {
-              logStreamingError(chatId, error);
-              try {
-                emitter.send(
-                    SseEmitter.event()
-                        .name("error")
-                        .data(
-                            new StreamEventDTO(
-                                "error",
-                                extractProviderErrorMessage(error),
-                                null,
-                                null,
-                                null,
-                                null),
-                            MediaType.APPLICATION_JSON));
-              } catch (IOException e) {
-                log.warn("Failed to send SSE error event", e);
-              } finally {
-                emitter.complete();
-                clientHolder.close();
-              }
-            },
-            () -> {
-              try {
-                String assistantResponse = fullText.toString();
-                Usage usage = lastUsage.get();
-
-                Long promptTokens = usage != null ? safeLong(usage.getPromptTokens()) : null;
-                Long generationTokens =
-                    usage != null ? safeLong(usage.getCompletionTokens()) : null;
-                Long totalTokens = usage != null ? safeLong(usage.getTotalTokens()) : null;
-
-                MessageEntity assistantMessage = new MessageEntity();
-                assistantMessage.setChatId(chatId);
-                assistantMessage.setMessage(assistantResponse);
-                assistantMessage.setRole(Role.ASSISTANT);
-                assistantMessage.setContext(
-                    "Contains last %d messages including system prompt"
-                        .formatted(promptMessages.size()));
-                assistantMessage.setCreatedAt(Instant.now());
-                assistantMessage.setPromptTokens(promptTokens);
-                assistantMessage.setGenerationTokens(generationTokens);
-                assistantMessage.setTotalTokens(totalTokens);
-
-                if (!chatRepository.existsById(chatId)) {
-                  log.warn(
-                      "Chat {} was deleted during streaming — skipping assistant message save",
-                      chatId);
-                  sendChatDeletedError(emitter);
-                  return;
-                }
-
-                try {
-                  messageRepository.save(assistantMessage);
-                } catch (DataIntegrityViolationException ex) {
-                  if (isChatFkViolation(ex)) {
-                    log.warn(
-                        "Failed to save assistant message for chat {} — chat no longer exists",
-                        chatId,
-                        ex);
-                    sendChatDeletedError(emitter);
-                    return;
-                  }
-                  throw ex;
-                }
-
-                emitter.send(
-                    SseEmitter.event()
-                        .name("done")
-                        .data(
-                            new StreamEventDTO(
-                                "done", null, promptTokens, generationTokens, totalTokens, null),
-                            MediaType.APPLICATION_JSON));
-                emitter.complete();
-              } catch (IOException e) {
-                log.warn("Failed to send SSE done event", e);
-                emitter.complete();
-              } finally {
-                clientHolder.close();
-              }
-            });
+            chunk -> handleStreamChunk(chunk, fullText, lastUsage, emitter),
+            error -> handleStreamError(chatId, error, emitter, clientHolder),
+            () -> handleStreamCompletion(
+                fullText, lastUsage, chatId, promptMessageCount, updatedTitle, emitter, clientHolder));
 
     emitter.onTimeout(clientHolder::close);
-    emitter.onError(e -> clientHolder.close());
+    emitter.onError(_ -> clientHolder.close());
+  }
 
-    return emitter;
+  private void handleStreamChunk(
+      ChatResponse chunk, StringBuilder fullText,
+      AtomicReference<Usage> lastUsage, SseEmitter emitter) {
+    try {
+      String text =
+          Optional.ofNullable(chunk)
+              .map(ChatResponse::getResult)
+              .map(Generation::getOutput)
+              .map(AbstractMessage::getText)
+              .orElse(null);
+
+      if (text != null && !text.isEmpty()) {
+        fullText.append(text);
+        emitter.send(
+            SseEmitter.event()
+                .name("text")
+                .data(
+                    new StreamEventDTO("text", text, null, null, null, null),
+                    MediaType.APPLICATION_JSON));
+      }
+
+      String reasoning = extractReasoningContent(chunk);
+      if (reasoning != null && !reasoning.isEmpty()) {
+        emitter.send(
+            SseEmitter.event()
+                .name("reasoning")
+                .data(
+                    new StreamEventDTO("reasoning", reasoning, null, null, null, null),
+                    MediaType.APPLICATION_JSON));
+      }
+
+      extractUsage(chunk).ifPresent(lastUsage::set);
+    } catch (IOException e) {
+      log.warn("Failed to send SSE event", e);
+    } catch (Exception e) {
+      log.warn("Unexpected error processing stream chunk", e);
+    }
+  }
+
+  private Optional<Usage> extractUsage(ChatResponse response) {
+    if (response == null) return Optional.empty();
+    ChatResponseMetadata metadata = response.getMetadata();
+    if (metadata == null) return Optional.empty();
+    return Optional.ofNullable(metadata.getUsage());
+  }
+
+  private void handleStreamError(
+      UUID chatId, Throwable error, SseEmitter emitter, ClientHolder clientHolder) {
+    logStreamingError(chatId, error);
+      try (clientHolder) {
+          emitter.send(
+                  SseEmitter.event()
+                          .name(EVENT_ERROR)
+                          .data(
+                                  new StreamEventDTO(
+                                          EVENT_ERROR,
+                                          extractProviderErrorMessage(error),
+                                          null, null, null, null),
+                                  MediaType.APPLICATION_JSON));
+      } catch (IOException e) {
+          log.warn("Failed to send SSE error event", e);
+      } finally {
+          emitter.complete();
+      }
+  }
+
+  private void handleStreamCompletion(
+      StringBuilder fullText, AtomicReference<Usage> lastUsage,
+      UUID chatId, int promptMessageCount, String updatedTitle,
+      SseEmitter emitter, ClientHolder clientHolder) {
+      try (clientHolder) {
+          String assistantResponse = fullText.toString();
+          Usage usage = lastUsage.get();
+
+          Long promptTokens = usage != null ? safeLong(usage.getPromptTokens()) : null;
+          Long generationTokens = usage != null ? safeLong(usage.getCompletionTokens()) : null;
+          Long totalTokens = usage != null ? safeLong(usage.getTotalTokens()) : null;
+
+          MessageEntity assistantMessage = new MessageEntity();
+          assistantMessage.setChatId(chatId);
+          assistantMessage.setMessage(assistantResponse);
+          assistantMessage.setRole(Role.ASSISTANT);
+          assistantMessage.setContext(
+                  "Contains last %d messages including system prompt".formatted(promptMessageCount));
+          assistantMessage.setCreatedAt(Instant.now());
+          assistantMessage.setPromptTokens(promptTokens);
+          assistantMessage.setGenerationTokens(generationTokens);
+          assistantMessage.setTotalTokens(totalTokens);
+
+          if (!chatRepository.existsById(chatId)) {
+              log.warn(
+                      "Chat {} was deleted during streaming — skipping assistant message save", chatId);
+              sendChatDeletedError(emitter);
+              return;
+          }
+
+          if (!saveStreamedAssistantMessage(assistantMessage, chatId, emitter)) {
+              return;
+          }
+
+          emitter.send(
+                  SseEmitter.event()
+                          .name("done")
+                          .data(
+                                  new StreamEventDTO(
+                                          "done", null, promptTokens, generationTokens, totalTokens, updatedTitle),
+                                  MediaType.APPLICATION_JSON));
+          emitter.complete();
+      } catch (IOException e) {
+          log.warn("Failed to send SSE done event", e);
+          emitter.complete();
+      }
+  }
+
+  /**
+   * Saves the streamed assistant message. Returns {@code true} on success,
+   * {@code false} if the chat was deleted (a chat-deleted error is sent on the emitter).
+   */
+  private boolean saveStreamedAssistantMessage(
+      MessageEntity message, UUID chatId, SseEmitter emitter) {
+    try {
+      messageRepository.save(message);
+      return true;
+    } catch (DataIntegrityViolationException ex) {
+      if (isChatFkViolation(ex)) {
+        log.warn(
+            "Failed to save assistant message for chat {} — chat no longer exists", chatId, ex);
+        sendChatDeletedError(emitter);
+        return false;
+      }
+      throw ex;
+    }
   }
 
   /**
@@ -660,15 +526,19 @@ public class ChatService {
   }
 
   private void logStreamingError(UUID chatId, Throwable error) {
-    if (error instanceof WebClientResponseException webEx) {
-      log.warn("Streaming error for chat {} – provider returned HTTP {}: {}",
-          chatId, webEx.getStatusCode().value(), extractProviderErrorMessage(error));
-    } else if (error instanceof RestClientResponseException restEx) {
-      log.warn("Streaming error for chat {} – provider returned HTTP {}: {}",
-          chatId, restEx.getStatusCode().value(), extractProviderErrorMessage(error));
-    } else {
-      log.error("Streaming error for chat {}", chatId, error);
+    switch (error) {
+      case WebClientResponseException webEx ->
+          logProviderHttpError(chatId, webEx.getStatusCode().value(), error);
+      case RestClientResponseException restEx ->
+          logProviderHttpError(chatId, restEx.getStatusCode().value(), error);
+      default ->
+          log.error("Streaming error for chat {}", chatId, error);
     }
+  }
+
+  private void logProviderHttpError(UUID chatId, int statusCode, Throwable error) {
+    log.warn("Streaming error for chat {} – provider returned HTTP {}: {}",
+        chatId, statusCode, extractProviderErrorMessage(error));
   }
 
   static String extractProviderErrorMessage(Throwable error) {
@@ -701,7 +571,7 @@ public class ChatService {
   static String parseErrorMessage(String responseBody) {
     try {
       JsonNode root = ERROR_MAPPER.readTree(responseBody);
-      JsonNode errorNode = root.path("error");
+      JsonNode errorNode = root.path(EVENT_ERROR);
       if (!errorNode.isMissingNode()) {
         JsonNode messageNode = errorNode.path("message");
         if (messageNode.isTextual() && !messageNode.asText().isBlank()) {
@@ -719,18 +589,15 @@ public class ChatService {
   }
 
   private String extractReasoningContent(ChatResponse chunk) {
-    if (chunk == null || chunk.getResult() == null || chunk.getResult().getOutput() == null) {
-      return null;
-    }
-    Map<String, Object> metadata = chunk.getResult().getOutput().getMetadata();
-    if (metadata == null) {
-      return null;
-    }
-    Object reasoning = metadata.get("reasoningContent");
-    if (reasoning instanceof String s && !s.isEmpty()) {
-      return s;
-    }
-    return null;
+    return Optional.ofNullable(chunk)
+        .map(ChatResponse::getResult)
+        .map(Generation::getOutput)
+        .map(AbstractMessage::getMetadata)
+        .map(metadata -> metadata.get("reasoningContent"))
+        .filter(String.class::isInstance)
+        .map(String.class::cast)
+        .filter(s -> !s.isEmpty())
+        .orElse(null);
   }
 
   private List<Message> buildPromptMessages(
@@ -856,11 +723,11 @@ public class ChatService {
     return ((long) length * 3 / 4) - padding;
   }
 
-  private MessageEntity persistMessage(UUID chatId, String message, Role role, String context) {
+  private MessageEntity persistMessage(UUID chatId, String message, String context) {
     MessageEntity entity = new MessageEntity();
     entity.setChatId(chatId);
     entity.setMessage(message);
-    entity.setRole(role);
+    entity.setRole(Role.USER);
     entity.setContext(context);
     entity.setCreatedAt(Instant.now());
     return saveMessageOrThrowIfChatMissing(entity);
@@ -891,9 +758,6 @@ public class ChatService {
    */
   private static boolean isChatFkViolation(DataIntegrityViolationException ex) {
     Throwable cause = ex.getMostSpecificCause();
-    if (cause == null) {
-      return false;
-    }
     String message = cause.getMessage();
     return message != null && message.contains(CHAT_FK_CONSTRAINT);
   }
@@ -907,10 +771,10 @@ public class ChatService {
     try {
       emitter.send(
           SseEmitter.event()
-              .name("error")
+              .name(EVENT_ERROR)
               .data(
                   new StreamEventDTO(
-                      "error",
+                      EVENT_ERROR,
                       "Chat was deleted while response was being generated.",
                       null, null, null, null),
                   MediaType.APPLICATION_JSON));
