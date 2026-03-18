@@ -73,6 +73,53 @@ export function parseAttachmentContext(context: string): string[] {
   return raw.split(',').map(s => s.trim()).filter(Boolean)
 }
 
+export type MessageCost = {
+  promptCost: number | null
+  completionCost: number | null
+  requestCost: number | null
+  totalCost: number
+}
+
+/**
+ * Calculates the estimated cost for a message based on token usage and model pricing.
+ * Pricing values are per-token strings from the OpenRouter API (e.g. "0.000005").
+ * Returns null when no pricing or no usage data is available.
+ */
+export function calculateMessageCost(
+  usage: TokenUsage | null,
+  model: { promptPrice?: string | null; completionPrice?: string | null; requestPrice?: string | null } | null | undefined
+): MessageCost | null {
+  if (!usage || !model) return null
+
+  const promptRate = model.promptPrice ? Number(model.promptPrice) : NaN
+  const completionRate = model.completionPrice ? Number(model.completionPrice) : NaN
+  const requestRate = model.requestPrice ? Number(model.requestPrice) : NaN
+
+  const hasPromptPricing = !Number.isNaN(promptRate) && usage.promptTokens != null
+  const hasCompletionPricing = !Number.isNaN(completionRate) && usage.generationTokens != null
+  const hasRequestPricing = !Number.isNaN(requestRate) && requestRate > 0
+
+  if (!hasPromptPricing && !hasCompletionPricing && !hasRequestPricing) return null
+
+  const promptCost = hasPromptPricing ? usage.promptTokens! * promptRate : null
+  const completionCost = hasCompletionPricing ? usage.generationTokens! * completionRate : null
+  const requestCost = hasRequestPricing ? requestRate : null
+  const totalCost = (promptCost ?? 0) + (completionCost ?? 0) + (requestCost ?? 0)
+
+  return { promptCost, completionCost, requestCost, totalCost }
+}
+
+/**
+ * Formats a dollar cost into a human-readable string.
+ * Uses adaptive precision: sub-cent costs show more decimal places.
+ */
+export function formatCost(cost: number): string {
+  if (cost === 0) return '$0.00'
+  if (cost < 0.0001) return `$${cost.toExponential(1)}`
+  if (cost < 0.01) return `$${cost.toFixed(4)}`
+  return `$${cost.toFixed(2)}`
+}
+
 export function extractTokenUsage(response: SendMessageResponse | null): TokenUsage | null {
   if (!response) return null
   const { promptTokens, generationTokens, totalTokens } = response

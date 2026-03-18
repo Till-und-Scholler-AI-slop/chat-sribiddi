@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendTextToMessage, extractAssistantText, extractTokenUsage, favoriteModelKey, parseAttachmentContext, resolveStreamOutcome } from '../useChatStore'
+import { appendTextToMessage, calculateMessageCost, extractAssistantText, extractTokenUsage, favoriteModelKey, formatCost, parseAttachmentContext, resolveStreamOutcome } from '../useChatStore'
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {
@@ -209,5 +209,83 @@ describe('resolveStreamOutcome', () => {
       status: 'error',
       error: 'The response stream was interrupted before completion. Partial response shown.'
     })
+  })
+})
+
+describe('calculateMessageCost', () => {
+  it('calculates cost from token usage and model pricing', () => {
+    const usage = { promptTokens: 1000, generationTokens: 500, totalTokens: 1500 }
+    const model = { promptPrice: '0.000005', completionPrice: '0.000015', requestPrice: '0' }
+    const cost = calculateMessageCost(usage, model)
+    expect(cost).not.toBeNull()
+    expect(cost!.promptCost).toBeCloseTo(0.005)
+    expect(cost!.completionCost).toBeCloseTo(0.0075)
+    expect(cost!.requestCost).toBeNull() // requestPrice is 0
+    expect(cost!.totalCost).toBeCloseTo(0.0125)
+  })
+
+  it('returns null when usage is null', () => {
+    const model = { promptPrice: '0.000005', completionPrice: '0.000015' }
+    expect(calculateMessageCost(null, model)).toBeNull()
+  })
+
+  it('returns null when model is null', () => {
+    const usage = { promptTokens: 100, generationTokens: 50, totalTokens: 150 }
+    expect(calculateMessageCost(usage, null)).toBeNull()
+  })
+
+  it('returns null when model has no pricing fields', () => {
+    const usage = { promptTokens: 100, generationTokens: 50, totalTokens: 150 }
+    const model = { promptPrice: null, completionPrice: null, requestPrice: null }
+    expect(calculateMessageCost(usage, model)).toBeNull()
+  })
+
+  it('handles model with only prompt pricing', () => {
+    const usage = { promptTokens: 1000, generationTokens: 500, totalTokens: 1500 }
+    const model = { promptPrice: '0.000005', completionPrice: null, requestPrice: null }
+    const cost = calculateMessageCost(usage, model)
+    expect(cost).not.toBeNull()
+    expect(cost!.promptCost).toBeCloseTo(0.005)
+    expect(cost!.completionCost).toBeNull()
+    expect(cost!.totalCost).toBeCloseTo(0.005)
+  })
+
+  it('includes per-request cost when requestPrice is non-zero', () => {
+    const usage = { promptTokens: 100, generationTokens: 50, totalTokens: 150 }
+    const model = { promptPrice: '0.000005', completionPrice: '0.000015', requestPrice: '0.001' }
+    const cost = calculateMessageCost(usage, model)
+    expect(cost).not.toBeNull()
+    expect(cost!.requestCost).toBeCloseTo(0.001)
+    expect(cost!.totalCost).toBeCloseTo(0.0005 + 0.00075 + 0.001)
+  })
+
+  it('handles zero token counts', () => {
+    const usage = { promptTokens: 0, generationTokens: 0, totalTokens: 0 }
+    const model = { promptPrice: '0.000005', completionPrice: '0.000015' }
+    const cost = calculateMessageCost(usage, model)
+    expect(cost).not.toBeNull()
+    expect(cost!.totalCost).toBe(0)
+  })
+})
+
+describe('formatCost', () => {
+  it('formats zero cost', () => {
+    expect(formatCost(0)).toBe('$0.00')
+  })
+
+  it('formats normal cost with 2 decimal places', () => {
+    expect(formatCost(0.05)).toBe('$0.05')
+  })
+
+  it('formats sub-cent cost with 4 decimal places', () => {
+    expect(formatCost(0.005)).toBe('$0.0050')
+  })
+
+  it('formats very small cost in scientific notation', () => {
+    expect(formatCost(0.00005)).toBe('$5.0e-5')
+  })
+
+  it('formats whole dollar amounts', () => {
+    expect(formatCost(1.23)).toBe('$1.23')
   })
 })
