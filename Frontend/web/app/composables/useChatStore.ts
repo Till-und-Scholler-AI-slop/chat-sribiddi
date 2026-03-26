@@ -304,7 +304,9 @@ export function useChatStore() {
       }
     }
 
-    return { id, role, parts }
+    const createdAt = message.createdAt ? new Date(message.createdAt) : undefined
+
+    return { id, role, parts, createdAt }
   }
 
   watch(
@@ -553,7 +555,8 @@ export function useChatStore() {
       const userMessage: UIMessage = {
         id: messageId(),
         role: 'user',
-        parts
+        parts,
+        createdAt: new Date()
       }
       conversation.messages.push(userMessage)
     }
@@ -570,7 +573,8 @@ export function useChatStore() {
     const assistantMessage: UIMessage = {
       id: messageId(),
       role: 'assistant',
-      parts: [{ type: 'text', text: '' }]
+      parts: [{ type: 'text', text: '' }],
+      createdAt: new Date()
     }
     conversation.messages.push(assistantMessage)
     const assistantMessageIndex = conversation.messages.length - 1
@@ -754,7 +758,8 @@ export function useChatStore() {
     const assistantMessage: UIMessage = {
       id: messageId(),
       role: 'assistant',
-      parts: [{ type: 'text', text: '' }]
+      parts: [{ type: 'text', text: '' }],
+      createdAt: new Date()
     }
     conversation.messages.push(assistantMessage)
     const assistantMessageIndex = conversation.messages.length - 1
