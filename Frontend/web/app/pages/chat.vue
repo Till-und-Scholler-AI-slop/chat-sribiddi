@@ -101,6 +101,13 @@ const getMessageCost = (messageId: string) =>
 
 const getReasoning = (messageId: string) => reasoningMap.value[messageId] ?? null
 
+const formatTimestamp = (date: Date | string | undefined): string => {
+  if (!date) return ''
+  const d = date instanceof Date ? date : new Date(date)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
 /**
  * Returns true if a UI message id corresponds to a persisted backend message
  * (i.e. has the "msg-{numericId}" format with a digits-only suffix).
@@ -440,7 +447,7 @@ const submitEditMessage = async () => {
                   :status="status"
                   :spacing-offset="96"
                 >
-                  <template #content="{ parts, message }">
+                  <template #content="{ parts, message }: { parts: any, message: any }">
                     <template v-if="message?.role === 'assistant' && getReasoning(message.id)">
                       <div class="mb-3 rounded-lg border border-gray-700/50 bg-gray-900/50 overflow-hidden">
                         <button
@@ -552,6 +559,12 @@ const submitEditMessage = async () => {
                           </div>
                         </template>
                       </template>
+                      <div
+                        v-if="message?.createdAt && formatTimestamp(message.createdAt)"
+                        class="mt-1 text-[11px] text-gray-400 dark:text-gray-500 select-none"
+                      >
+                        {{ formatTimestamp(message.createdAt) }}
+                      </div>
                     </template>
                   </template>
                 </UChatMessages>
