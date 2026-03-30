@@ -77,6 +77,9 @@ public class ChatService {
       "No API key supplied and no stored key found for provider %s";
 
   private static final String CHAT_FK_CONSTRAINT = "messages_chat_id_fkey";
+  private static final int MIN_CONTEXT_EXCERPT_CANDIDATE_LENGTH = 8;
+  private static final int MAX_CONTEXT_EXCERPT_MATCHES = 5;
+  private static final int MAX_CONTEXT_EXCERPT_LENGTH = 2_000;
 
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
@@ -610,17 +613,17 @@ public class ChatService {
     List<String> matches = new ArrayList<>();
     for (String line : toolOutput.split("\\R+")) {
       String candidate = line.replaceFirst("^\\d+\\.\\s*", "").trim();
-      if (candidate.length() < 8) {
+      if (candidate.length() < MIN_CONTEXT_EXCERPT_CANDIDATE_LENGTH) {
         continue;
       }
       String normalizedCandidate = normalizeForMatch(candidate);
-      if (normalizedCandidate.length() < 8) {
+      if (normalizedCandidate.length() < MIN_CONTEXT_EXCERPT_CANDIDATE_LENGTH) {
         continue;
       }
       if (normalizedAssistant.contains(normalizedCandidate) && !matches.contains(candidate)) {
         matches.add(candidate);
       }
-      if (matches.size() >= 5) {
+      if (matches.size() >= MAX_CONTEXT_EXCERPT_MATCHES) {
         break;
       }
     }
@@ -628,7 +631,9 @@ public class ChatService {
       return null;
     }
     String excerpt = String.join("\n", matches);
-    return excerpt.length() > 2000 ? excerpt.substring(0, 2000) : excerpt;
+    return excerpt.length() > MAX_CONTEXT_EXCERPT_LENGTH
+        ? excerpt.substring(0, MAX_CONTEXT_EXCERPT_LENGTH)
+        : excerpt;
   }
 
   private String normalizeForMatch(String value) {
