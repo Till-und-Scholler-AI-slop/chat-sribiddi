@@ -2,17 +2,24 @@ package com.rft.chat_sribiddi.chat.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rft.chat_sribiddi.chat.dto.MessageResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.StreamEventDTO;
+import com.rft.chat_sribiddi.chat.dto.ToolCallLogResponseDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.Role;
+import com.rft.chat_sribiddi.chat.model.ToolCallLogEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
+import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
+import com.rft.chat_sribiddi.chat.toolcall.LoggedBraveSearchTool;
+import com.rft.chat_sribiddi.chat.toolcall.LoggedCurrentDateTimeTool;
+import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.tools.CurrentDateTimeTool;
@@ -24,7 +31,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -46,8 +56,10 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Slf4j
@@ -68,6 +80,7 @@ public class ChatService {
 
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
+  private final ToolCallLogRepository toolCallLogRepository;
   private final ApiKeyService apiKeyService;
   private final ProviderClientFactory providerClientFactory;
   private final ChatProperties chatProperties;
@@ -79,6 +92,7 @@ public class ChatService {
   public ChatService(
       ChatRepository chatRepository,
       MessageRepository messageRepository,
+      ToolCallLogRepository toolCallLogRepository,
       ApiKeyService apiKeyService,
       ProviderClientFactory providerClientFactory,
       ChatProperties chatProperties,
@@ -87,6 +101,7 @@ public class ChatService {
       CurrentDateTimeTool currentDateTimeTool) {
     this.chatRepository = chatRepository;
     this.messageRepository = messageRepository;
+    this.toolCallLogRepository = toolCallLogRepository;
     this.apiKeyService = apiKeyService;
     this.providerClientFactory = providerClientFactory;
     this.chatProperties = chatProperties;
@@ -133,6 +148,44 @@ public class ChatService {
         .reversed();
   }
 
+  public List<MessageResponseDTO> listMessageResponses(UUID chatId, String userId, Integer limit) {
+    List<MessageEntity> messages = listMessages(chatId, userId, limit);
+    if (messages.isEmpty()) {
+      return List.of();
+    }
+    List<Long> messageIds =
+        messages.stream().map(MessageEntity::getId).filter(Objects::nonNull).toList();
+    Set<Long> messageIdsWithToolCalls =
+        (messageIds.isEmpty() ? List.<Long>of() : toolCallLogRepository.findMessageIdsWithToolCalls(messageIds))
+            .stream()
+            .collect(Collectors.toSet());
+    return messages.stream()
+        .map(
+            message ->
+                MessageResponseDTO.from(
+                    message, messageIdsWithToolCalls.contains(message.getId())))
+        .toList();
+  }
+
+  public List<ToolCallLogResponseDTO> listToolCallLogs(Long messageId, String userId) {
+    MessageEntity message =
+        messageRepository
+            .findById(messageId)
+            .orElseThrow(
+                () ->
+                    new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Message not found: " + messageId));
+    chatRepository
+        .findByChatIdAndUserId(message.getChatId(), userId)
+        .orElseThrow(
+            () ->
+                new ResponseStatusException(
+                    HttpStatus.NOT_FOUND, "Message not found: " + messageId));
+    return toolCallLogRepository.findByMessageIdOrderByStartedAtAsc(messageId).stream()
+        .map(ToolCallLogResponseDTO::from)
+        .toList();
+  }
+
   @Transactional
   public ChatEntity updateChatTitle(UUID chatId, String userId, String title) {
     ChatEntity chat =
@@ -158,6 +211,7 @@ public class ChatService {
     String resolvedKey = resolveApiKey(userId, requestDTO);
 
     ChatResponse chatResponse;
+    ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
     try (ClientHolder clientHolder =
         providerClientFactory.getClient(requestDTO.provider(), resolvedKey)) {
       var options =
@@ -165,9 +219,11 @@ public class ChatService {
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(prep.promptMessages());
-      promptSpec.tools(currentDateTimeTool);
+      promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, toolExecutionCollector));
       if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
-        resolveWebSearchTool(userId).ifPresent(promptSpec::tools);
+        resolveWebSearchTool(userId)
+            .map(tool -> new LoggedBraveSearchTool(tool, toolExecutionCollector))
+            .ifPresent(promptSpec::tools);
       }
       chatResponse = promptSpec.call().chatResponse();
     }
@@ -206,6 +262,7 @@ public class ChatService {
     assistantMessage.setGenerationTokens(generationTokens);
     assistantMessage.setTotalTokens(totalTokens);
     saveMessageOrThrowIfChatMissing(assistantMessage);
+    persistToolCallLogs(assistantMessage, toolExecutionCollector, assistantResponse);
 
     log.debug("Message persisted successfully");
 
@@ -315,11 +372,21 @@ public class ChatService {
             requestDTO.provider(), requestDTO.modelId(), resolvedKey);
     var client = clientHolder.client();
     var promptSpec = client.prompt().options(options).messages(promptMessages);
-    promptSpec.tools(currentDateTimeTool);
+    ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
+    promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, toolExecutionCollector));
     if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
-      resolveWebSearchTool(userId).ifPresent(promptSpec::tools);
+      resolveWebSearchTool(userId)
+          .map(tool -> new LoggedBraveSearchTool(tool, toolExecutionCollector))
+          .ifPresent(promptSpec::tools);
     }
-    subscribeToStream(promptSpec, emitter, clientHolder, chatId, promptMessages.size(), updatedTitle);
+    subscribeToStream(
+        promptSpec,
+        emitter,
+        clientHolder,
+        chatId,
+        promptMessages.size(),
+        updatedTitle,
+        toolExecutionCollector);
     return emitter;
   }
 
@@ -333,7 +400,8 @@ public class ChatService {
       ClientHolder clientHolder,
       UUID chatId,
       int promptMessageCount,
-      String updatedTitle) {
+      String updatedTitle,
+      ToolExecutionCollector toolExecutionCollector) {
 
     StringBuilder fullText = new StringBuilder();
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
@@ -345,7 +413,14 @@ public class ChatService {
             chunk -> handleStreamChunk(chunk, fullText, lastUsage, emitter),
             error -> handleStreamError(chatId, error, emitter, clientHolder),
             () -> handleStreamCompletion(
-                fullText, lastUsage, chatId, promptMessageCount, updatedTitle, emitter, clientHolder));
+                fullText,
+                lastUsage,
+                chatId,
+                promptMessageCount,
+                updatedTitle,
+                toolExecutionCollector,
+                emitter,
+                clientHolder));
 
     emitter.onTimeout(clientHolder::close);
     emitter.onError(_ -> clientHolder.close());
@@ -368,7 +443,7 @@ public class ChatService {
             SseEmitter.event()
                 .name("text")
                 .data(
-                    new StreamEventDTO("text", text, null, null, null, null),
+                    new StreamEventDTO("text", text, null, null, null, null, null, null),
                     MediaType.APPLICATION_JSON));
       }
 
@@ -378,7 +453,7 @@ public class ChatService {
             SseEmitter.event()
                 .name("reasoning")
                 .data(
-                    new StreamEventDTO("reasoning", reasoning, null, null, null, null),
+                    new StreamEventDTO("reasoning", reasoning, null, null, null, null, null, null),
                     MediaType.APPLICATION_JSON));
       }
 
@@ -405,11 +480,11 @@ public class ChatService {
                   SseEmitter.event()
                           .name(EVENT_ERROR)
                           .data(
-                                  new StreamEventDTO(
-                                          EVENT_ERROR,
-                                          extractProviderErrorMessage(error),
-                                          null, null, null, null),
-                                  MediaType.APPLICATION_JSON));
+                                   new StreamEventDTO(
+                                           EVENT_ERROR,
+                                           extractProviderErrorMessage(error),
+                                           null, null, null, null, null, null),
+                                   MediaType.APPLICATION_JSON));
       } catch (IOException e) {
           log.warn("Failed to send SSE error event", e);
       } finally {
@@ -420,6 +495,7 @@ public class ChatService {
   private void handleStreamCompletion(
       StringBuilder fullText, AtomicReference<Usage> lastUsage,
       UUID chatId, int promptMessageCount, String updatedTitle,
+      ToolExecutionCollector toolExecutionCollector,
       SseEmitter emitter, ClientHolder clientHolder) {
       try (clientHolder) {
           String assistantResponse = fullText.toString();
@@ -451,13 +527,22 @@ public class ChatService {
               return;
           }
 
+          persistToolCallLogs(assistantMessage, toolExecutionCollector, assistantResponse);
+
           emitter.send(
                   SseEmitter.event()
                           .name("done")
                           .data(
-                                  new StreamEventDTO(
-                                          "done", null, promptTokens, generationTokens, totalTokens, updatedTitle),
-                                  MediaType.APPLICATION_JSON));
+                                   new StreamEventDTO(
+                                           "done",
+                                           null,
+                                           promptTokens,
+                                           generationTokens,
+                                           totalTokens,
+                                           updatedTitle,
+                                           assistantMessage.getId(),
+                                           !toolExecutionCollector.isEmpty()),
+                                   MediaType.APPLICATION_JSON));
           emitter.complete();
       } catch (IOException e) {
           log.warn("Failed to send SSE done event", e);
@@ -483,6 +568,76 @@ public class ChatService {
       }
       throw ex;
     }
+  }
+
+  private void persistToolCallLogs(
+      MessageEntity assistantMessage,
+      ToolExecutionCollector toolExecutionCollector,
+      String assistantResponse) {
+    if (assistantMessage.getId() == null || toolExecutionCollector.isEmpty()) {
+      return;
+    }
+    List<ToolCallLogEntity> logs =
+        toolExecutionCollector.snapshot().stream()
+            .map(
+                record -> {
+                  ToolCallLogEntity entity = new ToolCallLogEntity();
+                  entity.setMessageId(assistantMessage.getId());
+                  entity.setToolName(record.toolName());
+                  entity.setInputPayload(record.inputPayload());
+                  entity.setOutputPayload(record.outputPayload());
+                  entity.setStartedAt(record.startedAt());
+                  entity.setDurationMs(record.durationMs());
+                  entity.setContextExcerpt(
+                      extractContextExcerpt(record.outputPayload(), assistantResponse));
+                  return entity;
+                })
+            .toList();
+    toolCallLogRepository.saveAll(logs);
+  }
+
+  private String extractContextExcerpt(String toolOutput, String assistantResponse) {
+    if (toolOutput == null
+        || toolOutput.isBlank()
+        || assistantResponse == null
+        || assistantResponse.isBlank()) {
+      return null;
+    }
+    String normalizedAssistant = normalizeForMatch(assistantResponse);
+    if (normalizedAssistant.isEmpty()) {
+      return null;
+    }
+    List<String> matches = new ArrayList<>();
+    for (String line : toolOutput.split("\\R+")) {
+      String candidate = line.replaceFirst("^\\d+\\.\\s*", "").trim();
+      if (candidate.length() < 8) {
+        continue;
+      }
+      String normalizedCandidate = normalizeForMatch(candidate);
+      if (normalizedCandidate.length() < 8) {
+        continue;
+      }
+      if (normalizedAssistant.contains(normalizedCandidate) && !matches.contains(candidate)) {
+        matches.add(candidate);
+      }
+      if (matches.size() >= 5) {
+        break;
+      }
+    }
+    if (matches.isEmpty()) {
+      return null;
+    }
+    String excerpt = String.join("\n", matches);
+    return excerpt.length() > 2000 ? excerpt.substring(0, 2000) : excerpt;
+  }
+
+  private String normalizeForMatch(String value) {
+    return value == null
+        ? ""
+        : value
+            .toLowerCase(Locale.ROOT)
+            .replaceAll("[^\\p{Alnum}]+", " ")
+            .trim();
   }
 
   /**
@@ -776,7 +931,7 @@ public class ChatService {
                   new StreamEventDTO(
                       EVENT_ERROR,
                       "Chat was deleted while response was being generated.",
-                      null, null, null, null),
+                      null, null, null, null, null, null),
                   MediaType.APPLICATION_JSON));
     } catch (IOException e) {
       log.warn("Failed to send SSE chat-deleted error event", e);

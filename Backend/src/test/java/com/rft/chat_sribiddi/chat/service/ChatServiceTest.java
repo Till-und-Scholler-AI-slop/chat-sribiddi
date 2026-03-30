@@ -11,14 +11,18 @@ import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.Role;
+import com.rft.chat_sribiddi.chat.model.ToolCallLogEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
+import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import java.lang.reflect.Method;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,6 +44,7 @@ class ChatServiceTest {
 
   @Mock private ChatRepository chatRepository;
   @Mock private MessageRepository messageRepository;
+  @Mock private ToolCallLogRepository toolCallLogRepository;
   @Mock private ApiKeyService apiKeyService;
   @Mock private ProviderClientFactory providerClientFactory;
   @Mock private com.rft.chat_sribiddi.auth.UserSettingsService userSettingsService;
@@ -57,7 +62,7 @@ class ChatServiceTest {
   void setUp() {
     ChatProperties chatProperties = new ChatProperties();
     chatService =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, chatProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+        new ChatService(chatRepository, messageRepository, toolCallLogRepository, apiKeyService, providerClientFactory, chatProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
     chatId = UUID.randomUUID();
     userId = "user-123";
 
@@ -113,6 +118,64 @@ class ChatServiceTest {
     assertThat(savedMessages.getAllValues())
         .extracting(MessageEntity::getRole)
         .containsExactly(Role.USER, Role.ASSISTANT);
+  }
+
+  @Test
+  void sendMessage_persistsToolCallLogsForAssistantMessage() throws Exception {
+    RequestDTO request =
+        new RequestDTO("what time is it?", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of("stored-key"));
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder()
+                .model("gpt-5.2")
+                .build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+
+    AtomicReference<Object> dateTimeToolRef = new AtomicReference<>();
+    doAnswer(
+            invocation -> {
+              Object[] args = invocation.getArguments();
+              if (args.length > 0 && args[0] != null) {
+                dateTimeToolRef.set(args[0]);
+              }
+              return null;
+            })
+        .when(requestSpec)
+        .tools(any());
+
+    when(callResponseSpec.chatResponse())
+        .thenAnswer(
+            invocation -> {
+              invokeNoArgTool(dateTimeToolRef.get(), "getCurrentDateTime");
+              return new ChatResponse(List.of(new Generation(new AssistantMessage("Current time noted."))));
+            });
+
+    chatService.sendMessage(chatId, userId, request);
+
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<List<ToolCallLogEntity>> logsCaptor = ArgumentCaptor.forClass(List.class);
+    verify(toolCallLogRepository).saveAll(logsCaptor.capture());
+    assertThat(logsCaptor.getValue()).hasSize(1);
+    ToolCallLogEntity log = logsCaptor.getValue().getFirst();
+    assertThat(log.getToolName()).isEqualTo("CurrentDateTimeTool.getCurrentDateTime");
+    assertThat(log.getInputPayload()).isEqualTo("{}");
+    assertThat(log.getOutputPayload()).isNotBlank();
+    assertThat(log.getDurationMs()).isGreaterThanOrEqualTo(0L);
   }
 
   @Test
@@ -328,11 +391,40 @@ class ChatServiceTest {
   }
 
   @Test
+  void listToolCallLogs_returnsLogsForOwnedMessage() {
+    MessageEntity message = new MessageEntity();
+    message.setId(55L);
+    message.setChatId(chatId);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+
+    ToolCallLogEntity log = new ToolCallLogEntity();
+    log.setId(1L);
+    log.setMessageId(55L);
+    log.setToolName("BraveSearchTool.searchWeb");
+    log.setInputPayload("{\"query\":\"latest news\"}");
+    log.setOutputPayload("Web search results");
+    log.setDurationMs(42L);
+
+    when(messageRepository.findById(55L)).thenReturn(Optional.of(message));
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(toolCallLogRepository.findByMessageIdOrderByStartedAtAsc(55L)).thenReturn(List.of(log));
+
+    var result = chatService.listToolCallLogs(55L, userId);
+
+    assertThat(result).hasSize(1);
+    assertThat(result.getFirst().toolName()).isEqualTo("BraveSearchTool.searchWeb");
+    assertThat(result.getFirst().inputPayload()).contains("latest news");
+  }
+
+  @Test
   void sendMessage_respectsCustomMaxMediaAttachments() {
     ChatProperties customProperties = new ChatProperties();
     customProperties.setMaxMediaAttachments(1);
     ChatService customService =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, customProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+        new ChatService(chatRepository, messageRepository, toolCallLogRepository, apiKeyService, providerClientFactory, customProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
 
     RequestDTO request =
         new RequestDTO(
@@ -671,7 +763,7 @@ class ChatServiceTest {
     ChatProperties longTitleProps = new ChatProperties();
     longTitleProps.setMaxChatTitleLength(10);
     ChatService serviceWithShortTitleLimit =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, longTitleProps, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+        new ChatService(chatRepository, messageRepository, toolCallLogRepository, apiKeyService, providerClientFactory, longTitleProps, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -696,6 +788,12 @@ class ChatServiceTest {
         "could not execute statement",
         new RuntimeException(
             "ERROR: insert or update on table \"messages\" violates foreign key constraint \"messages_chat_id_fkey\""));
+  }
+
+  private static void invokeNoArgTool(Object tool, String methodName) throws Exception {
+    assertThat(tool).isNotNull();
+    Method method = tool.getClass().getMethod(methodName);
+    method.invoke(tool);
   }
 
   @Test

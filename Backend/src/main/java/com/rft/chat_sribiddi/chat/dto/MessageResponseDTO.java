@@ -7,9 +7,13 @@ import java.util.UUID;
 
 public record MessageResponseDTO(
     Long id, UUID chatId, String message, String context, Role role, Instant createdAt,
-    Long promptTokens, Long generationTokens, Long totalTokens) {
+    Long promptTokens, Long generationTokens, Long totalTokens, boolean hasToolCalls) {
 
   public static MessageResponseDTO from(MessageEntity entity) {
+    return from(entity, false);
+  }
+
+  public static MessageResponseDTO from(MessageEntity entity, boolean hasToolCalls) {
     return new MessageResponseDTO(
         entity.getId(),
         entity.getChatId(),
@@ -19,6 +23,7 @@ public record MessageResponseDTO(
         entity.getCreatedAt(),
         entity.getPromptTokens(),
         entity.getGenerationTokens(),
-        entity.getTotalTokens());
+        entity.getTotalTokens(),
+        hasToolCalls);
   }
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
-import { calculateMessageCost, formatCost, formatRatePerMillion } from '~/composables/useChatStore'
+import { calculateMessageCost, filterToolCallLogs, formatCost, formatRatePerMillion } from '~/composables/useChatStore'
 
 definePageMeta({
   layout: 'default'
@@ -24,6 +24,11 @@ const {
   retryLastPrompt,
   saveLastUsedModel,
   sendPrompt,
+  hasToolCalls,
+  getToolCalls,
+  getToolCallError,
+  isToolCallLoading,
+  ensureToolCalls,
   setModelForChat,
   sortedModels,
   startChat,
@@ -119,6 +124,8 @@ const showEditMessageButton = (message?: { role?: string; id?: string }) =>
   message?.role === 'user' && isPersistedMessage(message.id) && status.value === 'ready'
 
 const reasoningExpanded = ref<Record<string, boolean>>({})
+const toolCallExpanded = ref<Record<string, boolean>>({})
+const toolCallFilters = ref<Record<string, string>>({})
 
 const fileIcon = (mimeType: string): string => {
   if (mimeType.startsWith('image/')) return 'i-heroicons-photo'
@@ -149,6 +156,23 @@ const modelPricingSummary = computed(() => {
 
 const optionPriceLabel = (option: ModelOption): string | null =>
   formatRatePerMillion(option.promptPrice)
+
+const getFilteredToolCalls = (messageId: string) =>
+  filterToolCallLogs(getToolCalls(messageId), toolCallFilters.value[messageId] || '')
+
+const getToolCallJson = (messageId: string) =>
+  JSON.stringify(getFilteredToolCalls(messageId), null, 2)
+
+const toggleToolCallInspector = async (messageId: string) => {
+  toolCallExpanded.value[messageId] = !toolCallExpanded.value[messageId]
+  if (!toolCallExpanded.value[messageId]) return
+
+  try {
+    await ensureToolCalls(messageId)
+  } catch {
+    // error is surfaced through store state
+  }
+}
 
 const toDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -526,6 +550,56 @@ const submitEditMessage = async () => {
                               <UIcon :name="fileIcon(file.mediaType)" class="size-3.5 mr-1" />
                               {{ file.filename || formatMimeType(file.mediaType) }}
                             </UBadge>
+                          </div>
+                          <div
+                            v-if="message?.role === 'assistant' && hasToolCalls(message.id)"
+                            class="mt-3"
+                          >
+                            <button
+                              class="inline-flex items-center gap-2 rounded-md border border-gray-700/60 bg-gray-900/60 px-2.5 py-1.5 text-xs text-gray-300 hover:text-gray-100 hover:border-gray-600 transition-colors"
+                              :aria-label="toolCallExpanded[message.id] ? 'Hide tool call inspector' : 'Show tool call inspector'"
+                              @click="toggleToolCallInspector(message.id)"
+                            >
+                              <span aria-hidden="true">🔧</span>
+                              <span>Tool calls</span>
+                              <UIcon
+                                :name="toolCallExpanded[message.id] ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
+                                class="size-3"
+                              />
+                            </button>
+                            <div
+                              v-if="toolCallExpanded[message.id]"
+                              class="mt-2 rounded-lg border border-gray-700/50 bg-gray-950/80 p-3 space-y-3"
+                            >
+                              <UInput
+                                v-model="toolCallFilters[message.id]"
+                                icon="i-heroicons-magnifying-glass"
+                                placeholder="Filter by tool name"
+                                size="sm"
+                              />
+                              <div
+                                v-if="isToolCallLoading(message.id)"
+                                class="text-xs text-gray-400"
+                              >
+                                Loading tool calls…
+                              </div>
+                              <div
+                                v-else-if="getToolCallError(message.id)"
+                                class="text-xs text-red-300"
+                              >
+                                {{ getToolCallError(message.id) }}
+                              </div>
+                              <div
+                                v-else-if="!getFilteredToolCalls(message.id).length"
+                                class="text-xs text-gray-400"
+                              >
+                                No tool calls match the current filter.
+                              </div>
+                              <pre
+                                v-else
+                                class="overflow-x-auto rounded-md bg-black/30 p-3 text-xs text-gray-200 whitespace-pre-wrap break-words"
+                              ><code>{{ getToolCallJson(message.id) }}</code></pre>
+                            </div>
                           </div>
                         </div>
                       </div>

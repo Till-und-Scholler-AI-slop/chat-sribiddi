@@ -1,5 +1,5 @@
 import type { ChatStatus, UIMessage } from 'ai'
-import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, SendMessageResponse, StreamEvent, TokenUsage } from '~/composables/useChatApi'
+import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, SendMessageResponse, StreamEvent, TokenUsage, ToolCallLog } from '~/composables/useChatApi'
 import { PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
 
@@ -147,6 +147,18 @@ export function formatRatePerMillion(priceStr: string | null | undefined): strin
   return perMillion >= 1 ? `$${perMillion.toFixed(2)}` : `$${perMillion.toFixed(4)}`
 }
 
+export function parsePersistedMessageId(id: string | undefined): number | null {
+  if (typeof id !== 'string') return null
+  const match = id.match(/^msg-(\d+)$/)
+  return match ? Number.parseInt(match[1], 10) : null
+}
+
+export function filterToolCallLogs(logs: ToolCallLog[], query: string): ToolCallLog[] {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return logs
+  return logs.filter(log => log.toolName.toLowerCase().includes(normalized))
+}
+
 export function extractTokenUsage(response: SendMessageResponse | null): TokenUsage | null {
   if (!response) return null
   const { promptTokens, generationTokens, totalTokens } = response
@@ -221,6 +233,7 @@ export function useChatStore() {
     createChat,
     fetchChats,
     fetchChatMessages,
+    fetchMessageToolCalls,
     sendMessage,
     streamMessage,
     editAndStreamMessage,
@@ -238,6 +251,10 @@ export function useChatStore() {
   const tokenUsageMap = useState<Record<string, TokenUsage>>('chat-token-usage', () => ({}))
   const messagePricingMap = useState<Record<string, MessagePricing>>('chat-message-pricing', () => ({}))
   const reasoningMap = useState<Record<string, string>>('chat-reasoning', () => ({}))
+  const toolCallAvailabilityMap = useState<Record<string, boolean>>('chat-tool-call-availability', () => ({}))
+  const toolCallLogMap = useState<Record<string, ToolCallLog[]>>('chat-tool-call-logs', () => ({}))
+  const toolCallLoadingMap = useState<Record<string, boolean>>('chat-tool-call-loading', () => ({}))
+  const toolCallErrorMap = useState<Record<string, string | null>>('chat-tool-call-errors', () => ({}))
   const webSearchEnabled = useState<boolean>('chat-web-search-enabled', () => false)
   const activeConversation = computed(() =>
     conversations.value.find(c => c.session.chatId === activeChatId.value) || null
@@ -304,6 +321,10 @@ export function useChatStore() {
       }
     }
 
+    if (role === 'assistant') {
+      toolCallAvailabilityMap.value[id] = message.hasToolCalls === true
+    }
+
     const createdAt = message.createdAt ? new Date(message.createdAt) : undefined
 
     return { id, role, parts, createdAt }
@@ -319,6 +340,10 @@ export function useChatStore() {
       tokenUsageMap.value = {}
       messagePricingMap.value = {}
       reasoningMap.value = {}
+      toolCallAvailabilityMap.value = {}
+      toolCallLogMap.value = {}
+      toolCallLoadingMap.value = {}
+      toolCallErrorMap.value = {}
     }
   )
 
@@ -466,6 +491,10 @@ export function useChatStore() {
         delete tokenUsageMap.value[msg.id]
         delete messagePricingMap.value[msg.id]
         delete reasoningMap.value[msg.id]
+        delete toolCallAvailabilityMap.value[msg.id]
+        delete toolCallLogMap.value[msg.id]
+        delete toolCallLoadingMap.value[msg.id]
+        delete toolCallErrorMap.value[msg.id]
       }
     }
 
@@ -525,6 +554,86 @@ export function useChatStore() {
     }
 
     conversation.messages = conversation.messages.filter(existing => existing.id !== message.id)
+    delete tokenUsageMap.value[message.id]
+    delete messagePricingMap.value[message.id]
+    delete reasoningMap.value[message.id]
+    delete toolCallAvailabilityMap.value[message.id]
+    delete toolCallLogMap.value[message.id]
+    delete toolCallLoadingMap.value[message.id]
+    delete toolCallErrorMap.value[message.id]
+  }
+
+  const rekeyStateEntry = <T>(map: Record<string, T>, oldId: string, newId: string) => {
+    if (oldId === newId || !(oldId in map)) return
+    map[newId] = map[oldId]
+    delete map[oldId]
+  }
+
+  const rekeyMessageMetadata = (oldId: string, newId: string) => {
+    rekeyStateEntry(tokenUsageMap.value, oldId, newId)
+    rekeyStateEntry(messagePricingMap.value, oldId, newId)
+    rekeyStateEntry(reasoningMap.value, oldId, newId)
+    rekeyStateEntry(toolCallAvailabilityMap.value, oldId, newId)
+    rekeyStateEntry(toolCallLogMap.value, oldId, newId)
+    rekeyStateEntry(toolCallLoadingMap.value, oldId, newId)
+    rekeyStateEntry(toolCallErrorMap.value, oldId, newId)
+  }
+
+  const finalizeAssistantMessage = (
+    conversation: Conversation,
+    hintIndex: number,
+    currentMessage: UIMessage,
+    event: Pick<StreamEvent, 'messageId' | 'hasToolCalls'>
+  ) => {
+    const nextId = event.messageId != null ? `msg-${event.messageId}` : currentMessage.id
+    const updatedMessage = nextId === currentMessage.id ? currentMessage : { ...currentMessage, id: nextId }
+    if (nextId !== currentMessage.id) {
+      replaceMessageAtIndex(conversation, hintIndex, currentMessage.id, updatedMessage)
+      rekeyMessageMetadata(currentMessage.id, nextId)
+    }
+    if (event.hasToolCalls != null) {
+      toolCallAvailabilityMap.value[nextId] = event.hasToolCalls
+    }
+    return updatedMessage
+  }
+
+  const hasToolCalls = (messageId: string) => toolCallAvailabilityMap.value[messageId] === true
+
+  const getToolCalls = (messageId: string) => toolCallLogMap.value[messageId] ?? []
+
+  const getToolCallError = (messageId: string) => toolCallErrorMap.value[messageId] ?? null
+
+  const isToolCallLoading = (messageId: string) => toolCallLoadingMap.value[messageId] === true
+
+  const ensureToolCalls = async (messageId: string) => {
+    if (!hasToolCalls(messageId)) {
+      toolCallLogMap.value[messageId] = []
+      return []
+    }
+
+    if (toolCallLogMap.value[messageId]) {
+      return toolCallLogMap.value[messageId]
+    }
+
+    const backendId = parsePersistedMessageId(messageId)
+    if (backendId == null) {
+      throw new Error('Tool call logs are only available for persisted messages.')
+    }
+
+    toolCallLoadingMap.value[messageId] = true
+    toolCallErrorMap.value[messageId] = null
+
+    try {
+      const logs = await fetchMessageToolCalls(backendId)
+      toolCallLogMap.value[messageId] = logs
+      return logs
+    } catch (err) {
+      toolCallErrorMap.value[messageId] =
+        err instanceof Error ? err.message : 'Unable to load tool call logs.'
+      throw err
+    } finally {
+      toolCallLoadingMap.value[messageId] = false
+    }
   }
 
   const sendPrompt = async (
@@ -617,13 +726,19 @@ export function useChatStore() {
               if (event.content) {
                 streamStatus.receivedContent = true
                 conversation.status = 'streaming'
-                reasoningMap.value[assistantMessage.id] =
-                  (reasoningMap.value[assistantMessage.id] || '') + event.content
+                reasoningMap.value[currentAssistantMessage.id] =
+                  (reasoningMap.value[currentAssistantMessage.id] || '') + event.content
               }
               break
 
             case 'done':
               streamStatus.receivedDone = true
+              currentAssistantMessage = finalizeAssistantMessage(
+                conversation,
+                assistantMessageIndex,
+                currentAssistantMessage,
+                event
+              )
               if (event.chatTitle) {
                 conversation.session.title = event.chatTitle
               }
@@ -632,12 +747,12 @@ export function useChatStore() {
                 event.generationTokens != null ||
                 event.totalTokens != null
               ) {
-                tokenUsageMap.value[assistantMessage.id] = {
+                tokenUsageMap.value[currentAssistantMessage.id] = {
                   promptTokens: event.promptTokens ?? null,
                   generationTokens: event.generationTokens ?? null,
                   totalTokens: event.totalTokens ?? null
                 }
-                messagePricingMap.value[assistantMessage.id] = {
+                messagePricingMap.value[currentAssistantMessage.id] = {
                   promptPrice: model.promptPrice ?? null,
                   completionPrice: model.completionPrice ?? null,
                   requestPrice: model.requestPrice ?? null
@@ -735,6 +850,10 @@ export function useChatStore() {
       delete tokenUsageMap.value[msg.id]
       delete messagePricingMap.value[msg.id]
       delete reasoningMap.value[msg.id]
+      delete toolCallAvailabilityMap.value[msg.id]
+      delete toolCallLogMap.value[msg.id]
+      delete toolCallLoadingMap.value[msg.id]
+      delete toolCallErrorMap.value[msg.id]
     }
     conversation.messages.splice(msgIndex + 1)
 
@@ -802,24 +921,30 @@ export function useChatStore() {
               if (event.content) {
                 streamStatus.receivedContent = true
                 conversation.status = 'streaming'
-                reasoningMap.value[assistantMessage.id] =
-                  (reasoningMap.value[assistantMessage.id] || '') + event.content
+                reasoningMap.value[currentAssistantMessage.id] =
+                  (reasoningMap.value[currentAssistantMessage.id] || '') + event.content
               }
               break
 
             case 'done':
               streamStatus.receivedDone = true
+              currentAssistantMessage = finalizeAssistantMessage(
+                conversation,
+                assistantMessageIndex,
+                currentAssistantMessage,
+                event
+              )
               if (
                 event.promptTokens != null ||
                 event.generationTokens != null ||
                 event.totalTokens != null
               ) {
-                tokenUsageMap.value[assistantMessage.id] = {
+                tokenUsageMap.value[currentAssistantMessage.id] = {
                   promptTokens: event.promptTokens ?? null,
                   generationTokens: event.generationTokens ?? null,
                   totalTokens: event.totalTokens ?? null
                 }
-                messagePricingMap.value[assistantMessage.id] = {
+                messagePricingMap.value[currentAssistantMessage.id] = {
                   promptPrice: model.promptPrice ?? null,
                   completionPrice: model.completionPrice ?? null,
                   requestPrice: model.requestPrice ?? null
@@ -864,6 +989,11 @@ export function useChatStore() {
         for (const msg of messagesToRemove) {
           delete tokenUsageMap.value[msg.id]
           delete reasoningMap.value[msg.id]
+          delete messagePricingMap.value[msg.id]
+          delete toolCallAvailabilityMap.value[msg.id]
+          delete toolCallLogMap.value[msg.id]
+          delete toolCallLoadingMap.value[msg.id]
+          delete toolCallErrorMap.value[msg.id]
         }
       } else if (!streamedText) {
         // Aborted with no content — remove the empty assistant placeholder
@@ -895,6 +1025,11 @@ export function useChatStore() {
     tokenUsageMap,
     messagePricingMap,
     reasoningMap,
+    hasToolCalls,
+    getToolCalls,
+    getToolCallError,
+    isToolCallLoading,
+    ensureToolCalls,
     webSearchEnabled,
     isFavorite,
     toggleFavorite,
