@@ -153,6 +153,10 @@ const goToSettings = () => {
 const goToModels = () => {
   router.push('/models')
 }
+
+const goToUsage = () => {
+  router.push('/usage')
+}
 </script>
 
 <template>
@@ -270,6 +274,13 @@ const goToModels = () => {
         :label="collapsed ? '' : 'Modelle'"
         class="w-full justify-start"
         @click="goToModels"
+      />
+      <UButton
+        variant="ghost"
+        icon="i-heroicons-chart-bar"
+        :label="collapsed ? '' : 'Usage'"
+        class="w-full justify-start"
+        @click="goToUsage"
       />
       <UButton
         variant="ghost"
