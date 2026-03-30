@@ -5,6 +5,7 @@ type UserSettings = {
   backendBaseUrl: string
   lastUsedModel: ModelOption | null
   favoriteModels: string[]
+  showPreSendCostEstimate: boolean
 }
 
 const STORAGE_KEY = 'chat-sribiddi:user-settings:v2'
@@ -20,7 +21,8 @@ export function useUserSettings() {
   const state = useState<UserSettings>('user-settings', () => ({
     backendBaseUrl: defaultBackend,
     lastUsedModel: null,
-    favoriteModels: []
+    favoriteModels: [],
+    showPreSendCostEstimate: true
   }))
 
   const hydrated = useState<boolean>('user-settings-hydrated', () => false)
@@ -38,7 +40,8 @@ export function useUserSettings() {
             savedModel && typeof savedModel === 'object' && typeof savedModel.value === 'string' && typeof savedModel.provider === 'string'
               ? savedModel
               : null,
-          favoriteModels: Array.isArray(parsed.favoriteModels) ? parsed.favoriteModels : []
+          favoriteModels: Array.isArray(parsed.favoriteModels) ? parsed.favoriteModels : [],
+          showPreSendCostEstimate: parsed.showPreSendCostEstimate !== false
         }
       } else {
         state.value.backendBaseUrl ||= defaultBackend
