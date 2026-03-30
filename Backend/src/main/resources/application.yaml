@@ -182,3 +182,6 @@ app:
   web-search:
     max-results: ${WEB_SEARCH_MAX_RESULTS:5}
     request-timeout: ${WEB_SEARCH_REQUEST_TIMEOUT:10s}
+  usage:
+    default-input-price: ${USAGE_DEFAULT_INPUT_PRICE:1.0}
+    default-output-price: ${USAGE_DEFAULT_OUTPUT_PRICE:3.0}

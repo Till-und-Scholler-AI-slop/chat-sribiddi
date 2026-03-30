@@ -16,6 +16,7 @@ import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.tools.CurrentDateTimeTool;
+import com.rft.chat_sribiddi.usage.UsageService;
 import com.rft.chat_sribiddi.websearch.BraveSearchTool;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.transaction.Transactional;
@@ -75,6 +76,7 @@ public class ChatService {
   private final WebSearchProperties webSearchProperties;
   private final java.net.http.HttpClient webSearchHttpClient;
   private final CurrentDateTimeTool currentDateTimeTool;
+  private final UsageService usageService;
 
   public ChatService(
       ChatRepository chatRepository,
@@ -84,7 +86,8 @@ public class ChatService {
       ChatProperties chatProperties,
       UserSettingsService userSettingsService,
       WebSearchProperties webSearchProperties,
-      CurrentDateTimeTool currentDateTimeTool) {
+      CurrentDateTimeTool currentDateTimeTool,
+      UsageService usageService) {
     this.chatRepository = chatRepository;
     this.messageRepository = messageRepository;
     this.apiKeyService = apiKeyService;
@@ -94,6 +97,7 @@ public class ChatService {
     this.webSearchProperties = webSearchProperties;
     this.webSearchHttpClient = java.net.http.HttpClient.newHttpClient();
     this.currentDateTimeTool = currentDateTimeTool;
+    this.usageService = usageService;
   }
 
   @Transactional
@@ -209,6 +213,10 @@ public class ChatService {
 
     log.debug("Message persisted successfully");
 
+    usageService.recordUsage(
+        userId, chatId, requestDTO.modelId(), requestDTO.provider().name(),
+        promptTokens, generationTokens, totalTokens);
+
     return new SendMessageResponseDTO(assistantResponse, promptTokens, generationTokens, totalTokens, prep.updatedTitle());
   }
 
@@ -319,7 +327,8 @@ public class ChatService {
     if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
       resolveWebSearchTool(userId).ifPresent(promptSpec::tools);
     }
-    subscribeToStream(promptSpec, emitter, clientHolder, chatId, promptMessages.size(), updatedTitle);
+    subscribeToStream(promptSpec, emitter, clientHolder, chatId, promptMessages.size(), updatedTitle,
+        userId, requestDTO.modelId(), requestDTO.provider().name());
     return emitter;
   }
 
@@ -333,7 +342,10 @@ public class ChatService {
       ClientHolder clientHolder,
       UUID chatId,
       int promptMessageCount,
-      String updatedTitle) {
+      String updatedTitle,
+      String userId,
+      String modelId,
+      String providerName) {
 
     StringBuilder fullText = new StringBuilder();
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
@@ -345,7 +357,8 @@ public class ChatService {
             chunk -> handleStreamChunk(chunk, fullText, lastUsage, emitter),
             error -> handleStreamError(chatId, error, emitter, clientHolder),
             () -> handleStreamCompletion(
-                fullText, lastUsage, chatId, promptMessageCount, updatedTitle, emitter, clientHolder));
+                fullText, lastUsage, chatId, promptMessageCount, updatedTitle, emitter, clientHolder,
+                userId, modelId, providerName));
 
     emitter.onTimeout(clientHolder::close);
     emitter.onError(_ -> clientHolder.close());
@@ -420,7 +433,8 @@ public class ChatService {
   private void handleStreamCompletion(
       StringBuilder fullText, AtomicReference<Usage> lastUsage,
       UUID chatId, int promptMessageCount, String updatedTitle,
-      SseEmitter emitter, ClientHolder clientHolder) {
+      SseEmitter emitter, ClientHolder clientHolder,
+      String userId, String modelId, String providerName) {
       try (clientHolder) {
           String assistantResponse = fullText.toString();
           Usage usage = lastUsage.get();
@@ -450,6 +464,10 @@ public class ChatService {
           if (!saveStreamedAssistantMessage(assistantMessage, chatId, emitter)) {
               return;
           }
+
+          usageService.recordUsage(
+              userId, chatId, modelId, providerName,
+              promptTokens, generationTokens, totalTokens);
 
           emitter.send(
                   SseEmitter.event()

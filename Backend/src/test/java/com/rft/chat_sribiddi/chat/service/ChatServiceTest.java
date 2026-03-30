@@ -14,6 +14,7 @@ import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import com.rft.chat_sribiddi.usage.UsageService;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -43,6 +44,7 @@ class ChatServiceTest {
   @Mock private ApiKeyService apiKeyService;
   @Mock private ProviderClientFactory providerClientFactory;
   @Mock private com.rft.chat_sribiddi.auth.UserSettingsService userSettingsService;
+  @Mock private UsageService usageService;
 
   @Mock private ChatClient chatClient;
   @Mock private ChatClient.ChatClientRequestSpec requestSpec;
@@ -57,7 +59,7 @@ class ChatServiceTest {
   void setUp() {
     ChatProperties chatProperties = new ChatProperties();
     chatService =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, chatProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, chatProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), usageService);
     chatId = UUID.randomUUID();
     userId = "user-123";
 
@@ -332,7 +334,7 @@ class ChatServiceTest {
     ChatProperties customProperties = new ChatProperties();
     customProperties.setMaxMediaAttachments(1);
     ChatService customService =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, customProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, customProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), usageService);
 
     RequestDTO request =
         new RequestDTO(
@@ -671,7 +673,7 @@ class ChatServiceTest {
     ChatProperties longTitleProps = new ChatProperties();
     longTitleProps.setMaxChatTitleLength(10);
     ChatService serviceWithShortTitleLimit =
-        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, longTitleProps, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+        new ChatService(chatRepository, messageRepository, apiKeyService, providerClientFactory, longTitleProps, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), usageService);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
