@@ -337,16 +337,32 @@ watch(
 
 // Auto-load tool calls when a message indicates it has them
 watch(
-  () => activeConversation.value?.messages,
-  (msgs) => {
-    if (!msgs) return
-    for (const msg of msgs) {
-      if (msg.role === 'assistant' && hasToolCalls(msg.id) && getToolCalls(msg.id).length === 0 && !isToolCallLoading(msg.id)) {
-        ensureToolCalls(msg.id).catch(() => { /* error surfaced through store state */ })
+  () => activeConversation.value?.messages?.map(msg => ({
+    id: msg.id,
+    role: msg.role,
+    hasTools: hasToolCalls(msg.id),
+    toolCount: getToolCalls(msg.id).length,
+  })),
+  (newSnapshots, oldSnapshots) => {
+    if (!newSnapshots) return
+
+    for (const snapshot of newSnapshots) {
+      if (snapshot.role !== 'assistant') continue
+      if (!snapshot.hasTools) continue
+      if (snapshot.toolCount !== 0) continue
+      if (isToolCallLoading(snapshot.id)) continue
+
+      const prev = oldSnapshots?.find(p => p.id === snapshot.id)
+      const justBecameToolAware =
+        !prev || (prev.hasTools === false && snapshot.hasTools === true)
+
+      if (justBecameToolAware) {
+        ensureToolCalls(snapshot.id).catch(() => {
+          // error surfaced through store state
+        })
       }
     }
   },
-  { deep: true }
 )
 
 // Scroll while streaming (last message text grows in place), throttled per animation frame
