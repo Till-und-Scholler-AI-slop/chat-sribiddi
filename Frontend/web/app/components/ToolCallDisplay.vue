@@ -62,7 +62,7 @@ const webSearchData = computed((): ParsedWebSearch | null => {
           url: currentUrl,
           domain,
           description: currentDesc.trim(),
-          favicon: `https://www.google.com/s2/favicons?sz=32&domain=${domain}`
+          favicon: extractOrigin(currentUrl) + '/favicon.ico'
         })
       }
       currentTitle = titleMatch[1]
@@ -93,7 +93,7 @@ const webSearchData = computed((): ParsedWebSearch | null => {
       url: currentUrl,
       domain,
       description: currentDesc.trim(),
-      favicon: `https://www.google.com/s2/favicons?sz=32&domain=${domain}`
+      favicon: extractOrigin(currentUrl) + '/favicon.ico'
     })
   }
 
@@ -107,6 +107,14 @@ const nonSearchToolCalls = computed(() =>
 function extractDomain(url: string): string {
   try {
     return new URL(url).hostname
+  } catch {
+    return url
+  }
+}
+
+function extractOrigin(url: string): string {
+  try {
+    return new URL(url).origin
   } catch {
     return url
   }
