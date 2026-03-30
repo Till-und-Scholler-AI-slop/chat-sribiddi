@@ -24,6 +24,11 @@ const {
   retryLastPrompt,
   saveLastUsedModel,
   sendPrompt,
+  hasToolCalls,
+  getToolCalls,
+  getToolCallError,
+  isToolCallLoading,
+  ensureToolCalls,
   setModelForChat,
   sortedModels,
   startChat,
@@ -330,6 +335,36 @@ watch(
   },
 )
 
+// Auto-load tool calls when a message indicates it has them
+watch(
+  () => activeConversation.value?.messages?.map(msg => ({
+    id: msg.id,
+    role: msg.role,
+    hasTools: hasToolCalls(msg.id),
+    toolCount: getToolCalls(msg.id).length,
+  })),
+  (newSnapshots, oldSnapshots) => {
+    if (!newSnapshots) return
+
+    for (const snapshot of newSnapshots) {
+      if (snapshot.role !== 'assistant') continue
+      if (!snapshot.hasTools) continue
+      if (snapshot.toolCount !== 0) continue
+      if (isToolCallLoading(snapshot.id)) continue
+
+      const prev = oldSnapshots?.find(p => p.id === snapshot.id)
+      const justBecameToolAware =
+        !prev || (prev.hasTools === false && snapshot.hasTools === true)
+
+      if (justBecameToolAware) {
+        ensureToolCalls(snapshot.id).catch(() => {
+          // error surfaced through store state
+        })
+      }
+    }
+  },
+)
+
 // Scroll while streaming (last message text grows in place), throttled per animation frame
 watch(
   () => {
@@ -482,26 +517,30 @@ const submitEditMessage = async () => {
                 >
                   <template #content="{ parts, message }: { parts: any, message: any }">
                     <template v-if="message?.role === 'assistant' && getReasoning(message.id)">
-                      <div class="mb-3 rounded-lg border border-gray-700/50 bg-gray-900/50 overflow-hidden">
+                      <div class="mb-3 rounded-xl border border-gray-200/60 dark:border-white/[0.06] bg-gray-100/50 dark:bg-white/[0.02] overflow-hidden">
                         <button
-                          class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-400 hover:text-gray-300 transition-colors"
+                          class="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
                           @click="reasoningExpanded[message.id] = !reasoningExpanded[message.id]"
                         >
                           <UIcon
                             name="i-heroicons-light-bulb"
-                            class="size-3.5 text-amber-400/70"
+                            class="size-3.5 text-amber-500/70"
                           />
                           <span class="font-medium">Thinking</span>
                           <UIcon
                             :name="reasoningExpanded[message.id] ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
-                            class="size-3 ml-auto"
+                            class="size-3.5 ml-auto transition-transform duration-200"
                           />
                         </button>
                         <div
-                          v-if="reasoningExpanded[message.id]"
-                          class="px-3 pb-3 text-sm text-gray-400 whitespace-pre-wrap border-t border-gray-700/30"
+                          class="collapsible"
+                          :class="{ 'is-open': reasoningExpanded[message.id] }"
                         >
-                          {{ getReasoning(message.id) }}
+                          <div class="collapsible-inner">
+                            <div class="px-3 pb-3 text-sm text-gray-500 dark:text-gray-400 whitespace-pre-wrap border-t border-gray-200/40 dark:border-white/[0.04]">
+                              {{ getReasoning(message.id) }}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </template>
@@ -509,7 +548,7 @@ const submitEditMessage = async () => {
                       <div class="space-y-2">
                         <textarea
                           v-model="editingText"
-                          class="w-full min-h-[80px] rounded-lg bg-gray-800/60 border border-gray-600 text-sm text-gray-100 px-3 py-2 resize-y focus:outline-none focus:ring-1 focus:ring-sky-500"
+                          class="w-full min-h-[80px] rounded-xl bg-gray-100/80 dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] text-sm text-gray-800 dark:text-gray-100 px-3.5 py-2.5 resize-y focus:outline-none focus:ring-2 focus:ring-primary/40 transition-shadow"
                           @keydown.enter.ctrl="submitEditMessage"
                           @keydown.escape="cancelEditMessage"
                         />
@@ -560,13 +599,19 @@ const submitEditMessage = async () => {
                               {{ file.filename || formatMimeType(file.mediaType) }}
                             </UBadge>
                           </div>
+                          <ToolCallDisplay
+                            v-if="message?.role === 'assistant' && hasToolCalls(message.id)"
+                            :tool-calls="getToolCalls(message.id)"
+                            :loading="isToolCallLoading(message.id)"
+                            :error="getToolCallError(message.id)"
+                          />
                         </div>
                       </div>
                       <template v-if="message?.role === 'assistant'">
                         <template v-for="usage in [getTokenUsage(message.id)]" :key="message.id">
                           <div
                             v-if="usage"
-                            class="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400 flex-wrap"
+                            class="flex items-center gap-2.5 mt-2.5 text-[11px] text-gray-400 dark:text-gray-500 flex-wrap"
                           >
                             <span v-if="usage.promptTokens != null" class="inline-flex items-center gap-1">
                               <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
@@ -577,24 +622,28 @@ const submitEditMessage = async () => {
                               {{ formatTokenCount(usage.generationTokens) }}
                             </span>
                             <span v-if="usage.totalTokens != null" class="inline-flex items-center gap-1">
-                              <UIcon name="i-heroicons-calculator" class="size-3" />
                               {{ formatTokenCount(usage.totalTokens) }} tokens
                             </span>
                             <template v-for="cost in [getMessageCost(message.id)]" :key="`cost-${message.id}`">
                               <span
                                 v-if="cost"
-                                class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"
+                                class="inline-flex items-center gap-1 text-emerald-600/80 dark:text-emerald-400/60"
                               >
-                                <UIcon name="i-heroicons-banknotes" class="size-3" />
                                 {{ formatCost(cost.totalCost) }}
                               </span>
                             </template>
+                            <span
+                              v-if="message?.createdAt && formatTimestamp(message.createdAt)"
+                              class="select-none"
+                            >
+                              {{ formatTimestamp(message.createdAt) }}
+                            </span>
                           </div>
                         </template>
                       </template>
                       <div
-                        v-if="message?.createdAt && formatTimestamp(message.createdAt)"
-                        class="mt-1 text-[11px] text-gray-400 dark:text-gray-500 select-none"
+                        v-else-if="message?.createdAt && formatTimestamp(message.createdAt)"
+                        class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500 select-none"
                       >
                         {{ formatTimestamp(message.createdAt) }}
                       </div>
@@ -767,10 +816,21 @@ const submitEditMessage = async () => {
       v-if="isDragOver"
       class="fixed inset-0 z-50 flex items-center justify-center pointer-events-none bg-primary/10 backdrop-blur-sm"
     >
-      <div class="flex flex-col items-center gap-3 text-primary bg-gray-900/80 rounded-2xl px-10 py-8 ring-2 ring-primary ring-inset">
+      <div class="flex flex-col items-center gap-3 text-primary bg-gray-50/90 dark:bg-gray-900/90 rounded-2xl px-10 py-8 ring-2 ring-primary/50 ring-inset shadow-2xl">
         <UIcon name="i-heroicons-arrow-down-tray" class="size-12" />
         <span class="text-lg font-semibold">Drop files to attach</span>
       </div>
     </div>
   </Transition>
 </template>
+
+<style scoped>
+.drag-overlay-enter-active,
+.drag-overlay-leave-active {
+  transition: opacity 0.2s ease;
+}
+.drag-overlay-enter-from,
+.drag-overlay-leave-to {
+  opacity: 0;
+}
+</style>

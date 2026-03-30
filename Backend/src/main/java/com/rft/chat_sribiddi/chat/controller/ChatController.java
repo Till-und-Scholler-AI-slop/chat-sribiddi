@@ -69,9 +69,7 @@ public class ChatController {
       @RequestParam(required = false) Integer limit) {
     validatePrincipal(principal);
     List<MessageResponseDTO> messages =
-        chatService.listMessages(chatId, principal.getSubject(), limit).stream()
-            .map(MessageResponseDTO::from)
-            .toList();
+        chatService.listMessageResponses(chatId, principal.getSubject(), limit);
     return ResponseEntity.ok(messages);
   }
 

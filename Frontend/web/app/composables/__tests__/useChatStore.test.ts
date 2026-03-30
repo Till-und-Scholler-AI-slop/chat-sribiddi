@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendTextToMessage, calculateMessageCost, estimateAssistantOutputTokens, estimateConversationTokens, estimatePreSendCost, estimateTextTokens, extractAssistantText, extractTokenUsage, favoriteModelKey, formatCost, formatRatePerMillion, parseAttachmentContext, resolveStreamOutcome } from '../useChatStore'
+import { appendTextToMessage, calculateMessageCost, estimateAssistantOutputTokens, estimateConversationTokens, estimatePreSendCost, estimateTextTokens, extractAssistantText, extractTokenUsage, favoriteModelKey, filterToolCallLogs, formatCost, formatRatePerMillion, parseAttachmentContext, parsePersistedMessageId, resolveStreamOutcome } from '../useChatStore'
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {
@@ -75,6 +75,34 @@ describe('parseAttachmentContext', () => {
       'image/png',
       'application/pdf'
     ])
+  })
+})
+
+describe('parsePersistedMessageId', () => {
+  it('extracts the backend id from persisted message ids', () => {
+    expect(parsePersistedMessageId('msg-42')).toBe(42)
+  })
+
+  it('returns null for temporary or invalid ids', () => {
+    expect(parsePersistedMessageId('tmp-42')).toBeNull()
+    expect(parsePersistedMessageId('msg-abc')).toBeNull()
+    expect(parsePersistedMessageId(undefined)).toBeNull()
+  })
+})
+
+describe('filterToolCallLogs', () => {
+  const logs = [
+    { toolName: 'BraveSearchTool.searchWeb', messageId: 1, inputPayload: '{}', outputPayload: 'a' },
+    { toolName: 'CurrentDateTimeTool.getCurrentDateTime', messageId: 1, inputPayload: '{}', outputPayload: 'b' }
+  ] as any
+
+  it('returns all logs for an empty filter', () => {
+    expect(filterToolCallLogs(logs, '')).toEqual(logs)
+  })
+
+  it('filters tool calls by tool name case-insensitively', () => {
+    expect(filterToolCallLogs(logs, 'search')).toEqual([logs[0]])
+    expect(filterToolCallLogs(logs, 'datetime')).toEqual([logs[1]])
   })
 })
 

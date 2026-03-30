@@ -66,14 +66,16 @@ describe('parseSseEvents', () => {
   })
 
   it('parses a done event with token usage', () => {
-    const raw = 'event: done\ndata: {"type":"done","content":null,"promptTokens":50,"generationTokens":20,"totalTokens":70}\n\n'
+    const raw = 'event: done\ndata: {"type":"done","content":null,"promptTokens":50,"generationTokens":20,"totalTokens":70,"messageId":123,"hasToolCalls":true}\n\n'
     const events = parseSseEvents(raw)
     expect(events).toEqual([{
       type: 'done',
       content: null,
       promptTokens: 50,
       generationTokens: 20,
-      totalTokens: 70
+      totalTokens: 70,
+      messageId: 123,
+      hasToolCalls: true
     }])
   })
 

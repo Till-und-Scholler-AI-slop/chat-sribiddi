@@ -53,6 +53,18 @@ export type BackendMessage = {
   promptTokens?: number | null
   generationTokens?: number | null
   totalTokens?: number | null
+  hasToolCalls?: boolean
+}
+
+export type ToolCallLog = {
+  id?: number | null
+  messageId: number
+  toolName: string
+  inputPayload: string
+  outputPayload?: string | null
+  startedAt?: string | null
+  durationMs?: number | null
+  contextExcerpt?: string | null
 }
 
 export type TokenUsage = {
@@ -75,6 +87,8 @@ export type StreamEvent = {
   generationTokens?: number | null
   totalTokens?: number | null
   chatTitle?: string | null
+  messageId?: number | null
+  hasToolCalls?: boolean | null
 }
 
 function normalizeSsePayload(raw: string) {
@@ -305,6 +319,10 @@ export function useChatApi() {
     return requestJson<BackendMessage[]>(`/chats/${chatId}/messages${params}`, { method: 'GET' })
   }
 
+  const fetchMessageToolCalls = async (messageId: number) => {
+    return requestJson<ToolCallLog[]>(`/messages/${messageId}/tool-calls`, { method: 'GET' })
+  }
+
   const sendMessage = async (
     chatId: string,
     input: SendMessageInput,
@@ -516,6 +534,7 @@ export function useChatApi() {
     createChat,
     fetchChats,
     fetchChatMessages,
+    fetchMessageToolCalls,
     sendMessage,
     streamMessage,
     editAndStreamMessage,

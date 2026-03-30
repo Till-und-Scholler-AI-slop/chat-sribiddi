@@ -9,6 +9,8 @@ package com.rft.chat_sribiddi.chat.dto;
  * @param generationTokens token count (only on {@code done})
  * @param totalTokens token count (only on {@code done})
  * @param chatTitle updated chat title when auto-set from the first message (only on {@code done})
+ * @param messageId persisted assistant message id (only on {@code done})
+ * @param hasToolCalls whether the persisted assistant message has stored tool call logs
  */
 public record StreamEventDTO(
     String type,
@@ -16,4 +18,6 @@ public record StreamEventDTO(
     Long promptTokens,
     Long generationTokens,
     Long totalTokens,
-    String chatTitle) {}
+    String chatTitle,
+    Long messageId,
+    Boolean hasToolCalls) {}
