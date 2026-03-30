@@ -35,7 +35,6 @@ public class UsageService {
       entity.setOutputTokens(outputTokens);
       entity.setTotalTokens(totalTokens);
       entity.setEstimatedCost(cost);
-      entity.setCreatedAt(Instant.now());
 
       usageStatsRepository.save(entity);
       log.debug("Recorded usage for user={}, model={}, tokens={}", userId, model, totalTokens);

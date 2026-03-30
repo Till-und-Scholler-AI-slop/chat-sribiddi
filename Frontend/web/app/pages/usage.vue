@@ -23,7 +23,6 @@ const toast = useToast()
 
 const loading = ref(true)
 const period = ref<'7' | '30' | '90'>('30')
-const groupBy = ref<'day' | 'model' | 'provider' | 'chat'>('day')
 
 const dayData = ref<UsageResponse | null>(null)
 const modelData = ref<UsageResponse | null>(null)

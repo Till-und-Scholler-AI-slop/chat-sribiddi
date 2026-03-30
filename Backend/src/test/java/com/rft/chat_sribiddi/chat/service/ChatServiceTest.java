@@ -403,6 +403,10 @@ class ChatServiceTest {
     assertThat(assistantMsg.getPromptTokens()).isEqualTo(50L);
     assertThat(assistantMsg.getGenerationTokens()).isEqualTo(20L);
     assertThat(assistantMsg.getTotalTokens()).isEqualTo(70L);
+
+    verify(usageService).recordUsage(
+        eq(userId), eq(chatId), eq("gpt-5.2"), eq("OPENAI"),
+        eq(50L), eq(20L), eq(70L));
   }
 
   @Test
