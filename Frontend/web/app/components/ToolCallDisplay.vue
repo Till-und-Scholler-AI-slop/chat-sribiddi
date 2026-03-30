@@ -20,6 +20,8 @@ type ParsedWebSearch = {
   results: ParsedSearchResult[]
 }
 
+const OUTPUT_HEADER = 'Web search results'
+
 const isWebSearch = computed(() =>
   props.toolCalls.length > 0 && props.toolCalls.some(tc => tc.toolName.toLowerCase().includes('search'))
 )
@@ -77,7 +79,7 @@ const webSearchData = computed((): ParsedWebSearch | null => {
     }
 
     // Anything else is description (if we have a title)
-    if (currentTitle && trimmed && !trimmed.startsWith('Web search results')) {
+    if (currentTitle && trimmed && !trimmed.startsWith(OUTPUT_HEADER)) {
       if (currentDesc) currentDesc += ' '
       currentDesc += trimmed
     }
@@ -111,9 +113,14 @@ function extractDomain(url: string): string {
 }
 
 const expanded = ref(false)
+const brokenFavicons = ref(new Set<number>())
 
 function toggle() {
   expanded.value = !expanded.value
+}
+
+function onFaviconError(index: number) {
+  brokenFavicons.value.add(index)
 }
 </script>
 
@@ -182,11 +189,12 @@ function toggle() {
                   :class="{ 'border-t border-gray-200/60 dark:border-white/[0.04]': idx > 0 }"
                 >
                   <img
+                    v-if="!brokenFavicons.has(idx)"
                     :src="result.favicon"
                     :alt="result.domain"
                     class="size-4 rounded-sm flex-shrink-0"
                     loading="lazy"
-                    @error="($event.target as HTMLImageElement).style.display='none'"
+                    @error="onFaviconError(idx)"
                   >
                   <span class="flex-1 truncate text-sm text-gray-700 dark:text-gray-300">
                     {{ result.title }}
