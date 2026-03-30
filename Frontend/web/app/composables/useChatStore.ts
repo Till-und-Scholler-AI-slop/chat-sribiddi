@@ -86,6 +86,18 @@ export type MessagePricing = {
   requestPrice: string | null
 }
 
+export type EstimatedCostBreakdown = {
+  inputTokens: number
+  estimatedOutputTokens: number
+  promptCost: number | null
+  completionCost: number | null
+  totalCost: number
+}
+
+const MESSAGE_OVERHEAD_TOKENS = 4
+const FILE_PART_TOKENS = 12
+const DEFAULT_ESTIMATED_OUTPUT_TOKENS = 256
+
 /**
  * Calculates the estimated cost for a message based on token usage and model pricing.
  * Pricing values are per-token strings from the OpenRouter API (e.g. "0.000005").
@@ -93,6 +105,93 @@ export type MessagePricing = {
  */
 function parsePrice(value: string | null | undefined): number {
   return value ? Number(value) : NaN
+}
+
+export function estimateTextTokens(text: string): number {
+  const normalized = text.trim()
+  if (!normalized) return 0
+  return Math.max(1, Math.ceil(normalized.length / 4))
+}
+
+function estimateMessageTokens(message: Pick<UIMessage, 'parts'>): number {
+  const textTokens = estimateTextTokens(getFirstTextContent(message as UIMessage))
+  const filePartCount = message.parts.filter(part => part.type === 'file').length
+
+  if (textTokens === 0 && filePartCount === 0) {
+    return 0
+  }
+
+  return textTokens + MESSAGE_OVERHEAD_TOKENS + (filePartCount * FILE_PART_TOKENS)
+}
+
+export function estimateConversationTokens(
+  messages: Array<Pick<UIMessage, 'parts'>>,
+  pendingPrompt: string,
+  pendingAttachmentCount = 0
+): number {
+  const historyTokens = messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
+  const pendingPromptTokens = estimateTextTokens(pendingPrompt)
+  const pendingAttachmentTokens = pendingAttachmentCount > 0 ? pendingAttachmentCount * FILE_PART_TOKENS : 0
+
+  if (pendingPromptTokens === 0 && pendingAttachmentTokens === 0) {
+    return historyTokens
+  }
+
+  return historyTokens + pendingPromptTokens + MESSAGE_OVERHEAD_TOKENS + pendingAttachmentTokens
+}
+
+export function estimateAssistantOutputTokens(
+  messages: Array<Pick<UIMessage, 'id' | 'role' | 'parts'>>,
+  tokenUsageByMessageId: Record<string, TokenUsage> = {}
+): number {
+  const assistantTokenEstimates = messages
+    .filter(message => message.role === 'assistant')
+    .map(message => {
+      const generatedTokens = tokenUsageByMessageId[message.id]?.generationTokens
+      return generatedTokens ?? estimateTextTokens(getFirstTextContent(message as UIMessage))
+    })
+    .filter(tokens => tokens > 0)
+
+  if (assistantTokenEstimates.length === 0) {
+    return DEFAULT_ESTIMATED_OUTPUT_TOKENS
+  }
+
+  const total = assistantTokenEstimates.reduce((sum, tokens) => sum + tokens, 0)
+  return Math.max(1, Math.round(total / assistantTokenEstimates.length))
+}
+
+export function estimatePreSendCost(
+  messages: Array<Pick<UIMessage, 'id' | 'role' | 'parts'>>,
+  pendingPrompt: string,
+  model: { promptPrice?: string | null; completionPrice?: string | null } | null | undefined,
+  tokenUsageByMessageId: Record<string, TokenUsage> = {},
+  pendingAttachmentCount = 0
+): EstimatedCostBreakdown | null {
+  if (!model) return null
+
+  const inputTokens = estimateConversationTokens(messages, pendingPrompt, pendingAttachmentCount)
+  const estimatedOutputTokens = estimateAssistantOutputTokens(messages, tokenUsageByMessageId)
+  const promptRate = parsePrice(model.promptPrice)
+  const completionRate = parsePrice(model.completionPrice)
+
+  const hasPromptPricing = !Number.isNaN(promptRate)
+  const hasCompletionPricing = !Number.isNaN(completionRate)
+
+  if (!hasPromptPricing && !hasCompletionPricing) {
+    return null
+  }
+
+  const promptCost = hasPromptPricing ? inputTokens * promptRate : null
+  const completionCost = hasCompletionPricing ? estimatedOutputTokens * completionRate : null
+  const totalCost = (promptCost ?? 0) + (completionCost ?? 0)
+
+  return {
+    inputTokens,
+    estimatedOutputTokens,
+    promptCost,
+    completionCost,
+    totalCost
+  }
 }
 
 export function calculateMessageCost(

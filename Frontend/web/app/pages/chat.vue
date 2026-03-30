@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
-import { calculateMessageCost, formatCost, formatRatePerMillion } from '~/composables/useChatStore'
+import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/useChatStore'
 
 definePageMeta({
   layout: 'default'
@@ -36,6 +36,7 @@ const {
   tokenUsageMap,
   webSearchEnabled
 } = useChatStore()
+const { settings } = useUserSettings()
 
 const input = ref('')
 const attachments = ref<MediaAttachment[]>([])
@@ -154,6 +155,38 @@ const modelPricingSummary = computed(() => {
 
 const optionPriceLabel = (option: ModelOption): string | null =>
   formatRatePerMillion(option.promptPrice)
+
+const pendingPromptText = computed(() => {
+  const trimmed = input.value.trim()
+  if (trimmed) return trimmed
+  return attachments.value.length ? 'Please analyze the attachment.' : ''
+})
+
+const preSendCostEstimate = computed(() => {
+  if (!settings.value.showPreSendCostEstimate || status.value !== 'ready') return null
+
+  const conversation = activeConversation.value
+  const model = selectedModel.value
+  const pendingText = pendingPromptText.value
+
+  if (!conversation || !model || !pendingText) return null
+
+  return estimatePreSendCost(
+    conversation.messages,
+    pendingText,
+    model,
+    tokenUsageMap.value,
+    attachments.value.length
+  )
+})
+
+const preSendPromptRateLabel = computed(() =>
+  formatRatePerMillion(selectedModel.value?.promptPrice)
+)
+
+const preSendCompletionRateLabel = computed(() =>
+  formatRatePerMillion(selectedModel.value?.completionPrice)
+)
 
 const toDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -710,11 +743,52 @@ const submitEditMessage = async () => {
               </span>
             </template>
 
-            <UChatPromptSubmit
-              :status="status"
-              @stop="handleStop"
-              @reload="handleReload"
-            />
+            <div class="flex items-center gap-2">
+              <UTooltip
+                v-if="preSendCostEstimate"
+                :content="{ side: 'top', align: 'end' }"
+              >
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                  :aria-label="`Estimated request cost ${formatCost(preSendCostEstimate.totalCost)}`"
+                >
+                  <UIcon name="i-heroicons-banknotes" class="size-3" />
+                  ~{{ formatCost(preSendCostEstimate.totalCost) }}
+                </button>
+                <template #content>
+                  <div class="space-y-2 text-xs">
+                    <div class="font-medium text-gray-900 dark:text-gray-100">
+                      Estimated request cost
+                    </div>
+                    <div class="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 whitespace-nowrap">
+                      <span class="text-gray-500 dark:text-gray-400">Input tokens</span>
+                      <span class="text-right text-gray-900 dark:text-gray-100">
+                        {{ formatTokenCount(preSendCostEstimate.inputTokens) }}
+                      </span>
+                      <span class="text-gray-500 dark:text-gray-400">Estimated output</span>
+                      <span class="text-right text-gray-900 dark:text-gray-100">
+                        {{ formatTokenCount(preSendCostEstimate.estimatedOutputTokens) }}
+                      </span>
+                      <span class="text-gray-500 dark:text-gray-400">Input price / 1M</span>
+                      <span class="text-right text-gray-900 dark:text-gray-100">
+                        {{ preSendPromptRateLabel || '—' }}
+                      </span>
+                      <span class="text-gray-500 dark:text-gray-400">Output price / 1M</span>
+                      <span class="text-right text-gray-900 dark:text-gray-100">
+                        {{ preSendCompletionRateLabel || '—' }}
+                      </span>
+                    </div>
+                  </div>
+                </template>
+              </UTooltip>
+
+              <UChatPromptSubmit
+                :status="status"
+                @stop="handleStop"
+                @reload="handleReload"
+              />
+            </div>
           </UChatPrompt>
         </UContainer>
       </div>

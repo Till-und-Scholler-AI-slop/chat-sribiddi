@@ -5,7 +5,7 @@ definePageMeta({
   layout: 'default'
 })
 
-const { hydrated} = useUserSettings()
+const { settings, hydrated} = useUserSettings()
 const {getStatus, saveKey, deleteKey} = useKeyApi()
 const {getCustomInstructions, saveCustomInstructions} = useInstructionsApi()
 const {deleteAccount} = useChatApi()
@@ -532,6 +532,23 @@ async function handleDeleteAccount() {
                 </div>
               </div>
             </UCard>
+          </UCard>
+
+          <UCard>
+            <div class="space-y-4">
+              <div class="space-y-1">
+                <div class="text-lg font-semibold">Chat UI</div>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  Customize optional chat helpers shown before you send a message.
+                </p>
+              </div>
+
+              <UCheckbox
+                v-model="settings.showPreSendCostEstimate"
+                label="Show pre-send cost estimate"
+                description="Displays a small estimated request cost next to the send button using the current chat context and model pricing."
+              />
+            </div>
           </UCard>
 
           <UCard>

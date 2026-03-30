@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendTextToMessage, calculateMessageCost, extractAssistantText, extractTokenUsage, favoriteModelKey, filterToolCallLogs, formatCost, formatRatePerMillion, parseAttachmentContext, parsePersistedMessageId, resolveStreamOutcome } from '../useChatStore'
+import { appendTextToMessage, calculateMessageCost, estimateAssistantOutputTokens, estimateConversationTokens, estimatePreSendCost, estimateTextTokens, extractAssistantText, extractTokenUsage, favoriteModelKey, filterToolCallLogs, formatCost, formatRatePerMillion, parseAttachmentContext, parsePersistedMessageId, resolveStreamOutcome } from '../useChatStore'
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {
@@ -293,6 +293,76 @@ describe('calculateMessageCost', () => {
     const cost = calculateMessageCost(usage, model)
     expect(cost).not.toBeNull()
     expect(cost!.totalCost).toBe(0)
+  })
+})
+
+describe('estimateTextTokens', () => {
+  it('returns zero for blank input', () => {
+    expect(estimateTextTokens('   ')).toBe(0)
+  })
+
+  it('estimates roughly one token per four characters', () => {
+    expect(estimateTextTokens('abcdefgh')).toBe(2)
+  })
+})
+
+describe('estimateConversationTokens', () => {
+  it('counts chat history, the pending prompt, and attachment overhead', () => {
+    const messages = [
+      { parts: [{ type: 'text', text: 'Hello there' }] },
+      { parts: [{ type: 'text', text: 'General Kenobi' }] }
+    ] as any
+
+    expect(estimateConversationTokens(messages, 'What now?', 2)).toBe(46)
+  })
+})
+
+describe('estimateAssistantOutputTokens', () => {
+  it('averages prior assistant generation token usage when available', () => {
+    const messages = [
+      { id: 'msg-1', role: 'assistant', parts: [{ type: 'text', text: 'First reply' }] },
+      { id: 'msg-2', role: 'assistant', parts: [{ type: 'text', text: 'Second reply' }] }
+    ] as any
+
+    expect(estimateAssistantOutputTokens(messages, {
+      'msg-1': { promptTokens: 10, generationTokens: 120, totalTokens: 130 },
+      'msg-2': { promptTokens: 12, generationTokens: 180, totalTokens: 192 }
+    })).toBe(150)
+  })
+
+  it('falls back to assistant text estimates and a default for empty chats', () => {
+    expect(estimateAssistantOutputTokens([], {})).toBe(256)
+    expect(estimateAssistantOutputTokens([
+      { id: 'msg-3', role: 'assistant', parts: [{ type: 'text', text: '12345678' }] }
+    ] as any)).toBe(2)
+  })
+})
+
+describe('estimatePreSendCost', () => {
+  it('calculates estimated input and output costs from chat history and model pricing', () => {
+    const messages = [
+      { id: 'msg-1', role: 'user', parts: [{ type: 'text', text: 'Hello there' }] },
+      { id: 'msg-2', role: 'assistant', parts: [{ type: 'text', text: 'General Kenobi' }] }
+    ] as any
+    const estimate = estimatePreSendCost(
+      messages,
+      'What now?',
+      { promptPrice: '0.000005', completionPrice: '0.000015', requestPrice: '0.1' } as any,
+      {
+        'msg-2': { promptTokens: 10, generationTokens: 120, totalTokens: 130 }
+      }
+    )
+
+    expect(estimate).not.toBeNull()
+    expect(estimate!.inputTokens).toBe(22)
+    expect(estimate!.estimatedOutputTokens).toBe(120)
+    expect(estimate!.promptCost).toBeCloseTo(0.00011)
+    expect(estimate!.completionCost).toBeCloseTo(0.0018)
+    expect(estimate!.totalCost).toBeCloseTo(0.00191)
+  })
+
+  it('returns null when the model has no token pricing', () => {
+    expect(estimatePreSendCost([], 'Hello', { promptPrice: null, completionPrice: null })).toBeNull()
   })
 })
 
