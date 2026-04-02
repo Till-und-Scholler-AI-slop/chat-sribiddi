@@ -333,6 +333,7 @@ async function handleDeleteAccount() {
 </script>
 
 <template>
+  <div>
   <UDashboardPanel>
     <template #header>
       <UDashboardNavbar title="Settings"/>
@@ -643,4 +644,5 @@ async function handleDeleteAccount() {
       </UContainer>
     </template>
   </UDashboardPanel>
+  </div>
 </template>
