@@ -4,6 +4,7 @@ definePageMeta({
 })
 </script>
 <template>
+  <div>
   <UDashboardPanel resizable>
     <template #header>
       <UDashboardNavbar title="Chat Sribiddi">
@@ -14,6 +15,7 @@ definePageMeta({
 
     </template>
   </UDashboardPanel>
+  </div>
 </template>
 
 

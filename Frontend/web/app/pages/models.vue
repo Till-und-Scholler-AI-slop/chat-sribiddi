@@ -159,6 +159,7 @@ onMounted(async () => {
 </script>
 
 <template>
+  <div>
   <UDashboardPanel>
     <template #header>
       <UDashboardNavbar
@@ -380,4 +381,5 @@ onMounted(async () => {
       </UContainer>
     </template>
   </UDashboardPanel>
+  </div>
 </template>

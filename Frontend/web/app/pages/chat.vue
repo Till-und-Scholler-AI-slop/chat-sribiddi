@@ -473,6 +473,7 @@ const submitEditMessage = async () => {
 </script>
 
 <template>
+  <div class="h-full">
   <UDashboardPanel class="h-full flex flex-col">
     <template #body>
       <UContainer class="py-4 space-y-4 flex-1 overflow-hidden flex flex-col">
@@ -861,6 +862,7 @@ const submitEditMessage = async () => {
       </div>
     </div>
   </Transition>
+  </div>
 </template>
 
 <style scoped>
