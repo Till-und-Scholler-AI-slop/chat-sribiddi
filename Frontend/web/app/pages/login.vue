@@ -42,8 +42,8 @@ onMounted(async () => {
     <UCard class="card-elevated">
       <div class="space-y-8 py-2">
         <div class="space-y-3 text-center">
-          <div class="welcome-hero !p-0">
-            <h2 class="!text-3xl !mb-2">Chat Sribiddi</h2>
+          <div class="welcome-hero welcome-hero-login">
+            <h2>Chat Sribiddi</h2>
           </div>
           <p class="text-sm text-gray-600 dark:text-gray-400">
             Sign in with your Google account to continue.

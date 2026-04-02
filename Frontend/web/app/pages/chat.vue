@@ -496,13 +496,13 @@ const submitEditMessage = async () => {
               Pick a model above and start chatting with AI. Attach files, search the web, and more.
             </p>
             <div class="mt-6 flex flex-wrap justify-center gap-3">
-              <button class="prompt-suggestion" @click="input = 'Explain quantum computing in simple terms'; handleSubmit()">
+              <button class="prompt-suggestion" aria-label="Ask about quantum computing" @click="input = 'Explain quantum computing in simple terms'; handleSubmit()">
                 💡 Explain quantum computing
               </button>
-              <button class="prompt-suggestion" @click="input = 'Write a Python function to sort a list'; handleSubmit()">
+              <button class="prompt-suggestion" aria-label="Generate a Python function" @click="input = 'Write a Python function to sort a list'; handleSubmit()">
                 🐍 Write a Python function
               </button>
-              <button class="prompt-suggestion" @click="input = 'What are the latest trends in AI?'; handleSubmit()">
+              <button class="prompt-suggestion" aria-label="Learn about AI trends" @click="input = 'What are the latest trends in AI?'; handleSubmit()">
                 🤖 Latest AI trends
               </button>
             </div>
@@ -725,7 +725,7 @@ const submitEditMessage = async () => {
             <div
               v-for="(item, index) in attachments"
               :key="`${item.name || item.mimeType}-${index}`"
-              class="animate-scale-in flex items-center gap-2 rounded-lg border border-gray-200/80 dark:border-white/[0.06] bg-gray-100/50 dark:bg-white/[0.03] px-3 py-2 text-sm"
+              class="animate-scale-in attachment-card"
             >
               <UIcon :name="fileIcon(item.mimeType)" class="size-4 text-gray-500" />
               <span class="truncate max-w-[150px]">{{ item.name || item.mimeType }}</span>
