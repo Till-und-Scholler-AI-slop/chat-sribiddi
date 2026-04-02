@@ -38,18 +38,20 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="mx-auto mt-8 max-w-md">
-    <UCard>
-      <div class="space-y-6">
-        <div class="space-y-2 text-center">
-          <h1 class="text-2xl font-semibold">Login</h1>
+  <div class="mx-auto mt-16 max-w-md animate-fade-in-up">
+    <UCard class="card-elevated">
+      <div class="space-y-8 py-2">
+        <div class="space-y-3 text-center">
+          <div class="welcome-hero welcome-hero-login">
+            <h2>Chat Sribiddi</h2>
+          </div>
           <p class="text-sm text-gray-600 dark:text-gray-400">
             Sign in with your Google account to continue.
           </p>
         </div>
 
-        <div v-if="checking" class="space-y-2">
-          <USkeleton class="h-11 w-full" />
+        <div v-if="checking" class="space-y-3">
+          <div class="skeleton-shimmer h-12 w-full" />
           <p class="text-center text-xs text-gray-500 dark:text-gray-400">
             Checking current session...
           </p>
@@ -61,8 +63,9 @@ onMounted(async () => {
             color="primary"
             icon="i-heroicons-arrow-right-circle"
             :href="loginUrl"
-            size="lg"
+            size="xl"
             label="Continue with Google"
+            class="btn-interactive"
           />
         </div>
 
@@ -77,9 +80,9 @@ onMounted(async () => {
 
         <p class="text-center text-xs text-gray-500 dark:text-gray-400">
           Legal:
-          <NuxtLink to="/impressum" class="underline underline-offset-2">Impressum</NuxtLink>
+          <NuxtLink to="/impressum" class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">Impressum</NuxtLink>
           and
-          <NuxtLink to="/datenschutz" class="underline underline-offset-2">Datenschutz</NuxtLink>.
+          <NuxtLink to="/datenschutz" class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">Datenschutz</NuxtLink>.
         </p>
       </div>
     </UCard>

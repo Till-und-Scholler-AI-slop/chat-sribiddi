@@ -176,10 +176,10 @@ onMounted(async () => {
           :description="modelsError"
         />
 
-        <UCard>
+        <UCard class="card-elevated">
           <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div class="space-y-1">
-              <div class="text-lg font-semibold">Browse available models</div>
+              <div class="text-lg font-semibold tracking-tight">Browse available models</div>
               <p class="text-sm text-gray-500 dark:text-gray-400">
                 Compare providers, pricing, and context windows before choosing a model for chat.
               </p>
@@ -204,7 +204,7 @@ onMounted(async () => {
         </UCard>
 
         <div v-if="modelsLoading && !models.length" class="grid gap-4 xl:grid-cols-2">
-          <USkeleton v-for="index in 6" :key="index" class="h-56" />
+          <div v-for="index in 6" :key="index" class="skeleton-shimmer h-56" />
         </div>
 
         <UEmptyState
@@ -212,13 +212,14 @@ onMounted(async () => {
           icon="i-heroicons-cpu-chip"
           title="No models found"
           description="Try a different provider filter, or add an API key to load live provider catalogs."
+          class="animate-fade-in-up"
         />
 
-        <div v-else class="grid gap-4 xl:grid-cols-2">
+        <div v-else class="grid gap-4 xl:grid-cols-2 stagger-children">
           <UCard
             v-for="model in paginatedModels"
             :key="`${model.provider}:${model.value}`"
-            class="h-full"
+            class="h-full card-elevated"
           >
             <div class="flex h-full flex-col gap-4">
               <div class="flex items-start justify-between gap-3">
@@ -249,6 +250,7 @@ onMounted(async () => {
                     variant="ghost"
                     size="sm"
                     :aria-label="isFavorite(model) ? 'Remove from favorites' : 'Add to favorites'"
+                    class="btn-interactive"
                     @click="toggleFavorite(model)"
                   />
                   <UButton
@@ -257,6 +259,7 @@ onMounted(async () => {
                     size="sm"
                     icon="i-heroicons-arrow-right-circle"
                     label="Use model"
+                    class="btn-interactive"
                     @click="useModel(model)"
                   />
                 </div>

@@ -342,16 +342,16 @@ async function handleDeleteAccount() {
       <UContainer class="py-8 space-y-8">
 
         <div v-if="!hydrated" class="space-y-4">
-          <USkeleton class="h-14"/>
-          <USkeleton class="h-14"/>
-          <USkeleton class="h-14"/>
+          <div class="skeleton-shimmer h-14"/>
+          <div class="skeleton-shimmer h-14"/>
+          <div class="skeleton-shimmer h-14"/>
         </div>
 
         <div v-else class="space-y-8">
-          <UCard>
+          <UCard class="card-elevated">
             <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
               <div class="space-y-1">
-                <div class="text-lg font-semibold">Model API keys</div>
+                <div class="text-lg font-semibold tracking-tight">Model API keys</div>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   Save keys per provider. Each key is stored encrypted in the backend.
                 </p>
@@ -375,11 +375,14 @@ async function handleDeleteAccount() {
               </div>
             </div>
 
-            <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
-              <UCard v-for="item in providerCards" :key="item.provider" class="flex flex-col">
+            <div class="grid grid-cols-1 gap-6 xl:grid-cols-2 stagger-children">
+              <UCard v-for="item in providerCards" :key="item.provider" class="flex flex-col card-elevated">
                 <div class="flex flex-col gap-5 h-full">
                   <div class="flex items-center justify-between gap-3">
-                    <div class="text-base font-semibold">{{ item.title }}</div>
+                    <div class="flex items-center gap-2">
+                      <span class="status-dot" :class="statusByProvider(item.provider) ? 'status-dot-active' : 'status-dot-inactive'" />
+                      <div class="text-base font-semibold">{{ item.title }}</div>
+                    </div>
                     <UBadge
                         variant="soft"
                         :color="statusByProvider(item.provider) ? 'primary' : 'neutral'"
@@ -429,6 +432,7 @@ async function handleDeleteAccount() {
                             size="sm"
                             icon="i-heroicons-check-circle"
                             label="Save key"
+                            class="btn-interactive"
                             :loading="savingProvider[item.provider]"
                             :disabled="!keyPresent(item.provider) || isProviderBusy(item.provider)"
                             @click="handleSave(item.provider)"
@@ -453,10 +457,10 @@ async function handleDeleteAccount() {
           </UCard>
         
 
-          <UCard>
+          <UCard class="card-elevated">
             <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
               <div class="space-y-1">
-                <div class="text-lg font-semibold">Web Search</div>
+                <div class="text-lg font-semibold tracking-tight">Web Search</div>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   Configure the Brave Search API to enable web search in chat.
                   The AI can search the web when the toggle is activated in the chat prompt.
@@ -469,10 +473,13 @@ async function handleDeleteAccount() {
               />
             </div>
 
-            <UCard class="flex flex-col">
+            <UCard class="flex flex-col card-elevated">
               <div class="flex flex-col gap-5 h-full">
                 <div class="flex items-center justify-between gap-3">
-                  <div class="text-base font-semibold">Brave Search</div>
+                  <div class="flex items-center gap-2">
+                    <span class="status-dot" :class="braveSearchStatus ? 'status-dot-active' : 'status-dot-inactive'" />
+                    <div class="text-base font-semibold">Brave Search</div>
+                  </div>
                   <UBadge
                       variant="soft"
                       :color="braveSearchStatus ? 'primary' : 'neutral'"
@@ -512,6 +519,7 @@ async function handleDeleteAccount() {
                           size="sm"
                           icon="i-heroicons-check-circle"
                           label="Save key"
+                          class="btn-interactive"
                           :loading="savingBraveSearch"
                           :disabled="!braveSearchKey.trim() || savingBraveSearch || deletingBraveSearch"
                           @click="handleSaveBraveSearch"
@@ -534,10 +542,10 @@ async function handleDeleteAccount() {
             </UCard>
           </UCard>
 
-          <UCard>
+          <UCard class="card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
-                <div class="text-lg font-semibold">Chat UI</div>
+                <div class="text-lg font-semibold tracking-tight">Chat UI</div>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   Customize optional chat helpers shown before you send a message.
                 </p>
@@ -551,15 +559,15 @@ async function handleDeleteAccount() {
             </div>
           </UCard>
 
-          <UCard>
+          <UCard class="card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
-                <div class="text-lg font-semibold">Custom instructions</div>
+                <div class="text-lg font-semibold tracking-tight">Custom instructions</div>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   Add personal instructions that will be appended to the system prompt in every conversation. The base system prompt is always preserved.
                 </p>
               </div>
-              <USkeleton v-if="loadingInstructions" class="h-28" />
+              <div v-if="loadingInstructions" class="skeleton-shimmer h-28" />
               <div v-else class="space-y-3">
                 <UTextarea
                     v-model="customInstructions"
@@ -576,6 +584,7 @@ async function handleDeleteAccount() {
                       size="sm"
                       icon="i-heroicons-check-circle"
                       label="Save instructions"
+                      class="btn-interactive"
                       :loading="savingInstructions"
                       @click="handleSaveInstructions"
                   />
@@ -584,10 +593,10 @@ async function handleDeleteAccount() {
             </div>
           </UCard>
 
-          <UCard class="border border-red-500/30">
+          <UCard class="border border-red-500/30 card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
-                <div class="text-lg font-semibold text-red-500">Danger Zone</div>
+                <div class="text-lg font-semibold tracking-tight text-red-500">Danger Zone</div>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   Permanently delete your account and all associated data including chats, messages, and stored API keys. This action cannot be undone.
                 </p>

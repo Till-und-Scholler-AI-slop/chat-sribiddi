@@ -141,6 +141,12 @@ const providerLabel = (provider: ModelOption['provider']) =>
         ? 'Claude'
         : 'OpenRouter'
 
+const isLastMessage = (message?: { id?: string }) => {
+  const msgs = activeConversation.value?.messages
+  if (!msgs || !message?.id) return false
+  return msgs[msgs.length - 1]?.id === message.id
+}
+
 const modelPricingSummary = computed(() => {
   const model = selectedModel.value
   const p = formatRatePerMillion(model?.promptPrice)
@@ -478,21 +484,32 @@ const submitEditMessage = async () => {
         />
 
         <div v-if="initializing" class="space-y-3">
-          <USkeleton class="h-14" />
-          <USkeleton class="h-24" />
-          <USkeleton class="h-14" />
+          <div class="skeleton-shimmer h-14" />
+          <div class="skeleton-shimmer h-24" />
+          <div class="skeleton-shimmer h-14" />
         </div>
 
         <div v-else-if="!activeConversation">
-          <UEmptyState
-            icon="i-heroicons-chat-bubble-left-right"
-            title="No chat yet"
-            description="Start a new chat to talk to the backend models."
-          >
-            <UButton color="primary" icon="i-heroicons-plus" @click="startChat()">
+          <div class="welcome-hero animate-fade-in-up">
+            <h2>Chat Sribiddi</h2>
+            <p class="mt-3 text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
+              Pick a model above and start chatting with AI. Attach files, search the web, and more.
+            </p>
+            <div class="mt-6 flex flex-wrap justify-center gap-3">
+              <button class="prompt-suggestion" aria-label="Ask about quantum computing" @click="input = 'Explain quantum computing in simple terms'; handleSubmit()">
+                💡 Explain quantum computing
+              </button>
+              <button class="prompt-suggestion" aria-label="Generate a Python function" @click="input = 'Write a Python function to sort a list'; handleSubmit()">
+                🐍 Write a Python function
+              </button>
+              <button class="prompt-suggestion" aria-label="Learn about AI trends" @click="input = 'What are the latest trends in AI?'; handleSubmit()">
+                🤖 Latest AI trends
+              </button>
+            </div>
+            <UButton color="primary" icon="i-heroicons-plus" class="mt-6 btn-interactive" @click="startChat()">
               Start chat
             </UButton>
-          </UEmptyState>
+          </div>
         </div>
 
         <div v-else class="space-y-4 flex-1 min-h-0 flex flex-col">
@@ -507,8 +524,8 @@ const submitEditMessage = async () => {
           </div>
 
           <div class="flex-1 min-h-0">
-            <UCard class="h-full" :ui="{ body: 'h-full overflow-hidden' }">
-              <div ref="messagesContainer" class="h-full overflow-y-auto scrollbar-none">
+            <UCard class="h-full card-elevated" :ui="{ body: 'h-full overflow-hidden' }">
+              <div ref="messagesContainer" class="h-full overflow-y-auto scrollbar-thin">
                 <UChatMessages
                   class="h-full"
                   :messages="activeConversation.messages"
@@ -558,6 +575,7 @@ const submitEditMessage = async () => {
                             color="primary"
                             icon="i-heroicons-check"
                             label="Save & regenerate"
+                            class="btn-interactive"
                             :disabled="!editingText.trim()"
                             @click="submitEditMessage"
                           />
@@ -574,19 +592,26 @@ const submitEditMessage = async () => {
                     </template>
                     <template v-else>
                       <div class="group relative">
-                        <UButton
+                        <div
                           v-if="showEditMessageButton(message)"
-                          class="absolute -left-7 top-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity"
-                          size="xs"
-                          color="neutral"
-                          variant="ghost"
-                          icon="i-heroicons-pencil-square"
-                          :padded="false"
-                          aria-label="Edit message"
-                          @click="startEditMessage(message.id, firstText(parts))"
-                        />
-                        <div>
-                          <MarkdownMessage :text="firstText(parts)" />
+                          class="msg-actions absolute -left-7 top-0.5"
+                        >
+                          <UButton
+                            size="xs"
+                            color="neutral"
+                            variant="ghost"
+                            icon="i-heroicons-pencil-square"
+                            :padded="false"
+                            aria-label="Edit message"
+                            class="btn-interactive"
+                            @click="startEditMessage(message.id, firstText(parts))"
+                          />
+                        </div>
+                        <div :class="message?.role === 'user' ? 'msg-user' : message?.role === 'assistant' ? 'msg-assistant' : ''">
+                          <MarkdownMessage
+                            :text="firstText(parts)"
+                            :class="message?.role === 'assistant' && status === 'streaming' && isLastMessage(message) ? 'streaming-cursor' : ''"
+                          />
                           <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
                             <UBadge
                               v-for="(file, idx) in getFileParts(parts)"
@@ -608,6 +633,13 @@ const submitEditMessage = async () => {
                         </div>
                       </div>
                       <template v-if="message?.role === 'assistant'">
+                        <!-- Typing indicator before first content -->
+                        <div
+                          v-if="status === 'streaming' && isLastMessage(message) && !firstText(parts)"
+                          class="typing-dots"
+                        >
+                          <span /><span /><span />
+                        </div>
                         <template v-for="usage in [getTokenUsage(message.id)]" :key="message.id">
                           <div
                             v-if="usage"
@@ -658,7 +690,7 @@ const submitEditMessage = async () => {
     </template>
 
     <template #footer>
-      <div class="relative">
+      <div class="relative glass-surface-light border-t border-gray-200/60 dark:border-white/[0.06]">
 
         <UContainer class="pb-4 sm:pb-6 space-y-2">
           <div class="flex items-center gap-2 flex-wrap">
@@ -675,6 +707,7 @@ const submitEditMessage = async () => {
               color="neutral"
               icon="i-heroicons-paper-clip"
               label="Add attachments"
+              class="btn-interactive"
               @click="fileInput?.click()"
             />
             <UButton
@@ -684,22 +717,28 @@ const submitEditMessage = async () => {
               color="neutral"
               icon="i-heroicons-x-mark"
               label="Clear"
+              class="btn-interactive"
               @click="clearAttachments"
             />
           </div>
 
           <div v-if="attachments.length" class="flex flex-wrap gap-2">
-            <UBadge
+            <div
               v-for="(item, index) in attachments"
               :key="`${item.name || item.mimeType}-${index}`"
-              variant="soft"
-              color="neutral"
+              class="animate-scale-in attachment-card"
             >
-              <span class="mr-1">{{ item.name || item.mimeType }}</span>
-              <button class="inline-flex" @click="removeAttachment(index)">
-                <UIcon name="i-heroicons-x-mark" class="size-3" />
+              <UIcon :name="fileIcon(item.mimeType)" class="size-4 text-gray-500" />
+              <span class="truncate max-w-[150px]">{{ item.name || item.mimeType }}</span>
+              <button
+                class="inline-flex text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                :aria-label="`Remove attachment ${item.name || item.mimeType}`"
+                :title="`Remove attachment ${item.name || item.mimeType}`"
+                @click="removeAttachment(index)"
+              >
+                <UIcon name="i-heroicons-x-mark" class="size-3.5" />
               </button>
-            </UBadge>
+            </div>
           </div>
 
           <UChatPrompt v-model="input" :error="promptError" @submit="handleSubmit">
@@ -814,11 +853,11 @@ const submitEditMessage = async () => {
   <Transition name="drag-overlay">
     <div
       v-if="isDragOver"
-      class="fixed inset-0 z-50 flex items-center justify-center pointer-events-none bg-primary/10 backdrop-blur-sm"
+      class="fixed inset-0 z-50 flex items-center justify-center pointer-events-none bg-primary/10 backdrop-blur-md"
     >
-      <div class="flex flex-col items-center gap-3 text-primary bg-gray-50/90 dark:bg-gray-900/90 rounded-2xl px-10 py-8 ring-2 ring-primary/50 ring-inset shadow-2xl">
+      <div class="animate-scale-in flex flex-col items-center gap-3 text-primary glass-surface rounded-2xl px-10 py-8 ring-2 ring-primary/50 ring-inset shadow-2xl">
         <UIcon name="i-heroicons-arrow-down-tray" class="size-12" />
-        <span class="text-lg font-semibold">Drop files to attach</span>
+        <span class="text-lg font-semibold tracking-tight">Drop files to attach</span>
       </div>
     </div>
   </Transition>
