@@ -729,7 +729,12 @@ const submitEditMessage = async () => {
             >
               <UIcon :name="fileIcon(item.mimeType)" class="size-4 text-gray-500" />
               <span class="truncate max-w-[150px]">{{ item.name || item.mimeType }}</span>
-              <button class="inline-flex text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors" @click="removeAttachment(index)">
+              <button
+                class="inline-flex text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                :aria-label="`Remove attachment ${item.name || item.mimeType}`"
+                :title="`Remove attachment ${item.name || item.mimeType}`"
+                @click="removeAttachment(index)"
+              >
                 <UIcon name="i-heroicons-x-mark" class="size-3.5" />
               </button>
             </div>

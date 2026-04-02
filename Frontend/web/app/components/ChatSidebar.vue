@@ -221,7 +221,7 @@ const goToModels = () => {
               </div>
             </div>
 
-            <div v-else class="flex items-center gap-1 p-1">
+            <div v-else class="group flex items-center gap-1 p-1">
               <button
                 class="flex-1 rounded-md text-left px-2 py-2 flex items-center gap-2 min-w-0"
                 @click="handleSelect(conversation.session.chatId)"
