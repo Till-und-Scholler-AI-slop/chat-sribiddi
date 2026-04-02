@@ -250,13 +250,15 @@ body {
 }
 
 /* ── Streaming Cursor ───────────────────────────────────────────────── */
+.streaming-cursor > :last-child::after {
+  content: '▍';
+  display: inline;
+  color: var(--ui-primary);
+  margin-left: 1px;
+}
 @media (prefers-reduced-motion: no-preference) {
-  .streaming-cursor::after {
-    content: '▍';
-    display: inline;
+  .streaming-cursor > :last-child::after {
     animation: pulse-soft 1s ease-in-out infinite;
-    color: var(--ui-primary);
-    margin-left: 1px;
   }
 }
 
@@ -392,26 +394,30 @@ body {
 }
 
 /* ── Login Animated Gradient ────────────────────────────────────────── */
+.login-gradient {
+  background: linear-gradient(
+    -45deg,
+    #F0F9FF,
+    #ADE8FB,
+    #F0F9FF,
+    #FFFFFF
+  );
+}
+.dark .login-gradient {
+  background: linear-gradient(
+    -45deg,
+    #0B0514,
+    #140A21,
+    #1E1030,
+    #0B0514
+  );
+}
 @media (prefers-reduced-motion: no-preference) {
   .login-gradient {
-    background: linear-gradient(
-      -45deg,
-      #F0F9FF,
-      #ADE8FB,
-      #F0F9FF,
-      #FFFFFF
-    );
     background-size: 300% 300%;
     animation: gradient-shift 12s ease infinite;
   }
   .dark .login-gradient {
-    background: linear-gradient(
-      -45deg,
-      #0B0514,
-      #140A21,
-      #1E1030,
-      #0B0514
-    );
     background-size: 300% 300%;
     animation: gradient-shift 12s ease infinite;
   }
