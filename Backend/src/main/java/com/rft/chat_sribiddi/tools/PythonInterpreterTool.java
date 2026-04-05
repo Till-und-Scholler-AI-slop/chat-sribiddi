@@ -104,15 +104,14 @@ public class PythonInterpreterTool implements ChatTool {
       pb.redirectErrorStream(true);
       Process process = pb.start();
 
-      byte[] output = process.getInputStream().readNBytes(MAX_OUTPUT_BYTES + 1);
       boolean finished = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-
       if (!finished) {
         process.destroyForcibly();
         process.waitFor(5, TimeUnit.SECONDS);
         return ToolResult.failure("Python execution timed out after " + TIMEOUT_SECONDS + " seconds.");
       }
 
+      byte[] output = process.getInputStream().readNBytes(MAX_OUTPUT_BYTES + 1);
       int exitCode = process.exitValue();
       String outputText = new String(output, 0, Math.min(output.length, MAX_OUTPUT_BYTES));
 
@@ -147,15 +146,14 @@ public class PythonInterpreterTool implements ChatTool {
       pb.redirectErrorStream(true);
       Process process = pb.start();
 
-      byte[] output = process.getInputStream().readNBytes(MAX_OUTPUT_BYTES + 1);
       boolean finished = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-
       if (!finished) {
         process.destroyForcibly();
         process.waitFor(5, TimeUnit.SECONDS);
         return ToolResult.failure("Python execution timed out after " + TIMEOUT_SECONDS + " seconds.");
       }
 
+      byte[] output = process.getInputStream().readNBytes(MAX_OUTPUT_BYTES + 1);
       int exitCode = process.exitValue();
       String outputText = new String(output, 0, Math.min(output.length, MAX_OUTPUT_BYTES));
 
