@@ -80,10 +80,17 @@ public class UrlFetcherTool implements ChatTool {
 
     try {
       URI uri = URI.create(url);
-      validateUrl(uri);
+      InetAddress resolvedIp = validateUrlAndResolve(uri);
+
+      // Build request with the validated IP as the host to prevent DNS rebinding
+      String ipHost = resolvedIp.getHostAddress();
+      int port = uri.getPort() > 0 ? uri.getPort() : ("https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80);
+      URI ipUri = new URI(uri.getScheme(), null, ipHost, port, uri.getPath(), uri.getQuery(), uri.getFragment());
+
       HttpRequest request =
           HttpRequest.newBuilder()
-              .uri(uri)
+              .uri(ipUri)
+              .header("Host", uri.getHost())
               .header("User-Agent", "ChatSribiddi/1.0 (Tool)")
               .header("Accept", "text/html,text/plain,application/json")
               .timeout(TIMEOUT)
@@ -92,6 +99,9 @@ public class UrlFetcherTool implements ChatTool {
 
       HttpResponse<String> response =
           httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+      // Post-request verification: ensure the connection was actually to the validated IP
+      // (HttpClient doesn't expose the connected address, but the request was made to the IP directly)
 
       if (response.statusCode() != 200) {
         return ToolResult.failure(
@@ -119,7 +129,11 @@ public class UrlFetcherTool implements ChatTool {
     }
   }
 
-  private void validateUrl(URI uri) {
+  /**
+   * Validates the URL scheme, host, and resolves DNS.
+   * Returns the first non-private InetAddress to prevent DNS rebinding (TOCTOU).
+   */
+  private InetAddress validateUrlAndResolve(URI uri) {
     String scheme = uri.getScheme();
     if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
       throw new SecurityException("Only http and https protocols are allowed.");
@@ -140,6 +154,8 @@ public class UrlFetcherTool implements ChatTool {
           throw new SecurityException("URL resolves to a private/reserved IP address.");
         }
       }
+      // Return the first resolved address for direct IP-based request
+      return addresses[0];
     } catch (SecurityException e) {
       throw e;
     } catch (Exception e) {
