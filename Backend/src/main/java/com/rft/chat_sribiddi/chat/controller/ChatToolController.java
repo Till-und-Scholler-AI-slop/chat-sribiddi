@@ -1,6 +1,7 @@
 package com.rft.chat_sribiddi.chat.controller;
 
 import com.rft.chat_sribiddi.auth.RequestUserResolver;
+import jakarta.validation.Valid;
 import com.rft.chat_sribiddi.chat.dto.AvailableToolDTO;
 import com.rft.chat_sribiddi.chat.dto.ChatToolResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.SetChatToolRequestDTO;
