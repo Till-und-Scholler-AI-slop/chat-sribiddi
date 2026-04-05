@@ -9,6 +9,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -36,6 +37,11 @@ public class CalculatorTool implements ChatTool {
     t.setDaemon(true);
     return t;
   });
+
+  @PreDestroy
+  void shutdown() {
+    EXECUTOR.shutdownNow();
+  }
 
   @Override
   public String getName() {
