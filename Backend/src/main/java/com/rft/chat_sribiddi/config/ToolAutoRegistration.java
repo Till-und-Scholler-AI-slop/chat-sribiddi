@@ -30,9 +30,12 @@ public class ToolAutoRegistration {
     register(calculatorTool);
     register(urlFetcherTool);
     register(currentDateTimeTool);
-    // Register Brave Search as a discoverable tool (uses user's API key at runtime)
-    register(new BraveSearchChatToolAdapter(
-        new BraveSearchTool("", java.net.http.HttpClient.newHttpClient(), webSearchProperties)));
+    // Only register Brave Search if a default API key is configured
+    String apiKey = System.getenv("BRAVE_SEARCH_API_KEY");
+    if (apiKey != null && !apiKey.isBlank()) {
+      register(new BraveSearchChatToolAdapter(
+          new BraveSearchTool(apiKey, java.net.http.HttpClient.newHttpClient(), webSearchProperties)));
+    }
   }
 
   private void register(ChatTool tool) {
