@@ -2,6 +2,7 @@ package com.rft.chat_sribiddi.config;
 
 import com.rft.chat_sribiddi.tools.CalculatorTool;
 import com.rft.chat_sribiddi.tools.CurrentDateTimeTool;
+import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
 import com.rft.chat_sribiddi.tools.UrlFetcherTool;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
@@ -23,6 +24,7 @@ public class ToolAutoRegistration {
   private final CalculatorTool calculatorTool;
   private final UrlFetcherTool urlFetcherTool;
   private final CurrentDateTimeTool currentDateTimeTool;
+  private final PythonInterpreterTool pythonInterpreterTool;
   private final WebSearchProperties webSearchProperties;
 
   @PostConstruct
@@ -30,6 +32,7 @@ public class ToolAutoRegistration {
     register(calculatorTool);
     register(urlFetcherTool);
     register(currentDateTimeTool);
+    register(pythonInterpreterTool);
     // Only register Brave Search if a default API key is configured
     String apiKey = System.getenv("BRAVE_SEARCH_API_KEY");
     if (apiKey != null && !apiKey.isBlank()) {
