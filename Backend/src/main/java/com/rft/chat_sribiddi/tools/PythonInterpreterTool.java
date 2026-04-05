@@ -82,8 +82,7 @@ public class PythonInterpreterTool implements ChatTool {
     return result.success() ? result.output() : result.error();
   }
 
-  private ToolResult executeCode(String code) {
-    // Input validation
+  private ToolResult validateCode(String code) {
     if (code.length() > MAX_CODE_LENGTH) {
       return ToolResult.failure("Code exceeds maximum length of %d characters.".formatted(MAX_CODE_LENGTH));
     }
@@ -95,6 +94,12 @@ public class PythonInterpreterTool implements ChatTool {
                 + "and functions are not allowed.".formatted(blocked));
       }
     }
+    return null; // null means validation passed
+  }
+
+  private ToolResult executeCode(String code) {
+    ToolResult validationError = validateCode(code);
+    if (validationError != null) return validationError;
 
     try {
       // Build sandboxed command: run as nobody, skip site-packages
@@ -136,6 +141,9 @@ public class PythonInterpreterTool implements ChatTool {
   }
 
   private ToolResult executeWithSu(String code) {
+    ToolResult validationError = validateCode(code);
+    if (validationError != null) return validationError;
+
     try {
       // Escape single quotes in code for shell
       String escaped = code.replace("'", "'\\''");

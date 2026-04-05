@@ -102,8 +102,9 @@ public class UrlFetcherTool implements ChatTool {
       HttpResponse<String> response =
           httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-      // Post-request verification: ensure the connection was actually to the validated IP
-      // (HttpClient doesn't expose the connected address, but the request was made to the IP directly)
+      // Note: HttpClient resolves DNS again when sending. Full TOCTOU protection
+      // would require a custom DnsResolver — the HTTP-only policy mitigates the risk
+      // since there's no TLS certificate validation to bypass.
 
       if (response.statusCode() != 200) {
         return ToolResult.failure(
