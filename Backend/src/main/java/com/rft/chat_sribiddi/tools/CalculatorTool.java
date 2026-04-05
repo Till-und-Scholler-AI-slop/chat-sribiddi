@@ -4,10 +4,6 @@ import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolResult;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
-import javax.script.ScriptEngine;
-import javax.script.ScriptEngineManager;
-import javax.script.ScriptException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -15,8 +11,8 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 /**
- * Calculator tool that evaluates arithmetic expressions safely.
- * Supports: +, -, *, /, ^, parentheses, decimal numbers.
+ * Calculator tool that evaluates arithmetic expressions safely using a recursive descent parser.
+ * Supports: +, -, *, /, ^ (power), % (modulo), parentheses, decimal numbers.
  */
 @Component
 public class CalculatorTool implements ChatTool {
@@ -28,9 +24,7 @@ public class CalculatorTool implements ChatTool {
           '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
           '.', '+', '-', '*', '/', '^', '(', ')', ' ', '%');
 
-  private static final Pattern WHITESPACE = Pattern.compile("\\s+");
-
-  private static final ScriptEngine ENGINE = new ScriptEngineManager().getEngineByName("js");
+  private static final long EVAL_TIMEOUT_MS = 3000;
 
   @Override
   public String getName() {
@@ -44,8 +38,8 @@ public class CalculatorTool implements ChatTool {
 
   @Override
   public String getDescription() {
-    return "Evaluate arithmetic expressions. Supports +, -, *, /, ^, parentheses, and decimal numbers. "
-        + "Use this tool when the user asks you to calculate something.";
+    return "Evaluate arithmetic expressions. Supports +, -, *, /, ^, parentheses, modulo (%), "
+        + "and decimal numbers. Use this tool when the user asks you to calculate something.";
   }
 
   @Override
@@ -74,155 +68,172 @@ public class CalculatorTool implements ChatTool {
   private ToolResult evaluate(String expression) {
     if (!isValid(expression)) {
       return ToolResult.failure(
-          "Invalid expression. Only digits, operators (+, -, *, /, ^, %%), parentheses, and decimal points are allowed.");
+          "Invalid expression. Only digits, operators (+, -, *, /, ^, %), parentheses, and decimal points are allowed.");
     }
 
-    String sanitized = WHITESPACE.matcher(expression).replaceAll("").trim();
+    String sanitized = expression.replaceAll("\\s+", "");
     if (sanitized.isEmpty()) {
       return ToolResult.failure("Expression is empty after removing whitespace.");
     }
 
-    // Convert ^ to Math.pow for JS engine
-    String jsExpression = convertPowerOperator(sanitized);
+    double[] result = new double[1];
+    Throwable[] error = new Throwable[1];
+
+    Thread evalThread = new Thread(() -> {
+      try {
+        Parser parser = new Parser(sanitized);
+        result[0] = parser.parse();
+      } catch (Throwable t) {
+        error[0] = t;
+      }
+    });
+    evalThread.setDaemon(true);
+    evalThread.start();
 
     try {
-      // Execute with a timeout thread
-      Object evalResult = timedEval(jsExpression, 3000);
-      if (evalResult == null) {
-        return ToolResult.failure("Calculation timed out.");
-      }
-
-      String resultStr = evalResult.toString();
-
-      // Validate result is a finite number
-      try {
-        double num = Double.parseDouble(resultStr);
-        if (!Double.isFinite(num)) {
-          return ToolResult.failure("Result is not a finite number.");
-        }
-        // Format nicely: remove trailing zeros for whole numbers
-        if (num == Math.floor(num) && !Double.isInfinite(num)) {
-          return ToolResult.success(String.format("%.0f", num));
-        }
-        return ToolResult.success(resultStr);
-      } catch (NumberFormatException e) {
-        return ToolResult.failure("Result is not a valid number: " + resultStr);
-      }
-    } catch (TimeoutException e) {
+      evalThread.join(EVAL_TIMEOUT_MS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
       return ToolResult.failure("Calculation timed out.");
-    } catch (ScriptException e) {
-      log.warn("Calculation failed for expression: {}", expression, e);
-      return ToolResult.failure("Could not evaluate expression: " + e.getMessage());
     }
+
+    if (evalThread.isAlive()) {
+      // Thread will die when daemon thread terminates
+      return ToolResult.failure("Calculation timed out.");
+    }
+
+    if (error[0] != null) {
+      log.warn("Calculation failed for expression: {}", expression, error[0]);
+      return ToolResult.failure("Could not evaluate expression: " + error[0].getMessage());
+    }
+
+    double num = result[0];
+    if (!Double.isFinite(num)) {
+      return ToolResult.failure("Result is not a finite number.");
+    }
+
+    if (num == Math.floor(num) && !Double.isInfinite(num) && Math.abs(num) < 1e15) {
+      return ToolResult.success(String.format("%.0f", num));
+    }
+    return ToolResult.success(Double.toString(num));
   }
 
   private boolean isValid(String expression) {
     for (int i = 0; i < expression.length(); i++) {
-      char c = expression.charAt(i);
-      if (!ALLOWED_CHARS.contains(c)) {
+      if (!ALLOWED_CHARS.contains(expression.charAt(i))) {
         return false;
       }
     }
     return true;
   }
 
-  private String convertPowerOperator(String expr) {
-    // Simple conversion: a^b → Math.pow(a,b) for simple cases
-    // For complex expressions, we'll handle single-level power operations
-    int idx = expr.indexOf('^');
-    if (idx < 0) return expr;
+  // --- Recursive Descent Parser ---
 
-    String before = expr.substring(0, idx);
-    String after = expr.substring(idx + 1);
+  private static class Parser {
+    private final String input;
+    private int pos;
 
-    // Find the base (walk backwards from ^)
-    String base = extractOperand(before, true);
-    String rest = before.substring(0, before.length() - base.length());
+    Parser(String input) {
+      this.input = input;
+      this.pos = 0;
+    }
 
-    // Find the exponent (walk forwards from ^)
-    String exponent = extractOperand(after, false);
-    String remainder = after.substring(exponent.length());
-
-    return rest + "Math.pow(" + base + "," + exponent + ")" + remainder;
-  }
-
-  private String extractOperand(String s, boolean reverse) {
-    StringBuilder sb = new StringBuilder();
-    int i = reverse ? s.length() - 1 : 0;
-    int end = reverse ? -1 : s.length();
-    int step = reverse ? -1 : 1;
-
-    while (i != end) {
-      char c = s.charAt(i);
-      if (Character.isDigit(c) || c == '.') {
-        sb.insert(reverse ? 0 : sb.length(), c);
-      } else if ((c == '-' || c == '+') && sb.length() == 0) {
-        sb.insert(reverse ? 0 : sb.length(), c);
-      } else if (c == ')' || c == '(') {
-        // Include parenthesized sub-expressions
-        sb.insert(reverse ? 0 : sb.length(), c);
-        if (c == ')') {
-          int depth = 1;
-          while (i != end && depth > 0) {
-            i += step;
-            if (i == end) break;
-            char nc = s.charAt(i);
-            sb.insert(reverse ? 0 : sb.length(), nc);
-            if (nc == ')') depth++;
-            else if (nc == '(') depth--;
-          }
-          if (i != end) i += step;
-        } else {
-          i += step;
-        }
-        continue;
-      } else {
-        break;
+    double parse() {
+      double result = parseAddSub();
+      if (pos < input.length()) {
+        throw new ArithmeticException("Unexpected character at position " + pos + ": " + input.charAt(pos));
       }
-      i += step;
+      return result;
     }
 
-    return sb.toString();
+    private double parseAddSub() {
+      double result = parseMulDiv();
+      while (pos < input.length()) {
+        char c = input.charAt(pos);
+        if (c == '+') {
+          pos++;
+          result += parseMulDiv();
+        } else if (c == '-') {
+          pos++;
+          result -= parseMulDiv();
+        } else {
+          break;
+        }
+      }
+      return result;
+    }
+
+    private double parseMulDiv() {
+      double result = parsePower();
+      while (pos < input.length()) {
+        char c = input.charAt(pos);
+        if (c == '*') {
+          pos++;
+          result *= parsePower();
+        } else if (c == '/') {
+          pos++;
+          double divisor = parsePower();
+          if (divisor == 0) throw new ArithmeticException("Division by zero");
+          result /= divisor;
+        } else if (c == '%') {
+          pos++;
+          double modulus = parsePower();
+          if (modulus == 0) throw new ArithmeticException("Division by zero (modulo)");
+          result %= modulus;
+        } else {
+          break;
+        }
+      }
+      return result;
+    }
+
+    private double parsePower() {
+      double result = parseUnary();
+      if (pos < input.length() && input.charAt(pos) == '^') {
+        pos++;
+        double exponent = parsePower(); // right-associative
+        result = Math.pow(result, exponent);
+      }
+      return result;
+    }
+
+    private double parseUnary() {
+      if (pos < input.length() && input.charAt(pos) == '-') {
+        pos++;
+        return -parseUnary();
+      }
+      if (pos < input.length() && input.charAt(pos) == '+') {
+        pos++;
+        return parseUnary();
+      }
+      return parsePrimary();
+    }
+
+    private double parsePrimary() {
+      if (pos < input.length() && input.charAt(pos) == '(') {
+        pos++; // skip '('
+        double result = parseAddSub();
+        if (pos >= input.length() || input.charAt(pos) != ')') {
+          throw new ArithmeticException("Missing closing parenthesis");
+        }
+        pos++; // skip ')'
+        return result;
+      }
+      return parseNumber();
+    }
+
+    private double parseNumber() {
+      int start = pos;
+      while (pos < input.length() && (Character.isDigit(input.charAt(pos)) || input.charAt(pos) == '.')) {
+        pos++;
+      }
+      if (start == pos) {
+        throw new ArithmeticException(
+            pos < input.length()
+                ? "Unexpected character: " + input.charAt(pos)
+                : "Unexpected end of expression");
+      }
+      return Double.parseDouble(input.substring(start, pos));
+    }
   }
-
-  private static Object timedEval(String expression, long timeoutMs)
-      throws ScriptException, TimeoutException {
-    Thread[] runner = new Thread[1];
-    Object[] result = new Object[1];
-    Throwable[] error = new Throwable[1];
-
-    runner[0] =
-        new Thread(
-            () -> {
-              try {
-                synchronized (ENGINE) {
-                  result[0] = ENGINE.eval(expression);
-                }
-              } catch (ScriptException e) {
-                error[0] = e;
-              }
-            });
-
-    runner[0].start();
-    try {
-      runner[0].join(timeoutMs);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new TimeoutException();
-    }
-
-    if (runner[0].isAlive()) {
-      runner[0].interrupt();
-      throw new TimeoutException();
-    }
-
-    if (error[0] != null) {
-      if (error[0] instanceof ScriptException se) throw se;
-      throw new ScriptException(error[0].getMessage());
-    }
-
-    return result[0];
-  }
-
-  private static class TimeoutException extends Exception {}
 }
