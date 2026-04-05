@@ -15,7 +15,7 @@ export type ChatToolConfig = {
 }
 
 export function useToolApi() {
-  const config = useRuntimeConfig()
+  const { resolveUserId } = useChatApi()
   const { settings } = useUserSettings()
 
   const baseUrl = computed(() => {
@@ -28,16 +28,9 @@ export function useToolApi() {
     return base.endsWith('/') ? base.slice(0, -1) : base
   })
 
-  const getUserId = () => {
-    if (import.meta.client) {
-      return localStorage.getItem('chat-user-id') || 'anonymous'
-    }
-    return 'anonymous'
-  }
-
   const headers = () => ({
     'Content-Type': 'application/json',
-    'X-Chat-User-Id': getUserId()
+    'X-Chat-User-Id': resolveUserId()
   })
 
   const fetchAvailableTools = async (chatId: string): Promise<AvailableTool[]> => {
@@ -66,7 +59,7 @@ export function useToolApi() {
       headers: headers(),
       credentials: 'include'
     })
-    if (!res.ok && res.status !== 204) throw new Error('Failed to remove tool')
+    if (!res.ok) throw new Error(`Failed to remove tool: ${res.status} ${res.statusText}`)
   }
 
   return {

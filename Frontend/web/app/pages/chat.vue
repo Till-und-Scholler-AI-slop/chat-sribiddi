@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
+import type { AvailableTool } from '~/composables/useToolApi'
 import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/useChatStore'
 
 definePageMeta({
@@ -204,7 +205,7 @@ const toDataUrl = (file: File) =>
   })
 
 const isDragOver = ref(false)
-const availableTools = ref<Array<{ name: string; displayName: string; description: string; enabled: boolean }>>([])
+const availableTools = ref<AvailableTool[]>([])
 const toolsLoading = ref(false)
 
 const clearAttachments = () => {
