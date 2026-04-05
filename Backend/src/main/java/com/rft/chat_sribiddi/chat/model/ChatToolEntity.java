@@ -7,13 +7,16 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "chat_tools")
+@Table(name = "chat_tools", uniqueConstraints = {
+    @UniqueConstraint(columnNames = {"chat_id", "tool_name"})
+})
 @Getter
 @Setter
 public class ChatToolEntity {
@@ -29,7 +32,7 @@ public class ChatToolEntity {
   private String toolName;
 
   @Column(nullable = false)
-  private boolean enabled = true;
+  private boolean enabled = false;
 
   @Column(nullable = false)
   private Instant createdAt;
