@@ -40,12 +40,10 @@ public class ToolAutoRegistration {
     register(urlFetcherTool);
     register(currentDateTimeTool);
     register(pythonInterpreterTool);
-    // Only register Brave Search if a default API key is configured
-    String apiKey = braveSearchApiKey;
-    if (apiKey != null && !apiKey.isBlank()) {
-      register(new BraveSearchChatToolAdapter(
-          new BraveSearchTool(apiKey, httpClient, webSearchProperties)));
-    }
+    // Always register BraveSearch so per-user keys work via wireTools()
+    register(new BraveSearchChatToolAdapter(
+        new BraveSearchTool(braveSearchApiKey.isBlank() ? "" : braveSearchApiKey, httpClient, webSearchProperties)));
+
   }
 
   private void register(ChatTool tool) {
