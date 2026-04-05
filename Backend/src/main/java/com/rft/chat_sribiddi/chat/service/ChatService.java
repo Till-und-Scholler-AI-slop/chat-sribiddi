@@ -28,6 +28,7 @@ import com.rft.chat_sribiddi.websearch.BraveSearchTool;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.transaction.Transactional;
 import java.io.IOException;
+import java.net.http.HttpClient;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -39,6 +40,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AbstractMessage;
@@ -65,6 +67,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class ChatService {
 
   private static final String SYSTEM_PROMPT =
@@ -91,31 +94,8 @@ public class ChatService {
   private final ChatProperties chatProperties;
   private final UserSettingsService userSettingsService;
   private final WebSearchProperties webSearchProperties;
-  private final java.net.http.HttpClient webSearchHttpClient;
-
-  public ChatService(
-      ChatRepository chatRepository,
-      MessageRepository messageRepository,
-      ToolCallLogRepository toolCallLogRepository,
-      ChatToolRepository chatToolRepository,
-      ApiKeyService apiKeyService,
-      ProviderClientFactory providerClientFactory,
-      ChatProperties chatProperties,
-      UserSettingsService userSettingsService,
-      WebSearchProperties webSearchProperties,
-      ToolRegistry toolRegistry) {
-    this.chatRepository = chatRepository;
-    this.messageRepository = messageRepository;
-    this.toolCallLogRepository = toolCallLogRepository;
-    this.chatToolRepository = chatToolRepository;
-    this.apiKeyService = apiKeyService;
-    this.providerClientFactory = providerClientFactory;
-    this.chatProperties = chatProperties;
-    this.userSettingsService = userSettingsService;
-    this.webSearchProperties = webSearchProperties;
-    this.webSearchHttpClient = java.net.http.HttpClient.newHttpClient();
-    this.toolRegistry = toolRegistry;
-  }
+  private final HttpClient webSearchHttpClient;
+  private final ToolRegistry toolRegistry;
 
   @Transactional
   public void deleteChat(UUID chatId, String userId) {
