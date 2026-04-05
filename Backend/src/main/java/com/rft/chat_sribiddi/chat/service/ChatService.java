@@ -114,6 +114,7 @@ public class ChatService {
             .orElseThrow(() -> new ChatNotFoundException(chatId));
 
     messageRepository.deleteByChatId(chat.getChatId());
+    chatToolRepository.deleteByChatId(chat.getChatId());
     chatRepository.deleteById(chat.getChatId());
   }
 

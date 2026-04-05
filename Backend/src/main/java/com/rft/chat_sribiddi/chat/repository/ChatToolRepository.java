@@ -14,5 +14,7 @@ public interface ChatToolRepository extends JpaRepository<ChatToolEntity, Long> 
 
   void deleteByChatIdAndToolName(UUID chatId, String toolName);
 
+  void deleteByChatId(UUID chatId);
+
   boolean existsByChatIdAndToolName(UUID chatId, String toolName);
 }
