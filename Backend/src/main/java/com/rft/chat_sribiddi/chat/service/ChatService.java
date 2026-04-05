@@ -21,6 +21,7 @@ import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
 import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedBraveSearchTool;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedCalculatorTool;
+import com.rft.chat_sribiddi.chat.toolcall.LoggedCurrentDateTimeTool;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedPythonInterpreterTool;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedUrlFetcherTool;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
@@ -105,6 +106,7 @@ public class ChatService {
   private final CalculatorTool calculatorTool;
   private final UrlFetcherTool urlFetcherTool;
   private final PythonInterpreterTool pythonInterpreterTool;
+  private final com.rft.chat_sribiddi.tools.CurrentDateTimeTool currentDateTimeTool;
 
   @Transactional
   public void deleteChat(UUID chatId, String userId) {
@@ -978,7 +980,7 @@ public class ChatService {
     // CurrentDateTimeTool is always active (no DB check needed)
     for (com.rft.chat_sribiddi.tools.api.ChatTool tool : toolRegistry.getAll()) {
       if ("current-datetime".equals(tool.getName())) {
-        promptSpec.tools(tool);
+        promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, collector));
         continue;
       }
       if ("brave-search".equals(tool.getName())) {
