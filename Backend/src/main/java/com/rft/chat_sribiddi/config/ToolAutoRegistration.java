@@ -11,6 +11,7 @@ import com.rft.chat_sribiddi.websearch.BraveSearchTool;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -27,6 +28,9 @@ public class ToolAutoRegistration {
   private final PythonInterpreterTool pythonInterpreterTool;
   private final WebSearchProperties webSearchProperties;
 
+  @Value("${BRAVE_SEARCH_API_KEY:}")
+  private String braveSearchApiKey;
+
   @PostConstruct
   void registerTools() {
     register(calculatorTool);
@@ -34,7 +38,7 @@ public class ToolAutoRegistration {
     register(currentDateTimeTool);
     register(pythonInterpreterTool);
     // Only register Brave Search if a default API key is configured
-    String apiKey = System.getenv("BRAVE_SEARCH_API_KEY");
+    String apiKey = braveSearchApiKey;
     if (apiKey != null && !apiKey.isBlank()) {
       register(new BraveSearchChatToolAdapter(
           new BraveSearchTool(apiKey, java.net.http.HttpClient.newHttpClient(), webSearchProperties)));

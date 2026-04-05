@@ -30,8 +30,8 @@ public class UrlFetcherTool implements ChatTool {
 
   private final HttpClient httpClient;
 
-  public UrlFetcherTool() {
-    this.httpClient = HttpClient.newHttpClient();
+  public UrlFetcherTool(HttpClient httpClient) {
+    this.httpClient = httpClient;
   }
 
   @Override
