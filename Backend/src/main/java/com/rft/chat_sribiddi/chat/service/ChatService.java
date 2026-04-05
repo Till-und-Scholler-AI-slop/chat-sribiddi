@@ -20,15 +20,10 @@ import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
 import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedBraveSearchTool;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedCalculatorTool;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedCurrentDateTimeTool;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedUrlFetcherTool;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
+import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
-import com.rft.chat_sribiddi.tools.CalculatorTool;
-import com.rft.chat_sribiddi.tools.CurrentDateTimeTool;
-import com.rft.chat_sribiddi.tools.UrlFetcherTool;
 import com.rft.chat_sribiddi.websearch.BraveSearchTool;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.transaction.Transactional;
@@ -97,9 +92,6 @@ public class ChatService {
   private final UserSettingsService userSettingsService;
   private final WebSearchProperties webSearchProperties;
   private final java.net.http.HttpClient webSearchHttpClient;
-  private final CurrentDateTimeTool currentDateTimeTool;
-  private final CalculatorTool calculatorTool;
-  private final UrlFetcherTool urlFetcherTool;
 
   public ChatService(
       ChatRepository chatRepository,
@@ -111,9 +103,7 @@ public class ChatService {
       ChatProperties chatProperties,
       UserSettingsService userSettingsService,
       WebSearchProperties webSearchProperties,
-      CurrentDateTimeTool currentDateTimeTool,
-      CalculatorTool calculatorTool,
-      UrlFetcherTool urlFetcherTool) {
+      ToolRegistry toolRegistry) {
     this.chatRepository = chatRepository;
     this.messageRepository = messageRepository;
     this.toolCallLogRepository = toolCallLogRepository;
@@ -124,9 +114,7 @@ public class ChatService {
     this.userSettingsService = userSettingsService;
     this.webSearchProperties = webSearchProperties;
     this.webSearchHttpClient = java.net.http.HttpClient.newHttpClient();
-    this.currentDateTimeTool = currentDateTimeTool;
-    this.calculatorTool = calculatorTool;
-    this.urlFetcherTool = urlFetcherTool;
+    this.toolRegistry = toolRegistry;
   }
 
   @Transactional
@@ -237,9 +225,7 @@ public class ChatService {
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(prep.promptMessages());
-      ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
-      promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, toolExecutionCollector));
-      wireChatTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
+      wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
       chatResponse = promptSpec.call().chatResponse();
     }
 
@@ -388,8 +374,7 @@ public class ChatService {
     var client = clientHolder.client();
     var promptSpec = client.prompt().options(options).messages(promptMessages);
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
-    promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, toolExecutionCollector));
-    wireChatTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
+    wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
     subscribeToStream(
         promptSpec,
         emitter,
@@ -988,34 +973,32 @@ public class ChatService {
    * Always includes CurrentDateTimeTool. Checks chat_tools table for calculator, url-fetcher, etc.
    * Brave search is wired if webSearchEnabled is true (legacy behavior preserved).
    */
-  private void wireChatTools(
+  private void wireTools(
       UUID chatId,
       String userId,
       Boolean webSearchEnabled,
       ToolExecutionCollector collector,
       ChatClient.ChatClientRequestSpec promptSpec) {
     // Get enabled tools from chat_tools table
-    List<String> enabledToolNames = chatToolRepository.findByChatId(chatId).stream()
+    Set<String> enabledToolNames = chatToolRepository.findByChatId(chatId).stream()
         .filter(ChatToolEntity::isEnabled)
         .map(ChatToolEntity::getToolName)
-        .toList();
+        .collect(Collectors.toSet());
 
-    // Wire calculator if enabled
-    if (enabledToolNames.contains("calculator")) {
-      promptSpec.tools(new LoggedCalculatorTool(calculatorTool, collector));
-    }
-
-    // Wire url-fetcher if enabled
-    if (enabledToolNames.contains("url-fetcher")) {
-      promptSpec.tools(new LoggedUrlFetcherTool(urlFetcherTool, collector));
-    }
-
-    // Legacy: web search via boolean flag (or via chat_tools table)
-    boolean webSearchViaTools = enabledToolNames.contains("brave-search");
-    if (Boolean.TRUE.equals(webSearchEnabled) || webSearchViaTools) {
-      resolveWebSearchTool(userId)
-          .map(tool -> new LoggedBraveSearchTool(tool, collector))
-          .ifPresent(promptSpec::tools);
+    // Wire all registered tools that are enabled for this chat
+    for (com.rft.chat_sribiddi.tools.api.ChatTool tool : toolRegistry.getAll()) {
+      if ("brave-search".equals(tool.getName())) {
+        // Brave search requires per-user API key
+        boolean webSearchViaTools = enabledToolNames.contains("brave-search");
+        if (Boolean.TRUE.equals(webSearchEnabled) || webSearchViaTools) {
+          resolveWebSearchTool(userId)
+              .map(t -> new LoggedBraveSearchTool(t, collector))
+              .ifPresent(promptSpec::tools);
+        }
+      } else if (enabledToolNames.contains(tool.getName())) {
+        // Use the tool's own @Tool-annotated methods directly via Spring AI reflection
+        promptSpec.tools(tool);
+      }
     }
   }
 }
