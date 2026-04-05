@@ -20,7 +20,11 @@ import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
 import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedBraveSearchTool;
+import com.rft.chat_sribiddi.chat.toolcall.LoggedCalculatorTool;
+import com.rft.chat_sribiddi.chat.toolcall.LoggedUrlFetcherTool;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
+import com.rft.chat_sribiddi.tools.CalculatorTool;
+import com.rft.chat_sribiddi.tools.UrlFetcherTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
@@ -96,6 +100,8 @@ public class ChatService {
   private final WebSearchProperties webSearchProperties;
   private final HttpClient webSearchHttpClient;
   private final ToolRegistry toolRegistry;
+  private final CalculatorTool calculatorTool;
+  private final UrlFetcherTool urlFetcherTool;
 
   @Transactional
   public void deleteChat(UUID chatId, String userId) {
@@ -975,6 +981,10 @@ public class ChatService {
               .map(t -> new LoggedBraveSearchTool(t, collector))
               .ifPresent(promptSpec::tools);
         }
+      } else if ("calculator".equals(tool.getName())) {
+        promptSpec.tools(new LoggedCalculatorTool(calculatorTool, collector));
+      } else if ("url-fetcher".equals(tool.getName())) {
+        promptSpec.tools(new LoggedUrlFetcherTool(urlFetcherTool, collector));
       } else if (enabledToolNames.contains(tool.getName())) {
         // Use the tool's own @Tool-annotated methods directly via Spring AI reflection
         promptSpec.tools(tool);
