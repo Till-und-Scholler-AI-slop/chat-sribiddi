@@ -14,6 +14,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.net.http.HttpClient;
+
 /**
  * Auto-registers all ChatTool implementations with the ToolRegistry on startup.
  */
@@ -27,6 +29,7 @@ public class ToolAutoRegistration {
   private final CurrentDateTimeTool currentDateTimeTool;
   private final PythonInterpreterTool pythonInterpreterTool;
   private final WebSearchProperties webSearchProperties;
+  private final HttpClient httpClient;
 
   @Value("${BRAVE_SEARCH_API_KEY:}")
   private String braveSearchApiKey;
@@ -41,7 +44,7 @@ public class ToolAutoRegistration {
     String apiKey = braveSearchApiKey;
     if (apiKey != null && !apiKey.isBlank()) {
       register(new BraveSearchChatToolAdapter(
-          new BraveSearchTool(apiKey, java.net.http.HttpClient.newHttpClient(), webSearchProperties)));
+          new BraveSearchTool(apiKey, httpClient, webSearchProperties)));
     }
   }
 
