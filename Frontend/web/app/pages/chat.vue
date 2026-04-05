@@ -37,6 +37,7 @@ const {
   webSearchEnabled
 } = useChatStore()
 const { settings } = useUserSettings()
+const { fetchAvailableTools, setToolEnabled } = useToolApi()
 
 const input = ref('')
 const attachments = ref<MediaAttachment[]>([])
@@ -203,6 +204,8 @@ const toDataUrl = (file: File) =>
   })
 
 const isDragOver = ref(false)
+const availableTools = ref<Array<{ name: string; displayName: string; description: string; enabled: boolean }>>([])
+const toolsLoading = ref(false)
 
 const clearAttachments = () => {
   attachments.value = []
@@ -278,6 +281,33 @@ const handlePaste = async (event: ClipboardEvent) => {
   }
 }
 
+const loadAvailableTools = async () => {
+  if (!activeChatId.value) return
+  toolsLoading.value = true
+  try {
+    availableTools.value = await fetchAvailableTools(activeChatId.value)
+  } catch {
+    availableTools.value = []
+  } finally {
+    toolsLoading.value = false
+  }
+}
+
+const handleToolToggle = async (toolName: string, enabled: boolean) => {
+  if (!activeChatId.value) return
+  try {
+    await setToolEnabled(activeChatId.value, toolName, enabled)
+    const tool = availableTools.value.find(t => t.name === toolName)
+    if (tool) tool.enabled = enabled
+  } catch (err) {
+    toast.add({
+      title: 'Failed to update tool',
+      description: err instanceof Error ? err.message : 'Unknown error',
+      color: 'error'
+    })
+  }
+}
+
 onMounted(async () => {
   document.addEventListener('paste', handlePaste)
   document.addEventListener('dragover', handleDragOver)
@@ -293,6 +323,9 @@ onMounted(async () => {
     if (activeConversation.value && !activeConversation.value.model && defaultModel.value) {
       setModelForChat(activeConversation.value.session.chatId, defaultModel.value)
     }
+
+    // Load available tools
+    loadAvailableTools()
   } catch (err) {
     console.error(err)
     toast.add({
@@ -325,6 +358,7 @@ watch(activeChatId, async newId => {
     skipNextSmoothScroll.value = true
     await loadMessagesForChat(newId)
   }
+  loadAvailableTools()
   scrollToBottom('auto')
 })
 
@@ -790,6 +824,12 @@ const submitEditMessage = async () => {
                   @click="webSearchEnabled = !webSearchEnabled"
                 />
               </UTooltip>
+              <ToolSelector
+                :chat-id="activeChatId || ''"
+                :tools="availableTools"
+                :loading="toolsLoading"
+                @toggle="handleToolToggle"
+              />
               <span
                 v-if="modelPricingSummary"
                 class="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1"
