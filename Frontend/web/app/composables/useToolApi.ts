@@ -33,10 +33,11 @@ export function useToolApi() {
     'X-Chat-User-Id': resolveUserId()
   })
 
-  const fetchAvailableTools = async (chatId: string): Promise<AvailableTool[]> => {
+  const fetchAvailableTools = async (chatId: string, signal?: AbortSignal): Promise<AvailableTool[]> => {
     const res = await fetch(`${baseUrl.value}/api/chats/${chatId}/tools/available`, {
       headers: headers(),
-      credentials: 'include'
+      credentials: 'include',
+      signal
     })
     if (!res.ok) throw new Error('Failed to fetch available tools')
     return res.json()

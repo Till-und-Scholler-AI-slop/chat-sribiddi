@@ -39,6 +39,11 @@ public class BraveSearchChatToolAdapter implements ChatTool {
     return true;
   }
 
+  /**
+   * Executes a web search. Note: {@code userId} is not used here because the API key
+   * is baked into the {@link BraveSearchTool} delegate at construction time.
+   * Per-user API key resolution happens in {@code ChatService.resolveWebSearchTool()}.
+   */
   @Override
   public ToolResult execute(String userId, Map<String, Object> parameters) {
     String query =

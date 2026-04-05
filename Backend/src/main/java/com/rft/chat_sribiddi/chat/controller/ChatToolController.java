@@ -19,9 +19,9 @@ public class ChatToolController {
   private final ChatToolService chatToolService;
 
   @GetMapping
-  public List<ChatToolResponseDTO> listTools(
+  public ResponseEntity<List<ChatToolResponseDTO>> listTools(
       @PathVariable UUID chatId, @RequestUserResolver String userId) {
-    return chatToolService.listTools(chatId, userId);
+    return ResponseEntity.ok(chatToolService.listTools(chatId, userId));
   }
 
   @GetMapping("/available")

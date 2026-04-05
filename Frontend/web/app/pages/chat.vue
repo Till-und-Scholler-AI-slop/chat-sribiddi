@@ -207,6 +207,7 @@ const toDataUrl = (file: File) =>
 const isDragOver = ref(false)
 const availableTools = ref<AvailableTool[]>([])
 const toolsLoading = ref(false)
+const toolsAbortController = ref<AbortController | undefined>(undefined)
 
 const clearAttachments = () => {
   attachments.value = []
@@ -284,12 +285,20 @@ const handlePaste = async (event: ClipboardEvent) => {
 
 const loadAvailableTools = async () => {
   if (!activeChatId.value) return
+  toolsAbortController.value?.abort()
+  const controller = new AbortController()
+  toolsAbortController.value = controller
   toolsLoading.value = true
   try {
-    availableTools.value = await fetchAvailableTools(activeChatId.value)
-  } catch {
-    availableTools.value = []
+    availableTools.value = await fetchAvailableTools(activeChatId.value, controller.signal)
+  } catch (err: any) {
+    if (err.name !== 'AbortError') {
+      availableTools.value = []
+    }
   } finally {
+    if (toolsAbortController.value === controller) {
+      toolsAbortController.value = undefined
+    }
     toolsLoading.value = false
   }
 }
