@@ -975,8 +975,12 @@ public class ChatService {
         .map(ChatToolEntity::getToolName)
         .collect(Collectors.toSet());
 
-    // Wire all registered tools that are enabled for this chat
+    // CurrentDateTimeTool is always active (no DB check needed)
     for (com.rft.chat_sribiddi.tools.api.ChatTool tool : toolRegistry.getAll()) {
+      if ("current-datetime".equals(tool.getName())) {
+        promptSpec.tools(tool);
+        continue;
+      }
       if ("brave-search".equals(tool.getName())) {
         // Brave search requires per-user API key
         boolean webSearchViaTools = enabledToolNames.contains("brave-search");
@@ -986,10 +990,13 @@ public class ChatService {
               .ifPresent(promptSpec::tools);
         }
       } else if ("calculator".equals(tool.getName())) {
+        if (!enabledToolNames.contains("calculator")) continue;
         promptSpec.tools(new LoggedCalculatorTool(calculatorTool, collector));
       } else if ("url-fetcher".equals(tool.getName())) {
+        if (!enabledToolNames.contains("url-fetcher")) continue;
         promptSpec.tools(new LoggedUrlFetcherTool(urlFetcherTool, collector));
       } else if ("python-interpreter".equals(tool.getName())) {
+        if (!enabledToolNames.contains("python-interpreter")) continue;
         promptSpec.tools(new LoggedPythonInterpreterTool(pythonInterpreterTool, collector));
       } else if (enabledToolNames.contains(tool.getName())) {
         // Use the tool's own @Tool-annotated methods directly via Spring AI reflection
