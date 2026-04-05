@@ -39,7 +39,8 @@ public class PythonInterpreterTool implements ChatTool {
 
   private static final Set<String> BLOCKED_PATTERNS = Set.of(
       "import os", "subprocess", "socket", "exec(", "eval(",
-      "__import__", "open(", "shutil", "pathlib", "sys.exit"
+      "__import__", "open(", "shutil", "pathlib", "sys.exit",
+      "importlib", "importlib.import_module"
   );
 
   @Override
