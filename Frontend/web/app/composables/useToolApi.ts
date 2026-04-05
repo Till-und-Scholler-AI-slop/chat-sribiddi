@@ -17,6 +17,7 @@ export type ChatToolConfig = {
 export function useToolApi() {
   const { resolveUserId } = useChatApi()
   const { settings } = useUserSettings()
+  const config = useRuntimeConfig()
 
   const baseUrl = computed(() => {
     const configured =
