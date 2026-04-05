@@ -2,6 +2,7 @@ package com.rft.chat_sribiddi.tools;
 
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolResult;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -17,7 +18,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * URL fetcher tool that retrieves web page content, converts HTML to plain text,
- * and truncates to a maximum size.
+ * and truncates to a maximum size. Includes SSRF protection.
  */
 @Component
 public class UrlFetcherTool implements ChatTool {
@@ -79,6 +80,7 @@ public class UrlFetcherTool implements ChatTool {
 
     try {
       URI uri = URI.create(url);
+      validateUrl(uri);
       HttpRequest request =
           HttpRequest.newBuilder()
               .uri(uri)
@@ -107,6 +109,8 @@ public class UrlFetcherTool implements ChatTool {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       return ToolResult.failure("Request was interrupted.");
+    } catch (SecurityException e) {
+      return ToolResult.failure("URL blocked for security reasons: " + e.getMessage());
     } catch (IllegalArgumentException e) {
       return ToolResult.failure("Invalid URL: " + e.getMessage());
     } catch (Exception e) {
@@ -115,22 +119,131 @@ public class UrlFetcherTool implements ChatTool {
     }
   }
 
+  private void validateUrl(URI uri) {
+    String scheme = uri.getScheme();
+    if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+      throw new SecurityException("Only http and https protocols are allowed.");
+    }
+    String host = uri.getHost();
+    if (host == null) {
+      throw new SecurityException("URL must have a host.");
+    }
+    String lowerHost = host.toLowerCase();
+    if (lowerHost.equals("localhost") || lowerHost.endsWith(".localhost")
+        || lowerHost.equals("ip6-localhost") || lowerHost.equals("ip6-loopback")) {
+      throw new SecurityException("Localhost URLs are not allowed.");
+    }
+    try {
+      InetAddress[] addresses = InetAddress.getAllByName(host);
+      for (InetAddress addr : addresses) {
+        if (isPrivateIp(addr)) {
+          throw new SecurityException("URL resolves to a private/reserved IP address.");
+        }
+      }
+    } catch (SecurityException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new SecurityException("Could not resolve host: " + host);
+    }
+  }
+
+  private boolean isPrivateIp(InetAddress addr) {
+    byte[] bytes = addr.getAddress();
+    if (bytes.length == 4) {
+      if ((bytes[0] & 0xFF) == 127) return true;
+      if ((bytes[0] & 0xFF) == 10) return true;
+      if ((bytes[0] & 0xFF) == 172 && (bytes[1] & 0xF0) == 16) return true;
+      if ((bytes[0] & 0xFF) == 192 && (bytes[1] & 0xFF) == 168) return true;
+      if ((bytes[0] & 0xFF) == 169 && (bytes[1] & 0xFF) == 254) return true;
+      if ((bytes[0] & 0xFF) == 0) return true;
+    }
+    return addr.isLoopbackAddress() || addr.isSiteLocalAddress()
+        || addr.isLinkLocalAddress() || addr.isAnyLocalAddress();
+  }
+
+  /**
+   * Sequential HTML-to-text converter. Removes script/style/nav/footer/header blocks,
+   * strips remaining tags, decodes common entities, and normalizes whitespace.
+   * No regex with .*? patterns — uses single-pass character iteration to avoid
+   * catastrophic backtracking on malformed HTML.
+   */
   private String htmlToText(String html) {
-    // Simple HTML to text: remove script/style blocks, strip tags, normalize whitespace
-    String text = html.replaceAll("(?is)<(script|style|noscript)[^>]*>.*?</\\1>", "");
-    text = text.replaceAll("(?is)<nav[^>]*>.*?</nav>", "");
-    text = text.replaceAll("(?is)<footer[^>]*>.*?</footer>", "");
-    text = text.replaceAll("(?is)<header[^>]*>.*?</header>", "");
-    text = text.replaceAll("<br\s*/?>", "\n");
-    text = text.replaceAll("</?(p|div|h[1-6]|li|tr)[^>]*>", "\n");
-    text = text.replaceAll("<[^>]+>", "");
-    text = text.replaceAll("&nbsp;", " ");
-    text = text.replaceAll("&amp;", "&");
-    text = text.replaceAll("&lt;", "<");
-    text = text.replaceAll("&gt;", ">");
-    text = text.replaceAll("&quot;", "\"");
-    text = text.replaceAll("&#39;", "'");
-    text = text.replaceAll("[ \t]+", " ");
+    StringBuilder sb = new StringBuilder(html.length() / 2);
+    int i = 0;
+    int len = html.length();
+    boolean inScript = false;
+    boolean inStyle = false;
+    boolean inNav = false;
+    boolean inFooter = false;
+    boolean inHeader = false;
+    int skipDepth = 0;
+
+    while (i < len) {
+      if (skipDepth > 0) {
+        if (html.charAt(i) == '<' && i + 1 < len && html.charAt(i + 1) == '/') {
+          int tagEnd = html.indexOf('>', i + 2);
+          if (tagEnd > 0) {
+            String closingTag = html.substring(i + 2, tagEnd).trim().toLowerCase();
+            if (closingTag.startsWith("script") && inScript) { skipDepth--; inScript = false; }
+            else if (closingTag.startsWith("style") && inStyle) { skipDepth--; inStyle = false; }
+            else if (closingTag.startsWith("nav") && inNav) { skipDepth--; inNav = false; }
+            else if (closingTag.startsWith("footer") && inFooter) { skipDepth--; inFooter = false; }
+            else if (closingTag.startsWith("header") && inHeader) { skipDepth--; inHeader = false; }
+            i = tagEnd + 1;
+            continue;
+          }
+        }
+        i++;
+        continue;
+      }
+
+      char c = html.charAt(i);
+      if (c == '<') {
+        int tagEnd = html.indexOf('>', i + 1);
+        if (tagEnd < 0) { i++; continue; }
+        String tag = html.substring(i + 1, tagEnd).trim().toLowerCase();
+        boolean selfClosing = tag.endsWith("/");
+        if (selfClosing) tag = tag.substring(0, tag.length() - 1).trim();
+
+        if (tag.startsWith("script")) { inScript = true; skipDepth++; i = tagEnd + 1; continue; }
+        if (tag.startsWith("style")) { inStyle = true; skipDepth++; i = tagEnd + 1; continue; }
+        if (tag.startsWith("noscript")) { skipDepth++; i = tagEnd + 1; continue; }
+        if (tag.startsWith("nav")) { inNav = true; skipDepth++; i = tagEnd + 1; continue; }
+        if (tag.startsWith("footer")) { inFooter = true; skipDepth++; i = tagEnd + 1; continue; }
+        if (tag.startsWith("header")) { inHeader = true; skipDepth++; i = tagEnd + 1; continue; }
+
+        if (tag.startsWith("br") || tag.startsWith("p") || tag.startsWith("div")
+            || tag.startsWith("h") || tag.startsWith("li") || tag.startsWith("tr")) {
+          sb.append('\n');
+        }
+        i = tagEnd + 1;
+        continue;
+      }
+
+      if (c == '&') {
+        int semi = html.indexOf(';', i);
+        if (semi > 0 && semi - i < 10) {
+          String entity = html.substring(i, semi + 1);
+          switch (entity) {
+            case "&nbsp;" -> sb.append(' ');
+            case "&amp;" -> sb.append('&');
+            case "&lt;" -> sb.append('<');
+            case "&gt;" -> sb.append('>');
+            case "&quot;" -> sb.append('"');
+            case "&#39;" -> sb.append('\'');
+            default -> sb.append(c);
+          }
+          i = semi + 1;
+          continue;
+        }
+      }
+
+      sb.append(c);
+      i++;
+    }
+
+    String text = sb.toString();
+    text = text.replaceAll("[ \\t]+", " ");
     text = text.replaceAll("\n{3,}", "\n\n");
     return text.trim();
   }
