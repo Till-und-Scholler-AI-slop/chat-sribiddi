@@ -68,29 +68,31 @@ public class UrlFetcherTool implements ChatTool {
           "Fetch the content of a web page URL and return its text. "
               + "HTML is stripped; content is truncated at 50KB. Timeout: 10 seconds.")
   public String fetchUrl(
-      @ToolParam(description = "The URL to fetch, e.g. 'https://example.com'") String url) {
+      @ToolParam(description = "The HTTP URL to fetch, e.g. 'http://example.com' (HTTPS not supported)") String url) {
     ToolResult result = fetch(url);
     return result.success() ? result.output() : result.error();
   }
 
   private ToolResult fetch(String url) {
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
-      url = "https://" + url;
+      url = "http://" + url;
+    }
+
+    // HTTP-only policy: HTTPS is not supported because TLS certificate validation
+    // fails when connecting to resolved IPs (DNS rebinding protection).
+    if (url.startsWith("https://")) {
+      return ToolResult.failure(
+          "HTTPS is not supported. Only HTTP URLs can be fetched for security reasons.");
     }
 
     try {
       URI uri = URI.create(url);
-      InetAddress resolvedIp = validateUrlAndResolve(uri);
-
-      // Build request with the validated IP as the host to prevent DNS rebinding
-      String ipHost = resolvedIp.getHostAddress();
-      int port = uri.getPort() > 0 ? uri.getPort() : ("https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80);
-      URI ipUri = new URI(uri.getScheme(), null, ipHost, port, uri.getPath(), uri.getQuery(), uri.getFragment());
+      // Validate scheme and resolve DNS (blocks private IPs)
+      validateUrlAndResolve(uri);
 
       HttpRequest request =
           HttpRequest.newBuilder()
-              .uri(ipUri)
-              .header("Host", uri.getHost())
+              .uri(uri)
               .header("User-Agent", "ChatSribiddi/1.0 (Tool)")
               .header("Accept", "text/html,text/plain,application/json")
               .timeout(TIMEOUT)
@@ -135,8 +137,8 @@ public class UrlFetcherTool implements ChatTool {
    */
   private InetAddress validateUrlAndResolve(URI uri) {
     String scheme = uri.getScheme();
-    if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
-      throw new SecurityException("Only http and https protocols are allowed.");
+    if (!"http".equalsIgnoreCase(scheme)) {
+      throw new SecurityException("Only http protocol is allowed. HTTPS is not supported.");
     }
     String host = uri.getHost();
     if (host == null) {
