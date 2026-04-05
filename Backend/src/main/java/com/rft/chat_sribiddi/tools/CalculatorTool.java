@@ -4,6 +4,11 @@ import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolResult;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -25,6 +30,12 @@ public class CalculatorTool implements ChatTool {
           '.', '+', '-', '*', '/', '^', '(', ')', ' ', '%');
 
   private static final long EVAL_TIMEOUT_MS = 3000;
+
+  private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool(r -> {
+    Thread t = new Thread(r);
+    t.setDaemon(true);
+    return t;
+  });
 
   @Override
   public String getName() {
@@ -76,46 +87,31 @@ public class CalculatorTool implements ChatTool {
       return ToolResult.failure("Expression is empty after removing whitespace.");
     }
 
-    double[] result = new double[1];
-    Throwable[] error = new Throwable[1];
-
-    Thread evalThread = new Thread(() -> {
-      try {
-        Parser parser = new Parser(sanitized);
-        result[0] = parser.parse();
-      } catch (Throwable t) {
-        error[0] = t;
-      }
+    Future<Double> future = EXECUTOR.submit(() -> {
+      Parser parser = new Parser(sanitized);
+      return parser.parse();
     });
-    evalThread.setDaemon(true);
-    evalThread.start();
 
     try {
-      evalThread.join(EVAL_TIMEOUT_MS);
+      double num = future.get(EVAL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+      if (!Double.isFinite(num)) {
+        return ToolResult.failure("Result is not a finite number.");
+      }
+      if (num == Math.floor(num) && !Double.isInfinite(num) && Math.abs(num) < 1e15) {
+        return ToolResult.success(String.format("%.0f", num));
+      }
+      return ToolResult.success(Double.toString(num));
+    } catch (TimeoutException e) {
+      future.cancel(true);
+      return ToolResult.failure("Calculation timed out.");
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      return ToolResult.failure("Calculation timed out.");
+      future.cancel(true);
+      return ToolResult.failure("Calculation was interrupted.");
+    } catch (Exception e) {
+      log.warn("Calculation failed for expression: {}", expression, e);
+      return ToolResult.failure("Could not evaluate expression: " + e.getMessage());
     }
-
-    if (evalThread.isAlive()) {
-      // Thread will die when daemon thread terminates
-      return ToolResult.failure("Calculation timed out.");
-    }
-
-    if (error[0] != null) {
-      log.warn("Calculation failed for expression: {}", expression, error[0]);
-      return ToolResult.failure("Could not evaluate expression: " + error[0].getMessage());
-    }
-
-    double num = result[0];
-    if (!Double.isFinite(num)) {
-      return ToolResult.failure("Result is not a finite number.");
-    }
-
-    if (num == Math.floor(num) && !Double.isInfinite(num) && Math.abs(num) < 1e15) {
-      return ToolResult.success(String.format("%.0f", num));
-    }
-    return ToolResult.success(Double.toString(num));
   }
 
   private boolean isValid(String expression) {
