@@ -16,7 +16,13 @@ import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
+import com.rft.chat_sribiddi.tools.CalculatorTool;
+import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
+import com.rft.chat_sribiddi.tools.UrlFetcherTool;
+import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import java.lang.reflect.Method;
+import java.net.http.HttpClient;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -45,9 +51,15 @@ class ChatServiceTest {
   @Mock private ChatRepository chatRepository;
   @Mock private MessageRepository messageRepository;
   @Mock private ToolCallLogRepository toolCallLogRepository;
+  @Mock private ChatToolRepository chatToolRepository;
   @Mock private ApiKeyService apiKeyService;
   @Mock private ProviderClientFactory providerClientFactory;
   @Mock private com.rft.chat_sribiddi.auth.UserSettingsService userSettingsService;
+  @Mock private HttpClient webSearchHttpClient;
+  @Mock private ToolRegistry toolRegistry;
+  @Mock private CalculatorTool calculatorTool;
+  @Mock private UrlFetcherTool urlFetcherTool;
+  @Mock private PythonInterpreterTool pythonInterpreterTool;
 
   @Mock private ChatClient chatClient;
   @Mock private ChatClient.ChatClientRequestSpec requestSpec;
@@ -62,11 +74,17 @@ class ChatServiceTest {
   void setUp() {
     ChatProperties chatProperties = new ChatProperties();
     chatService =
-        new ChatService(chatRepository, messageRepository, toolCallLogRepository, apiKeyService, providerClientFactory, chatProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+        new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
+            apiKeyService, providerClientFactory, chatProperties, userSettingsService,
+            new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
+            toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
+            new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
     chatId = UUID.randomUUID();
     userId = "user-123";
 
     lenient().when(userSettingsService.getCustomInstructions(any())).thenReturn(java.util.Optional.empty());
+    lenient().when(chatToolRepository.findByChatId(any())).thenReturn(List.of());
+    lenient().when(toolRegistry.getAll()).thenReturn(List.of());
 
     AtomicLong ids = new AtomicLong(100);
     lenient().when(messageRepository.save(any(MessageEntity.class)))
@@ -145,6 +163,9 @@ class ChatServiceTest {
     when(requestSpec.options(any())).thenReturn(requestSpec);
     when(requestSpec.messages(anyList())).thenReturn(requestSpec);
     when(requestSpec.call()).thenReturn(callResponseSpec);
+
+    // Provide current-datetime in registry so wireTools() wires it
+    when(toolRegistry.getAll()).thenReturn(List.of(new com.rft.chat_sribiddi.tools.CurrentDateTimeTool()));
 
     AtomicReference<Object> dateTimeToolRef = new AtomicReference<>();
     doAnswer(
@@ -424,7 +445,11 @@ class ChatServiceTest {
     ChatProperties customProperties = new ChatProperties();
     customProperties.setMaxMediaAttachments(1);
     ChatService customService =
-        new ChatService(chatRepository, messageRepository, toolCallLogRepository, apiKeyService, providerClientFactory, customProperties, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+        new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
+            apiKeyService, providerClientFactory, customProperties, userSettingsService,
+            new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
+            toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
+            new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
 
     RequestDTO request =
         new RequestDTO(
@@ -763,7 +788,11 @@ class ChatServiceTest {
     ChatProperties longTitleProps = new ChatProperties();
     longTitleProps.setMaxChatTitleLength(10);
     ChatService serviceWithShortTitleLimit =
-        new ChatService(chatRepository, messageRepository, toolCallLogRepository, apiKeyService, providerClientFactory, longTitleProps, userSettingsService, new com.rft.chat_sribiddi.websearch.WebSearchProperties(), new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+        new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
+            apiKeyService, providerClientFactory, longTitleProps, userSettingsService,
+            new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
+            toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
+            new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);

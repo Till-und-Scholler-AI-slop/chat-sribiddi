@@ -1,19 +1,20 @@
 package com.rft.chat_sribiddi.tools.api;
 
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Component;
 
 /**
  * Registry for all available chat tools. Tools register themselves via Spring injection.
+ * Thread-safe: uses ConcurrentHashMap for concurrent read access.
  */
 @Component
 public class ToolRegistry {
 
-  private final Map<String, ChatTool> tools = new LinkedHashMap<>();
+  private final Map<String, ChatTool> tools = new ConcurrentHashMap<>();
 
   /** Register a tool. Called by tools that implement {@link ChatTool} and are Spring beans. */
   public void register(ChatTool tool) {
