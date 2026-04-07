@@ -53,8 +53,8 @@ public class ChatToolController {
       @PathVariable UUID chatId,
       @AuthenticationPrincipal OidcUser principal,
       HttpServletRequest servletRequest,
-      @Valid @RequestBody SetChatToolRequestDTO toolRequest) {
-    return ResponseEntity.ok(chatToolService.setTool(chatId, requireUserId(principal, servletRequest), toolRequest));
+      @Valid @RequestBody SetChatToolRequestDTO request) {
+    return ResponseEntity.ok(chatToolService.setTool(chatId, requireUserId(principal, servletRequest), request));
   }
 
   @DeleteMapping("/{toolName}")

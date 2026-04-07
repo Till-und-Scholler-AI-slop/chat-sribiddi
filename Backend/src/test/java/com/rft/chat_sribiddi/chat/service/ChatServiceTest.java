@@ -70,15 +70,17 @@ class ChatServiceTest {
   private UUID chatId;
   private String userId;
 
+  private ChatService buildChatService(ChatProperties chatProperties) {
+    return new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
+        apiKeyService, providerClientFactory, chatProperties, userSettingsService,
+        new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
+        toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
+        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+  }
+
   @BeforeEach
   void setUp() {
-    ChatProperties chatProperties = new ChatProperties();
-    chatService =
-        new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
-            apiKeyService, providerClientFactory, chatProperties, userSettingsService,
-            new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
-            toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
-            new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+    chatService = buildChatService(new ChatProperties());
     chatId = UUID.randomUUID();
     userId = "user-123";
 
@@ -444,12 +446,7 @@ class ChatServiceTest {
   void sendMessage_respectsCustomMaxMediaAttachments() {
     ChatProperties customProperties = new ChatProperties();
     customProperties.setMaxMediaAttachments(1);
-    ChatService customService =
-        new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
-            apiKeyService, providerClientFactory, customProperties, userSettingsService,
-            new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
-            toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
-            new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+    ChatService customService = buildChatService(customProperties);
 
     RequestDTO request =
         new RequestDTO(
@@ -787,12 +784,7 @@ class ChatServiceTest {
   void sendMessage_truncatesLongMessageForTitle() {
     ChatProperties longTitleProps = new ChatProperties();
     longTitleProps.setMaxChatTitleLength(10);
-    ChatService serviceWithShortTitleLimit =
-        new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
-            apiKeyService, providerClientFactory, longTitleProps, userSettingsService,
-            new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
-            toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
-            new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+    ChatService serviceWithShortTitleLimit = buildChatService(longTitleProps);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
