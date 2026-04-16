@@ -1141,4 +1141,59 @@ class ChatServiceTest {
     List<Message> prompt = messagesCaptor.getValue();
     assertThat(prompt).anyMatch(m -> m instanceof org.springframework.ai.chat.messages.SystemMessage);
   }
+
+  @Test
+  void streamMessage_gemmaModel_usesUserMessageForInstructions_andContextIsAccurate() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", "goog-key", null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(chatRepository.existsById(chatId)).thenReturn(true);
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", "goog-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gemma-3-27b-it").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.stream()).thenReturn(streamResponseSpec);
+
+    ChatResponseMetadata metadata =
+        ChatResponseMetadata.builder().usage(new DefaultUsage(10, 5)).build();
+    ChatResponse chunk1 = new ChatResponse(List.of(new Generation(new AssistantMessage("Hello"))));
+    ChatResponse chunk2 =
+        new ChatResponse(List.of(new Generation(new AssistantMessage(" Gemma"))), metadata);
+    when(streamResponseSpec.chatResponse())
+        .thenReturn(reactor.core.publisher.Flux.just(chunk1, chunk2));
+
+    var emitter = chatService.streamMessage(chatId, userId, request);
+
+    assertThat(emitter).isNotNull();
+
+    // Verify no SystemMessage was sent to the provider
+    ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+    verify(requestSpec).messages(messagesCaptor.capture());
+    List<Message> prompt = messagesCaptor.getValue();
+    assertThat(prompt).noneMatch(m -> m instanceof org.springframework.ai.chat.messages.SystemMessage);
+    assertThat(prompt.getFirst()).isInstanceOf(UserMessage.class);
+    assertThat(((UserMessage) prompt.getFirst()).getText())
+        .contains("System instructions for this conversation")
+        .contains("helpful assistant");
+
+    // Verify persisted assistant message context says "instructions sent as user message"
+    ArgumentCaptor<MessageEntity> savedMessages = ArgumentCaptor.forClass(MessageEntity.class);
+    verify(messageRepository, times(2)).save(savedMessages.capture());
+    MessageEntity assistantMsg = savedMessages.getAllValues().get(1);
+    assertThat(assistantMsg.getRole()).isEqualTo(Role.ASSISTANT);
+    assertThat(assistantMsg.getMessage()).isEqualTo("Hello Gemma");
+    assertThat(assistantMsg.getContext())
+        .doesNotContain("including system prompt")
+        .contains("instructions sent as user message");
+  }
 }
