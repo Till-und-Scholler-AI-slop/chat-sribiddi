@@ -621,12 +621,12 @@ const submitEditMessage = async () => {
                         </div>
                       </div>
                     </template>
-                    <template v-else>
-                      <div class="group relative">
-                        <div
-                          v-if="showEditMessageButton(message)"
-                          class="msg-actions absolute -left-7 top-0.5"
-                        >
+                      <template v-else>
+                        <div class="group relative">
+                          <div
+                            v-if="showEditMessageButton(message)"
+                            class="msg-actions absolute -left-7 top-0.5"
+                          >
                           <UButton
                             size="xs"
                             color="neutral"
@@ -635,14 +635,20 @@ const submitEditMessage = async () => {
                             :padded="false"
                             aria-label="Edit message"
                             class="btn-interactive"
-                            @click="startEditMessage(message.id, firstText(parts))"
+                              @click="startEditMessage(message.id, firstText(parts))"
+                            />
+                          </div>
+                          <ToolCallDisplay
+                            v-if="message?.role === 'assistant' && hasToolCalls(message.id)"
+                            :tool-calls="getToolCalls(message.id)"
+                            :loading="isToolCallLoading(message.id)"
+                            :error="getToolCallError(message.id)"
                           />
-                        </div>
-                        <div :class="message?.role === 'user' ? 'msg-user' : message?.role === 'assistant' ? 'msg-assistant' : ''">
-                          <MarkdownMessage
-                            :text="firstText(parts)"
-                            :class="message?.role === 'assistant' && status === 'streaming' && isLastMessage(message) ? 'streaming-cursor' : ''"
-                          />
+                          <div :class="message?.role === 'user' ? 'msg-user' : message?.role === 'assistant' ? 'msg-assistant' : ''">
+                            <MarkdownMessage
+                              :text="firstText(parts)"
+                              :class="message?.role === 'assistant' && status === 'streaming' && isLastMessage(message) ? 'streaming-cursor' : ''"
+                            />
                           <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
                             <UBadge
                               v-for="(file, idx) in getFileParts(parts)"
@@ -652,17 +658,11 @@ const submitEditMessage = async () => {
                               size="sm"
                             >
                               <UIcon :name="fileIcon(file.mediaType)" class="size-3.5 mr-1" />
-                              {{ file.filename || formatMimeType(file.mediaType) }}
-                            </UBadge>
+                                {{ file.filename || formatMimeType(file.mediaType) }}
+                              </UBadge>
+                            </div>
                           </div>
-                          <ToolCallDisplay
-                            v-if="message?.role === 'assistant' && hasToolCalls(message.id)"
-                            :tool-calls="getToolCalls(message.id)"
-                            :loading="isToolCallLoading(message.id)"
-                            :error="getToolCallError(message.id)"
-                          />
                         </div>
-                      </div>
                       <template v-if="message?.role === 'assistant'">
                         <!-- Typing indicator before first content -->
                         <div
