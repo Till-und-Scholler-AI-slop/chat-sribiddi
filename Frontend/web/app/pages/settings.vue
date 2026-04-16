@@ -405,16 +405,6 @@ async function handleDeleteAccount() {
                     />
                   </UFormGroup>
 
-                  <div v-if="item.provider === 'GOOGLE'">
-                    <UAlert
-                        color="neutral"
-                        variant="soft"
-                        icon="i-heroicons-information-circle"
-                        title="Google Project ID"
-                        description="Configured in backend env (`GOOGLE_PROJECT_ID`). It is not part of the per-user key API contract."
-                    />
-                  </div>
-
                   <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
                     <div class="flex items-center justify-between gap-3">
                       <div class="flex items-center gap-3">
