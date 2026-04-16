@@ -65,7 +65,8 @@ definePageMeta({
           Personenbezogene Daten werden nur so lange gespeichert, wie dies f&uuml;r die genannten Zwecke
           erforderlich ist oder gesetzliche Aufbewahrungspflichten bestehen. Chat-Inhalte und
           hinterlegte API-Schl&uuml;ssel bleiben gespeichert, bis sie gel&ouml;scht werden oder der Zweck der
-          Speicherung entf&auml;llt.
+          Speicherung entf&auml;llt. Hinterlegte API-Schl&uuml;ssel k&ouml;nnen Sie jederzeit auf der
+          Einstellungsseite entfernen.
         </p>
 
         <p>
