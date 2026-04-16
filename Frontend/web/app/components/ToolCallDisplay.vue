@@ -15,7 +15,7 @@ const filteredToolCalls = computed(() => filterToolCallLogs(props.toolCalls, fil
 
 const formattedToolCallsJson = computed(() => JSON.stringify(filteredToolCalls.value, null, 2))
 
-const toolSummary = computed(() => {
+const toolTriggerLabel = computed(() => {
   if (props.loading) return 'Using tools'
   const count = props.toolCalls.length
   if (count === 0) return 'Tool activity'
@@ -33,6 +33,7 @@ function formatToolNameForDisplay(toolName: string) {
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/[_-]+/g, ' ')
     .trim()
+    .replace(/^\w/, character => character.toUpperCase())
 }
 
 function formatTimestamp(value?: string | null) {
@@ -74,7 +75,7 @@ function formatPayload(payload?: string | null) {
           class="size-3.5 shrink-0 text-gray-400 dark:text-gray-500"
           :class="{ 'animate-spin': loading }"
         />
-        <span class="truncate">{{ toolSummary }}</span>
+        <span class="truncate">{{ toolTriggerLabel }}</span>
       </span>
       <span v-if="!loading && toolCalls.length > 1" class="tool-call-count">
         {{ toolCalls.length }}
