@@ -6,7 +6,19 @@ export default defineNuxtConfig({
     css: ['~/assets/css/main.css'],
     app: {
         head: {
+            title: 'chat-sribiddi – AI Chat UI',
+            meta: [
+                {
+                    name: 'description',
+                    content: 'A lightweight AI chat wrapper supporting multiple providers.'
+                }
+            ],
             link: [
+                {
+                    rel: 'icon',
+                    type: 'image/x-icon',
+                    href: '/favicon.ico'
+                },
                 {
                     rel: 'preconnect',
                     href: 'https://fonts.googleapis.com'
