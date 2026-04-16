@@ -1,4 +1,3 @@
-import type { ComputedRef } from 'vue'
 import { DEFAULT_BACKEND_BASE_URL, getCsrfToken, normalizeBaseUrl } from './useChatApi'
 
 export type AvailableTool = {
@@ -14,7 +13,6 @@ export type ChatToolConfig = {
   enabled: boolean
   createdAt: string
 }
-
 
 export function useToolApi() {
   const { resolveUserId } = useChatApi()

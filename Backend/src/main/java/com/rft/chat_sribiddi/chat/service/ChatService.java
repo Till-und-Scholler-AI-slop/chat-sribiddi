@@ -217,7 +217,7 @@ public class ChatService {
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(prep.promptMessages());
-      wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
+      wireTools(userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
       chatResponse = promptSpec.call().chatResponse();
     }
 
@@ -366,7 +366,7 @@ public class ChatService {
     var client = clientHolder.client();
     var promptSpec = client.prompt().options(options).messages(promptMessages);
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
-    wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
+    wireTools(userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
     subscribeToStream(
         promptSpec,
         emitter,
@@ -966,7 +966,6 @@ public class ChatService {
    * and is only wired when webSearchEnabled is true.
    */
   private void wireTools(
-      UUID chatId,
       String userId,
       Boolean webSearchEnabled,
       ToolExecutionCollector collector,
