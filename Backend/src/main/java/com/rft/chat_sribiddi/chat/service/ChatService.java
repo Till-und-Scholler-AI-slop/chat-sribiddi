@@ -782,7 +782,7 @@ public class ChatService {
     if (supportsSystemInstruction(provider, modelId)) {
       messages.add(new SystemMessage(instructionContent));
     } else {
-      // Gemma models do not support system instructions — inject as a leading user message instead
+      // Gemma models do not support system instructions - inject as a leading user message instead
       // so that the system prompt and any custom instructions are still applied.
       messages.add(
           new UserMessage(
