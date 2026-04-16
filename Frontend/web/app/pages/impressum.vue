@@ -27,7 +27,7 @@ definePageMeta({
         </p>
 
         <p>
-          Verantwortlich f&uuml;r den Inhalt nach &sect; 18 Abs. 2 MStV:<br>
+          Verantwortlich f&uuml;r die Inhalte dieser Website:<br>
           Rafael Till, Anschrift wie oben
         </p>
       </div>
