@@ -14,6 +14,25 @@ export type ChatToolConfig = {
   createdAt: string
 }
 
+/**
+ * Pure helper: builds the request headers for tool API calls.
+ * Exported for testing purposes.
+ */
+export function buildToolHeaders(
+  userId: string,
+  csrf: string | null,
+  mutating = false
+): Record<string, string> {
+  const h: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Chat-User-Id': userId
+  }
+  if (mutating && csrf) {
+    h['X-XSRF-TOKEN'] = csrf
+  }
+  return h
+}
+
 export function useToolApi() {
   const { resolveUserId } = useChatApi()
   const { settings } = useUserSettings()
@@ -29,17 +48,8 @@ export function useToolApi() {
     )
   })
 
-  const headers = (mutating = false) => {
-    const h: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'X-Chat-User-Id': resolveUserId()
-    }
-    if (mutating) {
-      const csrf = getCsrfToken()
-      if (csrf) h['X-XSRF-TOKEN'] = csrf
-    }
-    return h
-  }
+  const headers = (mutating = false) =>
+    buildToolHeaders(resolveUserId(), getCsrfToken(), mutating)
 
   const fetchAvailableTools = async (chatId: string, signal?: AbortSignal): Promise<AvailableTool[]> => {
     const res = await fetch(`${baseUrl.value}/chats/${chatId}/tools/available`, {

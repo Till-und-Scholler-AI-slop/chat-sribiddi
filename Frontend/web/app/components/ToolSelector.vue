@@ -32,7 +32,7 @@ const getIcon = (name: string) => toolIcons[name] || 'i-heroicons-wrench'
     </div>
     <div v-else class="flex flex-wrap gap-1.5">
       <UTooltip v-for="tool in tools" :key="tool.name" :text="tool.description">
-        <span class="tool-chip tool-chip-active">
+        <span :class="['tool-chip', tool.enabled ? 'tool-chip-active' : 'tool-chip-disabled']">
           <UIcon :name="getIcon(tool.name)" class="size-3.5" />
           <span class="text-xs">{{ tool.displayName }}</span>
         </span>
@@ -67,5 +67,8 @@ const getIcon = (name: string) => toolIcons[name] || 'i-heroicons-wrench'
   border-color: rgb(129 140 248 / 0.4);
   background: rgb(129 140 248 / 0.1);
   color: rgb(165 180 252);
+}
+.tool-chip-disabled {
+  opacity: 0.5;
 }
 </style>
