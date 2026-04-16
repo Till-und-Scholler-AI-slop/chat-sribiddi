@@ -1020,4 +1020,91 @@ class ChatServiceTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Only user messages can be edited");
   }
+
+  // ── supportsSystemInstruction tests ─────────────────────────────────────────
+
+  @Test
+  void supportsSystemInstruction_returnsFalse_forGoogleGemmaModel() {
+    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it")).isFalse();
+    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.GOOGLE, "gemma-3-4b-it")).isFalse();
+    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.GOOGLE, "gemma-4-27b-it")).isFalse();
+  }
+
+  @Test
+  void supportsSystemInstruction_returnsTrue_forGoogleGeminiModel() {
+    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.GOOGLE, "gemini-2.5-flash")).isTrue();
+    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.GOOGLE, "gemini-3.1-pro-preview")).isTrue();
+  }
+
+  @Test
+  void supportsSystemInstruction_returnsTrue_forNonGoogleProviders() {
+    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.OPENAI, "gpt-5.2")).isTrue();
+    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.CLAUDE, "claude-sonnet-4")).isTrue();
+    // OpenRouter may route to Gemma but uses OpenAI-compatible API which supports system messages
+    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.OPENROUTER, "google/gemma-3-27b-it")).isTrue();
+  }
+
+  @Test
+  void sendMessage_gemmaModel_omitsSystemMessage() {
+    RequestDTO request =
+        new RequestDTO("hello", RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", "goog-key", null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", "goog-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gemma-3-27b-it").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("hi there")))));
+
+    chatService.sendMessage(chatId, userId, request);
+
+    ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+    verify(requestSpec).messages(messagesCaptor.capture());
+
+    List<Message> prompt = messagesCaptor.getValue();
+    assertThat(prompt).noneMatch(m -> m instanceof org.springframework.ai.chat.messages.SystemMessage);
+  }
+
+  @Test
+  void sendMessage_geminiModel_includesSystemMessage() {
+    RequestDTO request =
+        new RequestDTO("hello", RequestDTO.Provider.GOOGLE, "gemini-2.5-flash", "goog-key", null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(RequestDTO.Provider.GOOGLE, "gemini-2.5-flash", "goog-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gemini-2.5-flash").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("hi there")))));
+
+    chatService.sendMessage(chatId, userId, request);
+
+    ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+    verify(requestSpec).messages(messagesCaptor.capture());
+
+    List<Message> prompt = messagesCaptor.getValue();
+    assertThat(prompt).anyMatch(m -> m instanceof org.springframework.ai.chat.messages.SystemMessage);
+  }
 }

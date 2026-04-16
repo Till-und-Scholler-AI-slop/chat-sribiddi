@@ -323,7 +323,8 @@ public class ChatService {
     String customInstructions =
         userSettingsService.getCustomInstructions(userId).orElse(null);
     List<Message> promptMessages =
-        buildPromptMessages(chatId, validatedMedia, messageId, customInstructions);
+        buildPromptMessages(chatId, validatedMedia, messageId, customInstructions,
+            requestDTO.provider(), requestDTO.modelId());
 
     return createAndSubscribeStream(userId, requestDTO, promptMessages, chatId, null);
   }
@@ -359,7 +360,8 @@ public class ChatService {
     String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
     String customInstructions = userSettingsService.getCustomInstructions(userId).orElse(null);
     List<Message> promptMessages =
-        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId(), customInstructions);
+        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId(), customInstructions,
+            requestDTO.provider(), requestDTO.modelId());
     return new MessagePreparation(updatedTitle, promptMessages);
   }
 
@@ -762,18 +764,20 @@ public class ChatService {
 
   private List<Message> buildPromptMessages(
       UUID chatId, List<MediaAttachment> mediaAttachments, Long targetUserMessageId,
-      String customInstructions) {
+      String customInstructions, RequestDTO.Provider provider, String modelId) {
     List<MessageEntity> latestMessages =
         new ArrayList<>(
             messageRepository.findByChatIdOrderByCreatedAtDesc(
                 chatId, PageRequest.of(0, chatProperties.getContextMessageLimit())));
 
     List<Message> messages = new ArrayList<>();
-    String systemContent =
-        (customInstructions != null && !customInstructions.isBlank())
-            ? SYSTEM_PROMPT + "\n\n" + customInstructions
-            : SYSTEM_PROMPT;
-    messages.add(new SystemMessage(systemContent));
+    if (supportsSystemInstruction(provider, modelId)) {
+      String systemContent =
+          (customInstructions != null && !customInstructions.isBlank())
+              ? SYSTEM_PROMPT + "\n\n" + customInstructions
+              : SYSTEM_PROMPT;
+      messages.add(new SystemMessage(systemContent));
+    }
 
     List<MessageEntity> ordered = latestMessages.reversed();
     for (MessageEntity entity : ordered) {
@@ -787,6 +791,16 @@ public class ChatService {
       messages.add(toChatMessage(entity));
     }
     return messages;
+  }
+
+  /**
+   * Returns {@code false} for Google Gemma models, which do not support system instructions.
+   * All other providers and models support system instructions normally.
+   */
+  static boolean supportsSystemInstruction(RequestDTO.Provider provider, String modelId) {
+    return !(provider == RequestDTO.Provider.GOOGLE
+        && modelId != null
+        && modelId.startsWith("gemma-"));
   }
 
   private List<MediaAttachment> validateMediaAttachments(List<MediaAttachment> mediaAttachments) {
