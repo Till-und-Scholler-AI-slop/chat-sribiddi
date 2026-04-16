@@ -19,7 +19,7 @@ const toolSummary = computed(() => {
   if (props.loading) return 'Using tools'
   const count = props.toolCalls.length
   if (count === 0) return 'Tool activity'
-  if (count === 1) return prettifyToolName(props.toolCalls[0].toolName)
+  if (count === 1) return formatToolName(props.toolCalls[0].toolName)
   return `${count} tool calls`
 })
 
@@ -27,7 +27,7 @@ function toggle() {
   expanded.value = !expanded.value
 }
 
-function prettifyToolName(toolName: string) {
+function formatToolName(toolName: string) {
   const raw = toolName.split('.').pop() ?? toolName
   return raw
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -122,7 +122,7 @@ function formatPayload(payload?: string | null) {
                 <summary class="tool-call-entry-summary">
                   <span class="min-w-0">
                     <span class="block truncate text-sm text-gray-700 dark:text-gray-200">
-                      {{ prettifyToolName(tc.toolName) }}
+                      {{ formatToolName(tc.toolName) }}
                     </span>
                     <span class="block truncate text-[11px] text-gray-400 dark:text-gray-500">
                       {{ tc.toolName }}
