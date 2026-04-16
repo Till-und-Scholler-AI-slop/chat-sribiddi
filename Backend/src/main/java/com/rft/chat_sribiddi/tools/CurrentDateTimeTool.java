@@ -1,8 +1,11 @@
 package com.rft.chat_sribiddi.tools;
 
+import com.rft.chat_sribiddi.tools.api.ChatTool;
+import com.rft.chat_sribiddi.tools.api.ToolResult;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.Map;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.stereotype.Component;
 
@@ -13,7 +16,7 @@ import org.springframework.stereotype.Component;
  * access to accurate, up-to-date date/time information regardless of their training cutoff.
  */
 @Component
-public class CurrentDateTimeTool {
+public class CurrentDateTimeTool implements ChatTool {
 
   private static final DateTimeFormatter FORMATTER =
       DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy HH:mm:ss z", Locale.ENGLISH);
@@ -25,5 +28,25 @@ public class CurrentDateTimeTool {
               + "day of the week, or any other time-sensitive information.")
   public String getCurrentDateTime() {
     return ZonedDateTime.now().format(FORMATTER);
+  }
+
+  @Override
+  public String getName() {
+    return "current-datetime";
+  }
+
+  @Override
+  public String getDisplayName() {
+    return "Current Date & Time";
+  }
+
+  @Override
+  public String getDescription() {
+    return "Returns the current date and time in the server's time zone.";
+  }
+
+  @Override
+  public ToolResult execute(String userId, Map<String, Object> parameters) {
+    return ToolResult.success(getCurrentDateTime());
   }
 }

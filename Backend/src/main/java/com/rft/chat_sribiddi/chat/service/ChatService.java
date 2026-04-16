@@ -15,18 +15,27 @@ import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.model.ToolCallLogEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
+import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
+import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedBraveSearchTool;
+import com.rft.chat_sribiddi.chat.toolcall.LoggedCalculatorTool;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedCurrentDateTimeTool;
+import com.rft.chat_sribiddi.chat.toolcall.LoggedPythonInterpreterTool;
+import com.rft.chat_sribiddi.chat.toolcall.LoggedUrlFetcherTool;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
+import com.rft.chat_sribiddi.tools.CalculatorTool;
+import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
+import com.rft.chat_sribiddi.tools.UrlFetcherTool;
+import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
-import com.rft.chat_sribiddi.tools.CurrentDateTimeTool;
 import com.rft.chat_sribiddi.websearch.BraveSearchTool;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.transaction.Transactional;
 import java.io.IOException;
+import java.net.http.HttpClient;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -38,6 +47,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AbstractMessage;
@@ -64,6 +74,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class ChatService {
 
   private static final String SYSTEM_PROMPT =
@@ -84,35 +95,18 @@ public class ChatService {
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
   private final ToolCallLogRepository toolCallLogRepository;
+  private final ChatToolRepository chatToolRepository;
   private final ApiKeyService apiKeyService;
   private final ProviderClientFactory providerClientFactory;
   private final ChatProperties chatProperties;
   private final UserSettingsService userSettingsService;
   private final WebSearchProperties webSearchProperties;
-  private final java.net.http.HttpClient webSearchHttpClient;
-  private final CurrentDateTimeTool currentDateTimeTool;
-
-  public ChatService(
-      ChatRepository chatRepository,
-      MessageRepository messageRepository,
-      ToolCallLogRepository toolCallLogRepository,
-      ApiKeyService apiKeyService,
-      ProviderClientFactory providerClientFactory,
-      ChatProperties chatProperties,
-      UserSettingsService userSettingsService,
-      WebSearchProperties webSearchProperties,
-      CurrentDateTimeTool currentDateTimeTool) {
-    this.chatRepository = chatRepository;
-    this.messageRepository = messageRepository;
-    this.toolCallLogRepository = toolCallLogRepository;
-    this.apiKeyService = apiKeyService;
-    this.providerClientFactory = providerClientFactory;
-    this.chatProperties = chatProperties;
-    this.userSettingsService = userSettingsService;
-    this.webSearchProperties = webSearchProperties;
-    this.webSearchHttpClient = java.net.http.HttpClient.newHttpClient();
-    this.currentDateTimeTool = currentDateTimeTool;
-  }
+  private final HttpClient webSearchHttpClient;
+  private final ToolRegistry toolRegistry;
+  private final CalculatorTool calculatorTool;
+  private final UrlFetcherTool urlFetcherTool;
+  private final PythonInterpreterTool pythonInterpreterTool;
+  private final com.rft.chat_sribiddi.tools.CurrentDateTimeTool currentDateTimeTool;
 
   @Transactional
   public void deleteChat(UUID chatId, String userId) {
@@ -122,6 +116,7 @@ public class ChatService {
             .orElseThrow(() -> new ChatNotFoundException(chatId));
 
     messageRepository.deleteByChatId(chat.getChatId());
+    chatToolRepository.deleteByChatId(chat.getChatId());
     chatRepository.deleteById(chat.getChatId());
   }
 
@@ -222,12 +217,7 @@ public class ChatService {
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(prep.promptMessages());
-      promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, toolExecutionCollector));
-      if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
-        resolveWebSearchTool(userId)
-            .map(tool -> new LoggedBraveSearchTool(tool, toolExecutionCollector))
-            .ifPresent(promptSpec::tools);
-      }
+      wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
       chatResponse = promptSpec.call().chatResponse();
     }
 
@@ -380,12 +370,7 @@ public class ChatService {
     var client = clientHolder.client();
     var promptSpec = client.prompt().options(options).messages(promptMessages);
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
-    promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, toolExecutionCollector));
-    if (Boolean.TRUE.equals(requestDTO.webSearchEnabled())) {
-      resolveWebSearchTool(userId)
-          .map(tool -> new LoggedBraveSearchTool(tool, toolExecutionCollector))
-          .ifPresent(promptSpec::tools);
-    }
+    wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
     String assistantContext = buildAssistantContext(
         promptMessages.size(),
         supportsSystemInstruction(requestDTO.provider(), requestDTO.modelId()));
@@ -1005,5 +990,52 @@ public class ChatService {
     return apiKeyService
         .getKey(userId, Provider.BRAVE_SEARCH)
         .map(key -> new BraveSearchTool(key, webSearchHttpClient, webSearchProperties));
+  }
+
+  /**
+   * Wires up extensible tools for a chat based on chat_tools configuration.
+   * Always includes CurrentDateTimeTool. Checks chat_tools table for calculator, url-fetcher, etc.
+   * Brave search is wired if webSearchEnabled is true (legacy behavior preserved).
+   */
+  private void wireTools(
+      UUID chatId,
+      String userId,
+      Boolean webSearchEnabled,
+      ToolExecutionCollector collector,
+      ChatClient.ChatClientRequestSpec promptSpec) {
+    // Get enabled tools from chat_tools table
+    Set<String> enabledToolNames = chatToolRepository.findByChatId(chatId).stream()
+        .filter(ChatToolEntity::isEnabled)
+        .map(ChatToolEntity::getToolName)
+        .collect(Collectors.toSet());
+
+    // CurrentDateTimeTool is always active (no DB check needed)
+    for (com.rft.chat_sribiddi.tools.api.ChatTool tool : toolRegistry.getAll()) {
+      if ("current-datetime".equals(tool.getName())) {
+        promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, collector));
+        continue;
+      }
+      if ("brave-search".equals(tool.getName())) {
+        // Brave search requires per-user API key
+        boolean webSearchViaTools = enabledToolNames.contains("brave-search");
+        if (Boolean.TRUE.equals(webSearchEnabled) || webSearchViaTools) {
+          resolveWebSearchTool(userId)
+              .map(t -> new LoggedBraveSearchTool(t, collector))
+              .ifPresent(promptSpec::tools);
+        }
+      } else if ("calculator".equals(tool.getName())) {
+        if (!enabledToolNames.contains("calculator")) continue;
+        promptSpec.tools(new LoggedCalculatorTool(calculatorTool, collector));
+      } else if ("url-fetcher".equals(tool.getName())) {
+        if (!enabledToolNames.contains("url-fetcher")) continue;
+        promptSpec.tools(new LoggedUrlFetcherTool(urlFetcherTool, collector));
+      } else if ("python-interpreter".equals(tool.getName())) {
+        if (!enabledToolNames.contains("python-interpreter")) continue;
+        promptSpec.tools(new LoggedPythonInterpreterTool(pythonInterpreterTool, collector));
+      } else if (enabledToolNames.contains(tool.getName())) {
+        // Use the tool's own @Tool-annotated methods directly via Spring AI reflection
+        promptSpec.tools(tool);
+      }
+    }
   }
 }
