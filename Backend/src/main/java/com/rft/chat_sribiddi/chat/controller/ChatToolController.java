@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
-@RequestMapping("/api/chats/{chatId}/tools")
+@RequestMapping("/chats/{chatId}/tools")
 @RequiredArgsConstructor
 public class ChatToolController {
 

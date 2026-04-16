@@ -7,10 +7,6 @@ const props = defineProps<{
   loading: boolean
 }>()
 
-const emit = defineEmits<{
-  toggle: [toolName: string, enabled: boolean]
-}>()
-
 const toolIcons: Record<string, string> = {
   calculator: 'i-heroicons-calculator',
   'url-fetcher': 'i-heroicons-globe-alt',
@@ -36,16 +32,10 @@ const getIcon = (name: string) => toolIcons[name] || 'i-heroicons-wrench'
     </div>
     <div v-else class="flex flex-wrap gap-1.5">
       <UTooltip v-for="tool in tools" :key="tool.name" :text="tool.description">
-        <button
-          class="tool-chip"
-          :class="{ 'tool-chip-active': tool.enabled }"
-          :aria-label="tool.enabled ? `Disable ${tool.displayName}` : `Enable ${tool.displayName}`"
-          :aria-pressed="tool.enabled"
-          @click="emit('toggle', tool.name, !tool.enabled)"
-        >
+        <span class="tool-chip tool-chip-active">
           <UIcon :name="getIcon(tool.name)" class="size-3.5" />
           <span class="text-xs">{{ tool.displayName }}</span>
-        </button>
+        </span>
       </UTooltip>
     </div>
   </div>
@@ -62,17 +52,11 @@ const getIcon = (name: string) => toolIcons[name] || 'i-heroicons-wrench'
   border: 1px solid rgb(229 231 235 / 0.6);
   color: rgb(107 114 128);
   background: rgb(249 250 251 / 0.5);
-  transition: all 0.15s ease;
-  cursor: pointer;
 }
 .dark .tool-chip {
   border-color: rgb(255 255 255 / 0.08);
   color: rgb(156 163 175);
   background: rgb(255 255 255 / 0.03);
-}
-.tool-chip:hover {
-  border-color: rgb(99 102 241 / 0.4);
-  color: rgb(99 102 241);
 }
 .tool-chip-active {
   border-color: rgb(99 102 241 / 0.5);

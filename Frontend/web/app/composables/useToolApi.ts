@@ -1,4 +1,5 @@
 import type { ComputedRef } from 'vue'
+import { DEFAULT_BACKEND_BASE_URL, getCsrfToken, normalizeBaseUrl } from './useChatApi'
 
 export type AvailableTool = {
   name: string
@@ -14,6 +15,7 @@ export type ChatToolConfig = {
   createdAt: string
 }
 
+
 export function useToolApi() {
   const { resolveUserId } = useChatApi()
   const { settings } = useUserSettings()
@@ -24,18 +26,25 @@ export function useToolApi() {
       typeof config.public.backendBaseUrl === 'string'
         ? config.public.backendBaseUrl.trim()
         : ''
-    const base =
-      settings.value.backendBaseUrl?.trim() || configured || 'http://localhost:8080'
-    return base.endsWith('/') ? base.slice(0, -1) : base
+    return normalizeBaseUrl(
+      settings.value.backendBaseUrl?.trim() || configured || DEFAULT_BACKEND_BASE_URL
+    )
   })
 
-  const headers = () => ({
-    'Content-Type': 'application/json',
-    'X-Chat-User-Id': resolveUserId()
-  })
+  const headers = (mutating = false) => {
+    const h: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Chat-User-Id': resolveUserId()
+    }
+    if (mutating) {
+      const csrf = getCsrfToken()
+      if (csrf) h['X-XSRF-TOKEN'] = csrf
+    }
+    return h
+  }
 
   const fetchAvailableTools = async (chatId: string, signal?: AbortSignal): Promise<AvailableTool[]> => {
-    const res = await fetch(`${baseUrl.value}/api/chats/${chatId}/tools/available`, {
+    const res = await fetch(`${baseUrl.value}/chats/${chatId}/tools/available`, {
       headers: headers(),
       credentials: 'include',
       signal
@@ -45,9 +54,9 @@ export function useToolApi() {
   }
 
   const setToolEnabled = async (chatId: string, toolName: string, enabled: boolean): Promise<ChatToolConfig> => {
-    const res = await fetch(`${baseUrl.value}/api/chats/${chatId}/tools`, {
+    const res = await fetch(`${baseUrl.value}/chats/${chatId}/tools`, {
       method: 'PUT',
-      headers: headers(),
+      headers: headers(true),
       credentials: 'include',
       body: JSON.stringify({ toolName, enabled })
     })
@@ -56,9 +65,9 @@ export function useToolApi() {
   }
 
   const removeTool = async (chatId: string, toolName: string) => {
-    const res = await fetch(`${baseUrl.value}/api/chats/${chatId}/tools/${toolName}`, {
+    const res = await fetch(`${baseUrl.value}/chats/${chatId}/tools/${toolName}`, {
       method: 'DELETE',
-      headers: headers(),
+      headers: headers(true),
       credentials: 'include'
     })
     if (!res.ok) throw new Error(`Failed to remove tool: ${res.status} ${res.statusText}`)

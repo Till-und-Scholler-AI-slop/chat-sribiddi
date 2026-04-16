@@ -36,18 +36,12 @@ public class ChatToolService {
 
   public List<AvailableToolDTO> listAvailableTools(UUID chatId, String userId) {
     ensureChatExists(chatId, userId);
-    List<ChatToolEntity> configured = chatToolRepository.findByChatId(chatId);
-    var enabledNames = configured.stream()
-        .filter(ChatToolEntity::isEnabled)
-        .map(ChatToolEntity::getToolName)
-        .toList();
-
     return toolRegistry.getAll().stream()
         .map(tool -> new AvailableToolDTO(
             tool.getName(),
             tool.getDisplayName(),
             tool.getDescription(),
-            enabledNames.contains(tool.getName())))
+            true))
         .toList();
   }
 

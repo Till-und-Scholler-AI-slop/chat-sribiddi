@@ -38,7 +38,7 @@ const {
   webSearchEnabled
 } = useChatStore()
 const { settings } = useUserSettings()
-const { fetchAvailableTools, setToolEnabled } = useToolApi()
+const { fetchAvailableTools } = useToolApi()
 
 const input = ref('')
 const attachments = ref<MediaAttachment[]>([])
@@ -303,20 +303,6 @@ const loadAvailableTools = async () => {
   }
 }
 
-const handleToolToggle = async (toolName: string, enabled: boolean) => {
-  if (!activeChatId.value) return
-  try {
-    await setToolEnabled(activeChatId.value, toolName, enabled)
-    const tool = availableTools.value.find(t => t.name === toolName)
-    if (tool) tool.enabled = enabled
-  } catch (err) {
-    toast.add({
-      title: 'Failed to update tool',
-      description: err instanceof Error ? err.message : 'Unknown error',
-      color: 'error'
-    })
-  }
-}
 
 onMounted(async () => {
   document.addEventListener('paste', handlePaste)
@@ -838,7 +824,6 @@ const submitEditMessage = async () => {
                 :chat-id="activeChatId || ''"
                 :tools="availableTools"
                 :loading="toolsLoading"
-                @toggle="handleToolToggle"
               />
               <span
                 v-if="modelPricingSummary"
