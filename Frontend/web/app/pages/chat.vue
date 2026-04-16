@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
+import type { AvailableTool } from '~/composables/useToolApi'
 import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/useChatStore'
 
 definePageMeta({
@@ -37,6 +38,7 @@ const {
   webSearchEnabled
 } = useChatStore()
 const { settings } = useUserSettings()
+const { fetchAvailableTools, setToolEnabled } = useToolApi()
 
 const input = ref('')
 const attachments = ref<MediaAttachment[]>([])
@@ -203,6 +205,9 @@ const toDataUrl = (file: File) =>
   })
 
 const isDragOver = ref(false)
+const availableTools = ref<AvailableTool[]>([])
+const toolsLoading = ref(false)
+const toolsAbortController = ref<AbortController | undefined>(undefined)
 
 const clearAttachments = () => {
   attachments.value = []
@@ -278,6 +283,41 @@ const handlePaste = async (event: ClipboardEvent) => {
   }
 }
 
+const loadAvailableTools = async () => {
+  if (!activeChatId.value) return
+  toolsAbortController.value?.abort()
+  const controller = new AbortController()
+  toolsAbortController.value = controller
+  toolsLoading.value = true
+  try {
+    availableTools.value = await fetchAvailableTools(activeChatId.value, controller.signal)
+  } catch (err: any) {
+    if (err.name !== 'AbortError') {
+      availableTools.value = []
+    }
+  } finally {
+    if (toolsAbortController.value === controller) {
+      toolsAbortController.value = undefined
+    }
+    toolsLoading.value = false
+  }
+}
+
+const handleToolToggle = async (toolName: string, enabled: boolean) => {
+  if (!activeChatId.value) return
+  try {
+    await setToolEnabled(activeChatId.value, toolName, enabled)
+    const tool = availableTools.value.find(t => t.name === toolName)
+    if (tool) tool.enabled = enabled
+  } catch (err) {
+    toast.add({
+      title: 'Failed to update tool',
+      description: err instanceof Error ? err.message : 'Unknown error',
+      color: 'error'
+    })
+  }
+}
+
 onMounted(async () => {
   document.addEventListener('paste', handlePaste)
   document.addEventListener('dragover', handleDragOver)
@@ -293,6 +333,9 @@ onMounted(async () => {
     if (activeConversation.value && !activeConversation.value.model && defaultModel.value) {
       setModelForChat(activeConversation.value.session.chatId, defaultModel.value)
     }
+
+    // Load available tools
+    loadAvailableTools()
   } catch (err) {
     console.error(err)
     toast.add({
@@ -325,6 +368,7 @@ watch(activeChatId, async newId => {
     skipNextSmoothScroll.value = true
     await loadMessagesForChat(newId)
   }
+  loadAvailableTools()
   scrollToBottom('auto')
 })
 
@@ -790,6 +834,12 @@ const submitEditMessage = async () => {
                   @click="webSearchEnabled = !webSearchEnabled"
                 />
               </UTooltip>
+              <ToolSelector
+                :chat-id="activeChatId || ''"
+                :tools="availableTools"
+                :loading="toolsLoading"
+                @toggle="handleToolToggle"
+              />
               <span
                 v-if="modelPricingSummary"
                 class="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1"
