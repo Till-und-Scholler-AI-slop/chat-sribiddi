@@ -494,7 +494,7 @@ const submitEditMessage = async () => {
           <div class="welcome-hero animate-fade-in-up">
             <h2>Chat Sribiddi</h2>
             <p class="mt-3 text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-              Pick a model above and start chatting with AI. Attach files, search the web, and more.
+              Pick a model below and start chatting with AI. Attach files, search the web, and more.
             </p>
             <div class="mt-6 flex flex-wrap justify-center gap-3">
               <button class="prompt-suggestion" aria-label="Ask about quantum computing" @click="input = 'Explain quantum computing in simple terms'; handleSubmit()">
@@ -532,6 +532,8 @@ const submitEditMessage = async () => {
                   :messages="activeConversation.messages"
                   :status="status"
                   :spacing-offset="96"
+                  :user="{ side: 'right', variant: 'naked' }"
+                  :assistant="{ side: 'left', variant: 'naked' }"
                 >
                   <template #content="{ parts, message }: { parts: any, message: any }">
                     <template v-if="message?.role === 'assistant' && getReasoning(message.id)">
