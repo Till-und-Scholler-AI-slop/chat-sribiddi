@@ -2,7 +2,7 @@
 import { DEFAULT_BACKEND_BASE_URL, normalizeBaseUrl } from '~/composables/useChatApi'
 
 definePageMeta({
-  layout: 'auth'
+  layout: 'login'
 })
 
 const { settings } = useUserSettings()
@@ -15,7 +15,15 @@ const checkError = ref<string | null>(null)
 const resolveBaseUrl = (value: string) => {
   const trimmed = value.trim()
   if (!trimmed) return DEFAULT_BACKEND_BASE_URL
-  return normalizeBaseUrl(trimmed)
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return DEFAULT_BACKEND_BASE_URL
+    }
+    return normalizeBaseUrl(parsed.toString())
+  } catch {
+    return DEFAULT_BACKEND_BASE_URL
+  }
 }
 
 const loginUrl = computed(() => `${resolveBaseUrl(settings.value.backendBaseUrl)}/oauth2/authorization/google`)
@@ -142,36 +150,36 @@ onMounted(async () => {
 .login-orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(80px);
+  filter: blur(44px);
   pointer-events: none;
-  opacity: 0.5;
+  opacity: 0.38;
 }
 .dark .login-orb {
-  opacity: 0.4;
+  opacity: 0.32;
 }
 .login-orb--1 {
-  width: 500px;
-  height: 500px;
-  top: -15%;
-  left: -10%;
+  width: 320px;
+  height: 320px;
+  top: -10%;
+  left: -8%;
   background: rgba(184, 46, 142, 0.15);
 }
 .dark .login-orb--1 {
   background: rgba(229, 51, 138, 0.2);
 }
 .login-orb--2 {
-  width: 400px;
-  height: 400px;
-  bottom: -10%;
-  right: -8%;
+  width: 260px;
+  height: 260px;
+  bottom: -8%;
+  right: -6%;
   background: rgba(58, 140, 207, 0.12);
 }
 .dark .login-orb--2 {
   background: rgba(91, 184, 232, 0.15);
 }
 .login-orb--3 {
-  width: 300px;
-  height: 300px;
+  width: 190px;
+  height: 190px;
   top: 50%;
   left: 60%;
   background: rgba(184, 46, 142, 0.08);
@@ -180,8 +188,8 @@ onMounted(async () => {
   background: rgba(229, 51, 138, 0.12);
 }
 .login-orb--4 {
-  width: 200px;
-  height: 200px;
+  width: 140px;
+  height: 140px;
   bottom: 20%;
   left: 5%;
   background: rgba(58, 140, 207, 0.08);
@@ -191,12 +199,11 @@ onMounted(async () => {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .login-orb {
+  .login-orb--1,
+  .login-orb--2 {
     animation: login-orb-float 20s ease-in-out infinite;
   }
-  .login-orb--2 { animation-delay: -5s; animation-duration: 25s; }
-  .login-orb--3 { animation-delay: -10s; animation-duration: 22s; }
-  .login-orb--4 { animation-delay: -15s; animation-duration: 18s; }
+  .login-orb--2 { animation-delay: -6s; animation-duration: 24s; }
 }
 
 @keyframes login-orb-float {
@@ -301,38 +308,34 @@ onMounted(async () => {
   width: 100%;
   padding: 0.8rem 1.5rem;
   border-radius: 0.875rem;
-  background: linear-gradient(135deg, #7B1A63 0%, #5E1450 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--ui-primary) 78%, black) 0%,
+    color-mix(in srgb, var(--ui-primary) 58%, black) 100%
+  );
   color: #fff;
   font-weight: 600;
   font-size: 0.9375rem;
   text-decoration: none;
   box-shadow:
-    0 1px 2px rgba(94, 20, 80, 0.25),
-    0 4px 16px rgba(123, 26, 99, 0.2);
+    0 1px 2px color-mix(in srgb, var(--ui-primary) 25%, transparent),
+    0 4px 16px color-mix(in srgb, var(--ui-primary) 20%, transparent);
   transition:
     transform var(--duration-fast) var(--ease-smooth),
     box-shadow var(--duration-fast) var(--ease-smooth),
     background var(--duration-fast) var(--ease-smooth);
 }
 .google-btn:hover {
-  background: linear-gradient(135deg, #8E2074 0%, #6E185D 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--ui-primary) 88%, black) 0%,
+    color-mix(in srgb, var(--ui-primary) 68%, black) 100%
+  );
   box-shadow:
-    0 2px 4px rgba(94, 20, 80, 0.3),
-    0 8px 24px rgba(123, 26, 99, 0.25);
+    0 2px 4px color-mix(in srgb, var(--ui-primary) 30%, transparent),
+    0 8px 24px color-mix(in srgb, var(--ui-primary) 25%, transparent);
   color: #fff;
   text-decoration: none;
-}
-.dark .google-btn {
-  background: linear-gradient(135deg, #5E1450 0%, #420E3A 100%);
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.35),
-    0 4px 16px rgba(94, 20, 80, 0.25);
-}
-.dark .google-btn:hover {
-  background: linear-gradient(135deg, #6E185D 0%, #521143 100%);
-  box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.45),
-    0 8px 24px rgba(94, 20, 80, 0.3);
 }
 
 .google-btn-svg {
