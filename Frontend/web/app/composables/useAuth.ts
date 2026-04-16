@@ -1,9 +1,6 @@
-import { DEFAULT_BACKEND_BASE_URL, normalizeBaseUrl } from '~/composables/useChatApi'
-
 type AuthState = 'unknown' | 'authenticated' | 'unauthenticated'
 
 export function useAuth() {
-  const { settings } = useUserSettings()
   const status = useState<AuthState>('auth-status', () => 'unknown')
   const checking = useState<boolean>('auth-checking', () => false)
 
@@ -11,11 +8,9 @@ export function useAuth() {
     if (checking.value) return status.value
     checking.value = true
     try {
-      const base = normalizeBaseUrl(settings.value.backendBaseUrl.trim()) || DEFAULT_BACKEND_BASE_URL
-      const response = await fetch(`${base}/secured`, {
-        credentials: 'include'
-      })
-      status.value = response.ok ? 'authenticated' : 'unauthenticated'
+      const { checkSession } = useChatApi()
+      const ok = await checkSession()
+      status.value = ok ? 'authenticated' : 'unauthenticated'
     } catch {
       status.value = 'unauthenticated'
     } finally {

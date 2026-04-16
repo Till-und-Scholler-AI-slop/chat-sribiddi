@@ -156,7 +156,7 @@ const modelPricingSummary = computed(() => {
   const parts: string[] = []
   if (p != null) parts.push(`${p} in`)
   if (c != null) parts.push(`${c} out`)
-  return parts.length ? `${parts.join(' / ')} per 1M tokens` : null
+  return parts.length ? `${parts.join(' / ')} pro 1M Tokens` : null
 })
 
 const optionPriceLabel = (option: ModelOption): string | null =>
@@ -165,7 +165,7 @@ const optionPriceLabel = (option: ModelOption): string | null =>
 const pendingPromptText = computed(() => {
   const trimmed = input.value.trim()
   if (trimmed) return trimmed
-  return attachments.value.length ? 'Please analyze the attachment.' : ''
+  return attachments.value.length ? 'Bitte analysiere den Anhang.' : ''
 })
 
 const preSendCostEstimate = computed(() => {
@@ -198,7 +198,7 @@ const toDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-    reader.onerror = () => reject(new Error(`Unable to read ${file.name}`))
+    reader.onerror = () => reject(new Error(`Datei ${file.name} konnte nicht gelesen werden.`))
     reader.readAsDataURL(file)
   })
 
@@ -229,8 +229,8 @@ const processFileList = async (files: File[]) => {
       attachments.value.push(result.value)
     } else {
       toast.add({
-        title: 'Upload failed',
-        description: result.reason instanceof Error ? result.reason.message : 'Could not read attachment.',
+        title: 'Upload fehlgeschlagen',
+        description: friendlyErrorMessage(result.reason, 'Anhang konnte nicht gelesen werden.'),
         color: 'error'
       })
     }
@@ -296,8 +296,8 @@ onMounted(async () => {
   } catch (err) {
     console.error(err)
     toast.add({
-      title: 'Chat could not start',
-      description: err instanceof Error ? err.message : 'Check if the backend is running.',
+      title: 'Chat konnte nicht gestartet werden',
+      description: friendlyErrorMessage(err, 'Läuft das Backend?'),
       color: 'error'
     })
   } finally {
@@ -388,6 +388,29 @@ watch(
   },
 )
 
+const welcomeSuggestions = [
+  {
+    label: '💡 Quantencomputing erklären',
+    prompt: 'Erkläre Quantencomputing in einfachen Worten',
+    aria: 'Quantencomputing erklären lassen'
+  },
+  {
+    label: '🐍 Python-Funktion schreiben',
+    prompt: 'Schreibe eine Python-Funktion, die eine Liste sortiert',
+    aria: 'Python-Funktion schreiben lassen'
+  },
+  {
+    label: '🤖 Aktuelle KI-Trends',
+    prompt: 'Welche aktuellen Trends gibt es im Bereich KI?',
+    aria: 'Aktuelle KI-Trends erfahren'
+  }
+]
+
+const applyAndSubmit = (prompt: string) => {
+  input.value = prompt
+  handleSubmit()
+}
+
 async function handleSubmit() {
   if (!input.value.trim() && attachments.value.length === 0) return
   if (!activeConversation.value) {
@@ -398,7 +421,7 @@ async function handleSubmit() {
   const model = selectedModel.value
   if (!conversation || !model) return
 
-  const text = input.value.trim() || 'Please analyze the attachment.'
+  const text = input.value.trim() || 'Bitte analysiere den Anhang.'
   const media = [...attachments.value]
   input.value = ''
   clearAttachments()
@@ -409,8 +432,8 @@ async function handleSubmit() {
     })
   } catch (err) {
     toast.add({
-      title: 'Message failed',
-      description: err instanceof Error ? err.message : 'Unable to reach backend.',
+      title: 'Nachricht fehlgeschlagen',
+      description: friendlyErrorMessage(err),
       color: 'error'
     })
   }
@@ -431,8 +454,8 @@ const handleReload = async () => {
     await retryLastPrompt(conversation.session.chatId, model)
   } catch (err) {
     toast.add({
-      title: 'Retry failed',
-      description: err instanceof Error ? err.message : 'Unable to retry request.',
+      title: 'Wiederholen fehlgeschlagen',
+      description: friendlyErrorMessage(err, 'Anfrage konnte nicht wiederholt werden.'),
       color: 'error'
     })
   }
@@ -464,8 +487,8 @@ const submitEditMessage = async () => {
     await editMessage(conversation.session.chatId, msgId, newText, model)
   } catch (err) {
     toast.add({
-      title: 'Edit failed',
-      description: err instanceof Error ? err.message : 'Unable to edit message.',
+      title: 'Bearbeitung fehlgeschlagen',
+      description: friendlyErrorMessage(err, 'Nachricht konnte nicht bearbeitet werden.'),
       color: 'error'
     })
   }
@@ -490,28 +513,13 @@ const submitEditMessage = async () => {
           <div class="skeleton-shimmer h-14" />
         </div>
 
-        <div v-else-if="!activeConversation">
-          <div class="welcome-hero animate-fade-in-up">
-            <h2>Chat Sribiddi</h2>
-            <p class="mt-3 text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-              Pick a model above and start chatting with AI. Attach files, search the web, and more.
-            </p>
-            <div class="mt-6 flex flex-wrap justify-center gap-3">
-              <button class="prompt-suggestion" aria-label="Ask about quantum computing" @click="input = 'Explain quantum computing in simple terms'; handleSubmit()">
-                💡 Explain quantum computing
-              </button>
-              <button class="prompt-suggestion" aria-label="Generate a Python function" @click="input = 'Write a Python function to sort a list'; handleSubmit()">
-                🐍 Write a Python function
-              </button>
-              <button class="prompt-suggestion" aria-label="Learn about AI trends" @click="input = 'What are the latest trends in AI?'; handleSubmit()">
-                🤖 Latest AI trends
-              </button>
-            </div>
-            <UButton color="primary" icon="i-heroicons-plus" class="mt-6 btn-interactive" @click="startChat()">
-              Start chat
-            </UButton>
+          <div v-else-if="!activeConversation">
+            <ChatWelcomeHero
+              :suggestions="welcomeSuggestions"
+              @pick="applyAndSubmit"
+              @start="startChat()"
+            />
           </div>
-        </div>
 
         <div v-else class="space-y-4 flex-1 min-h-0 flex flex-col">
           <div class="flex items-center justify-end gap-2">
@@ -532,64 +540,23 @@ const submitEditMessage = async () => {
                   :messages="activeConversation.messages"
                   :status="status"
                   :spacing-offset="96"
+                  :user="{ side: 'right', variant: 'naked' }"
+                  :assistant="{ side: 'left', variant: 'naked' }"
                 >
                   <template #content="{ parts, message }: { parts: any, message: any }">
                     <template v-if="message?.role === 'assistant' && getReasoning(message.id)">
-                      <div class="mb-3 rounded-xl border border-gray-200/60 dark:border-white/[0.06] bg-gray-100/50 dark:bg-white/[0.02] overflow-hidden">
-                        <button
-                          class="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                          @click="reasoningExpanded[message.id] = !reasoningExpanded[message.id]"
-                        >
-                          <UIcon
-                            name="i-heroicons-light-bulb"
-                            class="size-3.5 text-amber-500/70"
-                          />
-                          <span class="font-medium">Thinking</span>
-                          <UIcon
-                            :name="reasoningExpanded[message.id] ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
-                            class="size-3.5 ml-auto transition-transform duration-200"
-                          />
-                        </button>
-                        <div
-                          class="collapsible"
-                          :class="{ 'is-open': reasoningExpanded[message.id] }"
-                        >
-                          <div class="collapsible-inner">
-                            <div class="px-3 pb-3 text-sm text-gray-500 dark:text-gray-400 whitespace-pre-wrap border-t border-gray-200/40 dark:border-white/[0.04]">
-                              {{ getReasoning(message.id) }}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      <ChatMessageReasoning
+                        :text="getReasoning(message.id) || ''"
+                        :expanded="!!reasoningExpanded[message.id]"
+                        @toggle="reasoningExpanded[message.id] = !reasoningExpanded[message.id]"
+                      />
                     </template>
                     <template v-if="message?.role === 'user' && message.id && editingMessageId === message.id">
-                      <div class="space-y-2">
-                        <textarea
-                          v-model="editingText"
-                          class="w-full min-h-[80px] rounded-xl bg-gray-100/80 dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] text-sm text-gray-800 dark:text-gray-100 px-3.5 py-2.5 resize-y focus:outline-none focus:ring-2 focus:ring-primary/40 transition-shadow"
-                          @keydown.enter.ctrl="submitEditMessage"
-                          @keydown.escape="cancelEditMessage"
-                        />
-                        <div class="flex items-center gap-2">
-                          <UButton
-                            size="xs"
-                            color="primary"
-                            icon="i-heroicons-check"
-                            label="Save & regenerate"
-                            class="btn-interactive"
-                            :disabled="!editingText.trim()"
-                            @click="submitEditMessage"
-                          />
-                          <UButton
-                            size="xs"
-                            color="neutral"
-                            variant="ghost"
-                            icon="i-heroicons-x-mark"
-                            label="Cancel"
-                            @click="cancelEditMessage"
-                          />
-                        </div>
-                      </div>
+                      <ChatMessageEditor
+                        v-model="editingText"
+                        @submit="submitEditMessage"
+                        @cancel="cancelEditMessage"
+                      />
                     </template>
                       <template v-else>
                         <div class="group relative">
@@ -603,7 +570,7 @@ const submitEditMessage = async () => {
                             variant="ghost"
                             icon="i-heroicons-pencil-square"
                             :padded="false"
-                            aria-label="Edit message"
+                            aria-label="Nachricht bearbeiten"
                             class="btn-interactive"
                               @click="startEditMessage(message.id, firstText(parts))"
                             />
@@ -642,36 +609,13 @@ const submitEditMessage = async () => {
                           <span /><span /><span />
                         </div>
                         <template v-for="usage in [getTokenUsage(message.id)]" :key="message.id">
-                          <div
-                            v-if="usage"
-                            class="flex items-center gap-2.5 mt-2.5 text-[11px] text-gray-400 dark:text-gray-500 flex-wrap"
-                          >
-                            <span v-if="usage.promptTokens != null" class="inline-flex items-center gap-1">
-                              <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
-                              {{ formatTokenCount(usage.promptTokens) }}
-                            </span>
-                            <span v-if="usage.generationTokens != null" class="inline-flex items-center gap-1">
-                              <UIcon name="i-heroicons-arrow-down-tray" class="size-3" />
-                              {{ formatTokenCount(usage.generationTokens) }}
-                            </span>
-                            <span v-if="usage.totalTokens != null" class="inline-flex items-center gap-1">
-                              {{ formatTokenCount(usage.totalTokens) }} tokens
-                            </span>
-                            <template v-for="cost in [getMessageCost(message.id)]" :key="`cost-${message.id}`">
-                              <span
-                                v-if="cost"
-                                class="inline-flex items-center gap-1 text-emerald-600/80 dark:text-emerald-400/60"
-                              >
-                                {{ formatCost(cost.totalCost) }}
-                              </span>
-                            </template>
-                            <span
-                              v-if="message?.createdAt && formatTimestamp(message.createdAt)"
-                              class="select-none"
-                            >
-                              {{ formatTimestamp(message.createdAt) }}
-                            </span>
-                          </div>
+                          <ChatMessageFooter
+                            :usage="usage"
+                            :cost="getMessageCost(message.id)"
+                            :timestamp="message?.createdAt ? formatTimestamp(message.createdAt) : null"
+                            :format-token-count="formatTokenCount"
+                            :format-cost="formatCost"
+                          />
                         </template>
                       </template>
                       <div
@@ -707,7 +651,7 @@ const submitEditMessage = async () => {
               variant="ghost"
               color="neutral"
               icon="i-heroicons-paper-clip"
-              label="Add attachments"
+              label="Anhänge hinzufügen"
               class="btn-interactive"
               @click="fileInput?.click()"
             />
@@ -717,7 +661,7 @@ const submitEditMessage = async () => {
               variant="ghost"
               color="neutral"
               icon="i-heroicons-x-mark"
-              label="Clear"
+              label="Leeren"
               class="btn-interactive"
               @click="clearAttachments"
             />
@@ -751,7 +695,7 @@ const submitEditMessage = async () => {
                 :loading="modelsLoading"
                 label-key="label"
                 by="value"
-                placeholder="Pick model"
+                placeholder="Modell auswählen"
                 variant="subtle"
                 color="neutral"
               >
@@ -780,13 +724,13 @@ const submitEditMessage = async () => {
                   </div>
                 </template>
               </USelectMenu>
-              <UTooltip :text="webSearchEnabled ? 'Web search enabled' : 'Web search disabled'">
+              <UTooltip :text="webSearchEnabled ? 'Web-Suche aktiv' : 'Web-Suche deaktiviert'">
                 <UButton
                   :icon="webSearchEnabled ? 'i-heroicons-globe-alt-solid' : 'i-heroicons-globe-alt'"
                   :color="webSearchEnabled ? 'primary' : 'neutral'"
                   :variant="webSearchEnabled ? 'soft' : 'ghost'"
                   size="sm"
-                  :aria-label="webSearchEnabled ? 'Disable web search' : 'Enable web search'"
+                  :aria-label="webSearchEnabled ? 'Web-Suche deaktivieren' : 'Web-Suche aktivieren'"
                   @click="webSearchEnabled = !webSearchEnabled"
                 />
               </UTooltip>
@@ -807,7 +751,7 @@ const submitEditMessage = async () => {
                 <button
                   type="button"
                   class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                  :aria-label="`Estimated request cost ${formatCost(preSendCostEstimate.totalCost)}`"
+                  :aria-label="`Geschätzte Kosten ${formatCost(preSendCostEstimate.totalCost)}`"
                 >
                   <UIcon name="i-heroicons-banknotes" class="size-3" />
                   ~{{ formatCost(preSendCostEstimate.totalCost) }}
@@ -815,22 +759,22 @@ const submitEditMessage = async () => {
                 <template #content>
                   <div class="space-y-2 text-xs">
                     <div class="font-medium text-gray-900 dark:text-gray-100">
-                      Estimated request cost
+                      Geschätzte Anfragekosten
                     </div>
                     <div class="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 whitespace-nowrap">
-                      <span class="text-gray-500 dark:text-gray-400">Input tokens</span>
+                      <span class="text-gray-500 dark:text-gray-400">Eingabe-Tokens</span>
                       <span class="text-right text-gray-900 dark:text-gray-100">
                         {{ formatTokenCount(preSendCostEstimate.inputTokens) }}
                       </span>
-                      <span class="text-gray-500 dark:text-gray-400">Estimated output</span>
+                      <span class="text-gray-500 dark:text-gray-400">Geschätzte Ausgabe</span>
                       <span class="text-right text-gray-900 dark:text-gray-100">
                         {{ formatTokenCount(preSendCostEstimate.estimatedOutputTokens) }}
                       </span>
-                      <span class="text-gray-500 dark:text-gray-400">Input price / 1M</span>
+                      <span class="text-gray-500 dark:text-gray-400">Preis Eingabe / 1M</span>
                       <span class="text-right text-gray-900 dark:text-gray-100">
                         {{ preSendPromptRateLabel || '—' }}
                       </span>
-                      <span class="text-gray-500 dark:text-gray-400">Output price / 1M</span>
+                      <span class="text-gray-500 dark:text-gray-400">Preis Ausgabe / 1M</span>
                       <span class="text-right text-gray-900 dark:text-gray-100">
                         {{ preSendCompletionRateLabel || '—' }}
                       </span>
@@ -858,7 +802,7 @@ const submitEditMessage = async () => {
     >
       <div class="animate-scale-in flex flex-col items-center gap-3 text-primary glass-surface rounded-2xl px-10 py-8 ring-2 ring-primary/50 ring-inset shadow-2xl">
         <UIcon name="i-heroicons-arrow-down-tray" class="size-12" />
-        <span class="text-lg font-semibold tracking-tight">Drop files to attach</span>
+        <span class="text-lg font-semibold tracking-tight">Dateien zum Anhängen loslassen</span>
       </div>
     </div>
   </Transition>

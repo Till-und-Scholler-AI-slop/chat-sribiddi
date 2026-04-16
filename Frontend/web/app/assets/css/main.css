@@ -2,39 +2,31 @@
 @import "@nuxt/ui";
 
 /* ── Color Palette ──────────────────────────────────────────────────────
- * Dark mode uses a violet-to-blue palette:
- *   Schwarzviolett  #0B0514  →  gray-950  (body bg)
- *   Dunkelviolett   #140A21  →  gray-900  (cards / sections bg)
- *   Very dark purple #1E1030 →  gray-800  (intermediate)
- *   Dunkles Purpur  #2E104D  →  gray-700  (light mode main text)
- *   Dunkler Blau    #3A5888  →  gray-600  (intermediate)
- *   Stahlblau       #3A8CCF  →  gray-500  (secondary accent / links)
- *   Intermediate    #5BB8E8  →  gray-400  (intermediate)
- *   Hellblau        #8EE2FC  →  gray-300  (highlights / hover)
- *   Pastellblau     #ADE8FB  →  gray-200  (subtle borders)
- *   Eisblau         #F0F9FF  →  gray-100  (light bg muted areas)
- *   Weiß            #FFFFFF  →  gray-50   (cards in light mode)
+ * Neutral slate grays drive Nuxt UI's semantic tokens (bg-default,
+ * bg-elevated, text-muted, …). Custom brand surfaces (body bg, accent
+ * gradients) are applied directly below.
  *
- * Primary accent:
- *   Light mode: #B82E8E  Beere / Magenta  (buttons & call-to-action)
- *   Dark mode:  #E5338A  Magenta          (buttons & call-to-action)
+ * Brand surfaces:
+ *   Light body bg:  #F8FAFC  (slate-50)
+ *   Dark  body bg:  #0B0514  Schwarzviolett
+ *   Light text:     #1E293B  (slate-800)
+ *   Dark  text:     #E0F7FF  Lichtblau
  *
- * Body text:
- *   Light mode: #2E104D  Dunkles Purpur
- *   Dark mode:  #E0F7FF  Lichtblau (very light)
+ * Primary accent (magenta):
+ *   Light: #B82E8E   Dark: #E5338A
  * ─────────────────────────────────────────────────────────────────── */
 @theme {
-  --color-gray-50:  #FFFFFF;
-  --color-gray-100: #F0F9FF;
-  --color-gray-200: #ADE8FB;
-  --color-gray-300: #8EE2FC;
-  --color-gray-400: #5BB8E8;
-  --color-gray-500: #3A8CCF;
-  --color-gray-600: #3A5888;
-  --color-gray-700: #2E104D;
-  --color-gray-800: #1E1030;
-  --color-gray-900: #140A21;
-  --color-gray-950: #0B0514;
+  --color-gray-50:  #F8FAFC;
+  --color-gray-100: #F1F5F9;
+  --color-gray-200: #E2E8F0;
+  --color-gray-300: #CBD5E1;
+  --color-gray-400: #94A3B8;
+  --color-gray-500: #64748B;
+  --color-gray-600: #475569;
+  --color-gray-700: #334155;
+  --color-gray-800: #1E293B;
+  --color-gray-900: #0F172A;
+  --color-gray-950: #020617;
 
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', monospace;
@@ -42,8 +34,8 @@
 
 /* ── Typography ─────────────────────────────────────────────────────── */
 body {
-  background-color: #F0F9FF;
-  color: #2E104D;
+  background-color: #F8FAFC;
+  color: #1E293B;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -299,27 +291,33 @@ body {
 }
 
 /* ── Chat Message Bubbles ───────────────────────────────────────────── */
+/*
+ * Both bubbles render directly on the chat surface — no extra wrapper
+ * background. The assistant message keeps a thin accent rule on the left
+ * for visual hierarchy, the user message stays solid magenta.
+ */
 .msg-user {
   background: linear-gradient(135deg, #B82E8E 0%, #9B1E6E 100%);
   color: #fff;
   border-radius: 1.25rem 1.25rem 0.375rem 1.25rem;
-  padding: 0.75rem 1rem;
+  padding: 0.65rem 0.95rem;
+  box-shadow: 0 1px 2px rgba(155, 30, 110, 0.18);
+  display: inline-block;
+  max-width: 100%;
 }
 .dark .msg-user {
   background: linear-gradient(135deg, #E5338A 0%, #B82E8E 100%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .msg-assistant {
-  background: rgba(255, 255, 255, 0.5);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-left: 2px solid rgba(184, 46, 142, 0.25);
-  border-radius: 1.25rem 1.25rem 1.25rem 0.375rem;
-  padding: 0.75rem 1rem;
+  background: transparent;
+  border-left: 2px solid rgba(184, 46, 142, 0.35);
+  border-radius: 0 0.5rem 0.5rem 0;
+  padding: 0.1rem 0 0.1rem 0.85rem;
 }
 .dark .msg-assistant {
-  background: rgba(20, 10, 33, 0.6);
-  border-left-color: rgba(229, 51, 138, 0.3);
+  border-left-color: rgba(229, 51, 138, 0.45);
 }
 
 /* Message hover actions slide-in */

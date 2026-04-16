@@ -10,17 +10,18 @@ const props = defineProps<{
 
 const expanded = ref(false)
 const filterQuery = ref('')
+const showRawJson = ref(false)
 
 const filteredToolCalls = computed(() => filterToolCallLogs(props.toolCalls, filterQuery.value))
 
 const formattedToolCallsJson = computed(() => JSON.stringify(props.toolCalls, null, 2))
 
 const toolTriggerLabel = computed(() => {
-  if (props.loading) return 'Using tools'
+  if (props.loading) return 'Tools werden ausgeführt'
   const count = props.toolCalls.length
-  if (count === 0) return 'Tool activity'
+  if (count === 0) return 'Tool-Aktivität'
   if (count === 1) return formatToolNameForDisplay(props.toolCalls[0].toolName)
-  return `${count} tool calls`
+  return `${count} Tool-Aufrufe`
 })
 
 function toggle() {
@@ -59,6 +60,12 @@ function formatPayload(payload?: string | null) {
     return payload
   }
 }
+
+function statusIcon(tc: ToolCallLog) {
+  if (tc.outputPayload) return 'i-heroicons-check-circle'
+  if (tc.durationMs != null) return 'i-heroicons-check-circle'
+  return 'i-heroicons-arrow-path'
+}
 </script>
 
 <template>
@@ -69,51 +76,51 @@ function formatPayload(payload?: string | null) {
       :aria-expanded="expanded"
       @click="toggle"
     >
-      <span class="inline-flex items-center gap-2 min-w-0">
+      <span class="trigger-icon">
         <UIcon
           :name="loading ? 'i-heroicons-arrow-path' : 'i-heroicons-wrench-screwdriver'"
-          class="size-3.5 shrink-0 text-gray-400 dark:text-gray-500"
+          class="size-3.5"
           :class="{ 'animate-spin': loading }"
         />
-        <span class="truncate">{{ toolTriggerLabel }}</span>
       </span>
+      <span class="trigger-label">{{ toolTriggerLabel }}</span>
       <span v-if="!loading && toolCalls.length > 1" class="tool-call-count">
         {{ toolCalls.length }}
       </span>
       <UIcon
         :name="expanded ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
-        class="size-3.5 shrink-0 text-gray-400 dark:text-gray-500"
+        class="size-3.5 trigger-chevron"
       />
     </button>
 
     <div class="collapsible-content" :class="{ 'is-expanded': expanded }">
       <div class="collapsible-inner">
         <div class="tool-call-panel">
-          <div v-if="error" class="tool-call-alert text-red-400 dark:text-red-300">
+          <div v-if="error" class="tool-call-alert is-error">
             <UIcon name="i-heroicons-exclamation-circle" class="size-4 shrink-0" />
             <span>{{ error }}</span>
           </div>
 
           <div v-else-if="loading && toolCalls.length === 0" class="tool-call-alert">
             <UIcon name="i-heroicons-arrow-path" class="size-4 shrink-0 animate-spin" />
-            <span>Waiting for tool execution details…</span>
+            <span>Warte auf Ergebnisse…</span>
           </div>
 
           <template v-else>
-            <div class="panel-toolbar">
+            <div v-if="toolCalls.length > 1" class="panel-toolbar">
               <label class="search-field">
-                <UIcon name="i-heroicons-magnifying-glass" class="size-3.5 text-gray-400 dark:text-gray-500" />
+                <UIcon name="i-heroicons-magnifying-glass" class="size-3.5" />
                 <input
                   v-model="filterQuery"
                   type="search"
-                  placeholder="Filter by tool name"
+                  placeholder="Nach Tool-Namen filtern"
                   class="search-input"
                 >
               </label>
             </div>
 
             <div v-if="filteredToolCalls.length === 0" class="tool-call-empty">
-              No tool calls match “{{ filterQuery.trim() }}”.
+              Kein Tool entspricht „{{ filterQuery.trim() }}“.
             </div>
 
             <div v-else class="tool-call-list">
@@ -124,42 +131,68 @@ function formatPayload(payload?: string | null) {
                 :open="filteredToolCalls.length === 1"
               >
                 <summary class="tool-call-entry-summary">
-                  <span class="min-w-0">
-                    <span class="block truncate text-sm text-gray-700 dark:text-gray-200">
+                  <span class="entry-status">
+                    <UIcon :name="statusIcon(tc)" class="size-4" />
+                  </span>
+                  <span class="entry-titles">
+                    <span class="entry-title">
                       {{ formatToolNameForDisplay(tc.toolName) }}
                     </span>
-                    <span class="block truncate text-[11px] text-gray-400 dark:text-gray-500">
+                    <span class="entry-subtitle">
                       {{ tc.toolName }}
                     </span>
                   </span>
                   <span class="tool-call-meta">
-                    <span v-if="formatTimestamp(tc.startedAt)">{{ formatTimestamp(tc.startedAt) }}</span>
-                    <span v-if="tc.durationMs != null">{{ tc.durationMs }}ms</span>
+                    <span v-if="tc.durationMs != null" class="meta-pill">
+                      <UIcon name="i-heroicons-clock" class="size-3" />
+                      {{ tc.durationMs }}ms
+                    </span>
+                    <span v-if="formatTimestamp(tc.startedAt)" class="meta-time">
+                      {{ formatTimestamp(tc.startedAt) }}
+                    </span>
                   </span>
+                  <UIcon
+                    name="i-heroicons-chevron-down"
+                    class="size-3.5 entry-chevron"
+                  />
                 </summary>
 
                 <div class="tool-call-entry-body">
                   <div class="payload-block">
-                    <div class="payload-label">Input</div>
+                    <div class="payload-label">
+                      <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
+                      Input
+                    </div>
                     <pre>{{ formatPayload(tc.inputPayload) }}</pre>
                   </div>
 
                   <div class="payload-block">
-                    <div class="payload-label">Output</div>
+                    <div class="payload-label">
+                      <UIcon name="i-heroicons-arrow-down-tray" class="size-3" />
+                      Output
+                    </div>
                     <pre>{{ formatPayload(tc.outputPayload) }}</pre>
                   </div>
 
                   <div v-if="tc.contextExcerpt" class="payload-block">
-                    <div class="payload-label">Context excerpt</div>
+                    <div class="payload-label">
+                      <UIcon name="i-heroicons-document-text" class="size-3" />
+                      Kontextauszug
+                    </div>
                     <pre>{{ formatPayload(tc.contextExcerpt) }}</pre>
                   </div>
                 </div>
               </details>
             </div>
 
-            <div class="payload-block raw-json-block">
-              <div class="payload-label">Execution log JSON</div>
-              <pre>{{ formattedToolCallsJson }}</pre>
+            <div class="raw-json-toggle">
+              <button type="button" class="raw-json-button" @click="showRawJson = !showRawJson">
+                <UIcon :name="showRawJson ? 'i-heroicons-eye-slash' : 'i-heroicons-code-bracket'" class="size-3" />
+                {{ showRawJson ? 'Roh-JSON ausblenden' : 'Roh-JSON anzeigen' }}
+              </button>
+              <div v-if="showRawJson" class="payload-block raw-json-block">
+                <pre>{{ formattedToolCallsJson }}</pre>
+              </div>
             </div>
           </template>
         </div>
@@ -170,44 +203,101 @@ function formatPayload(payload?: string | null) {
 
 <style scoped>
 .tool-call-display {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
 }
 
+/* ── Trigger pill ──────────────────────────────────────────────────── */
 .tool-call-trigger {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  justify-content: space-between;
-  padding: 0.375rem 0.75rem;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, currentColor 8%, transparent);
-  background: color-mix(in srgb, currentColor 3%, transparent);
-  font-size: 0.75rem;
-  line-height: 1rem;
-  color: rgb(107 114 128);
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  gap: 0.625rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(184, 46, 142, 0.18);
+  background: rgba(184, 46, 142, 0.06);
+  font-size: 0.8125rem;
+  line-height: 1.1rem;
+  color: rgb(75 85 99);
+  text-align: left;
+  transition: all 160ms ease;
 }
 
 .tool-call-trigger:hover {
-  background: color-mix(in srgb, currentColor 5%, transparent);
+  background: rgba(184, 46, 142, 0.1);
+  border-color: rgba(184, 46, 142, 0.3);
 }
 
 .dark .tool-call-trigger {
-  color: rgb(156 163 175);
+  background: rgba(229, 51, 138, 0.08);
+  border-color: rgba(229, 51, 138, 0.22);
+  color: rgb(203 213 225);
+}
+
+.dark .tool-call-trigger:hover {
+  background: rgba(229, 51, 138, 0.14);
+  border-color: rgba(229, 51, 138, 0.36);
+}
+
+.trigger-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.5rem;
+  background: rgba(184, 46, 142, 0.14);
+  color: #B82E8E;
+  flex-shrink: 0;
+}
+
+.dark .trigger-icon {
+  background: rgba(229, 51, 138, 0.18);
+  color: #E5338A;
+}
+
+.trigger-label {
+  flex: 1;
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trigger-chevron {
+  opacity: 0.6;
+  transition: transform 200ms ease;
+}
+
+.tool-call-trigger[aria-expanded="true"] .trigger-chevron {
+  transform: rotate(0deg);
 }
 
 .tool-call-count {
-  padding: 0.125rem 0.375rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.375rem;
   border-radius: 999px;
-  background: color-mix(in srgb, currentColor 8%, transparent);
+  background: rgba(184, 46, 142, 0.18);
+  color: #B82E8E;
   font-size: 0.6875rem;
+  font-weight: 600;
 }
 
+.dark .tool-call-count {
+  background: rgba(229, 51, 138, 0.22);
+  color: #F472B6;
+}
+
+/* ── Collapsible ───────────────────────────────────────────────────── */
 .collapsible-content {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.25s ease;
+  transition: grid-template-rows 220ms ease;
 }
 
 .collapsible-content.is-expanded {
@@ -218,12 +308,21 @@ function formatPayload(payload?: string | null) {
   overflow: hidden;
 }
 
+/* ── Panel ─────────────────────────────────────────────────────────── */
 .tool-call-panel {
   margin-top: 0.5rem;
-  border-radius: 1rem;
-  border: 1px solid color-mix(in srgb, currentColor 8%, transparent);
-  background: color-mix(in srgb, currentColor 2%, transparent);
-  padding: 0.75rem;
+  border-radius: 0.875rem;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.6);
+  padding: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dark .tool-call-panel {
+  background: rgba(20, 10, 33, 0.4);
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
 .tool-call-alert,
@@ -235,28 +334,35 @@ function formatPayload(payload?: string | null) {
   color: rgb(107 114 128);
 }
 
+.tool-call-alert.is-error {
+  color: rgb(220 38 38);
+}
+
 .dark .tool-call-alert,
 .dark .tool-call-empty {
   color: rgb(156 163 175);
 }
 
-.panel-toolbar {
-  margin-bottom: 0.75rem;
+.dark .tool-call-alert.is-error {
+  color: rgb(252 165 165);
 }
 
+/* ── Search ───────────────────────────────────────────────────────── */
 .search-field {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   width: 100%;
-  border-radius: 0.75rem;
-  border: 1px solid color-mix(in srgb, currentColor 8%, transparent);
-  background: color-mix(in srgb, currentColor 3%, transparent);
-  padding: 0.5rem 0.625rem;
+  border-radius: 0.625rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.6);
+  padding: 0.4rem 0.625rem;
   color: rgb(107 114 128);
 }
 
 .dark .search-field {
+  background: rgba(0, 0, 0, 0.2);
+  border-color: rgba(255, 255, 255, 0.08);
   color: rgb(156 163 175);
 }
 
@@ -269,61 +375,165 @@ function formatPayload(payload?: string | null) {
   color: inherit;
 }
 
+/* ── Entry list ───────────────────────────────────────────────────── */
 .tool-call-list {
   display: flex;
   flex-direction: column;
-  gap: 0.625rem;
+  gap: 0.5rem;
 }
 
 .tool-call-entry {
-  border-radius: 0.875rem;
-  border: 1px solid color-mix(in srgb, currentColor 8%, transparent);
-  background: color-mix(in srgb, currentColor 2%, transparent);
+  border-radius: 0.75rem;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.5);
+  overflow: hidden;
+  transition: border-color 150ms ease;
+}
+
+.tool-call-entry[open] {
+  border-color: rgba(184, 46, 142, 0.25);
+}
+
+.dark .tool-call-entry {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.dark .tool-call-entry[open] {
+  border-color: rgba(229, 51, 138, 0.35);
 }
 
 .tool-call-entry-summary {
   list-style: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.75rem;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem;
   cursor: pointer;
+  user-select: none;
 }
 
 .tool-call-entry-summary::-webkit-details-marker {
   display: none;
 }
 
+.entry-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.5rem;
+  background: rgba(34, 197, 94, 0.12);
+  color: rgb(22 163 74);
+  flex-shrink: 0;
+}
+
+.dark .entry-status {
+  background: rgba(34, 197, 94, 0.18);
+  color: rgb(74 222 128);
+}
+
+.entry-titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.entry-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgb(31 41 55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dark .entry-title {
+  color: rgb(229 231 235);
+}
+
+.entry-subtitle {
+  font-size: 0.6875rem;
+  color: rgb(156 163 175);
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .tool-call-meta {
   display: inline-flex;
+  align-items: center;
   gap: 0.5rem;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: rgb(107 114 128);
   font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.dark .meta-pill {
+  background: rgba(255, 255, 255, 0.06);
   color: rgb(156 163 175);
 }
 
+.meta-time {
+  font-size: 0.6875rem;
+  color: rgb(156 163 175);
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-chevron {
+  color: rgb(156 163 175);
+  flex-shrink: 0;
+  transition: transform 200ms ease;
+}
+
+.tool-call-entry[open] .entry-chevron {
+  transform: rotate(180deg);
+}
+
+/* ── Entry body ───────────────────────────────────────────────────── */
 .tool-call-entry-body {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
   padding: 0 0.75rem 0.75rem;
 }
 
 .payload-block {
-  border-radius: 0.75rem;
-  border: 1px solid color-mix(in srgb, currentColor 8%, transparent);
-  background: color-mix(in srgb, currentColor 3%, transparent);
-  padding: 0.625rem;
+  border-radius: 0.625rem;
+  background: rgba(0, 0, 0, 0.03);
+  padding: 0.5rem 0.625rem;
+}
+
+.dark .payload-block {
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .payload-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   margin-bottom: 0.375rem;
   font-size: 0.6875rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
+  color: rgb(107 114 128);
+}
+
+.dark .payload-label {
   color: rgb(156 163 175);
 }
 
@@ -332,15 +542,53 @@ function formatPayload(payload?: string | null) {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 0.75rem;
-  line-height: 1.2rem;
+  line-height: 1.25rem;
   color: rgb(55 65 81);
+  font-family: var(--font-mono, monospace);
+  max-height: 18rem;
+  overflow: auto;
 }
 
 .dark .payload-block pre {
   color: rgb(224 225 221);
 }
 
-.raw-json-block {
-  margin-top: 0.75rem;
+/* ── Raw JSON toggle ──────────────────────────────────────────────── */
+.raw-json-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.raw-json-button {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: rgb(107 114 128);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  transition: background-color 150ms ease;
+}
+
+.raw-json-button:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: rgb(55 65 81);
+}
+
+.dark .raw-json-button {
+  color: rgb(156 163 175);
+}
+
+.dark .raw-json-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgb(229 231 235);
+}
+
+.raw-json-block pre {
+  max-height: 20rem;
 }
 </style>

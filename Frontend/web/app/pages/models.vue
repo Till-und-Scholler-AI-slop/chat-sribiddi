@@ -250,7 +250,7 @@ onMounted(async () => {
                     :color="isFavorite(model) ? 'warning' : 'neutral'"
                     variant="ghost"
                     size="sm"
-                    :aria-label="isFavorite(model) ? 'Remove from favorites' : 'Add to favorites'"
+                    :aria-label="isFavorite(model) ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'"
                     class="btn-interactive"
                     @click="toggleFavorite(model)"
                   />
@@ -259,7 +259,7 @@ onMounted(async () => {
                     variant="soft"
                     size="sm"
                     icon="i-heroicons-arrow-right-circle"
-                    label="Use model"
+                    label="Modell verwenden"
                     class="btn-interactive"
                     @click="useModel(model)"
                   />

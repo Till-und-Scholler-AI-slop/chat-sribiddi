@@ -37,6 +37,15 @@ const editingChatId = ref<string | null>(null)
 const titleDraft = ref('')
 const processingChatId = ref<string | null>(null)
 
+// Delete-confirmation modal state.
+const deleteTarget = ref<{ chatId: string; title: string } | null>(null)
+const deleteModalOpen = computed({
+  get: () => deleteTarget.value !== null,
+  set: value => {
+    if (!value) deleteTarget.value = null
+  }
+})
+
 onMounted(async () => {
   try {
     const ok = await ensureAuthenticated()
@@ -45,8 +54,8 @@ onMounted(async () => {
   } catch (err) {
     console.error(err)
     toast.add({
-      title: 'Chats konnten nicht aktualisiert werden',
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      title: 'Chats konnten nicht geladen werden',
+      description: friendlyErrorMessage(err),
       color: 'error'
     })
   }
@@ -68,8 +77,8 @@ const handleNewChat = async () => {
   } catch (err) {
     console.error(err)
     toast.add({
-      title: 'Could not create chat',
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      title: 'Chat konnte nicht erstellt werden',
+      description: friendlyErrorMessage(err),
       color: 'error'
     })
   }
@@ -84,7 +93,7 @@ const handleSelect = (chatId: string) => {
 
 const startEditing = (chatId: string, currentTitle?: string | null) => {
   editingChatId.value = chatId
-  titleDraft.value = (currentTitle || '').trim() || 'New chat'
+  titleDraft.value = (currentTitle || '').trim() || 'Neuer Chat'
 }
 
 const cancelEditing = () => {
@@ -114,7 +123,7 @@ const saveTitle = async (chatId: string) => {
   } catch (err) {
     toast.add({
       title: 'Chat konnte nicht umbenannt werden',
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      description: friendlyErrorMessage(err),
       color: 'error'
     })
   } finally {
@@ -122,8 +131,17 @@ const saveTitle = async (chatId: string) => {
   }
 }
 
-const handleDelete = async (chatId: string) => {
-  if (!window.confirm('Diesen Chat wirklich löschen?')) return
+const requestDelete = (chatId: string, title?: string | null) => {
+  deleteTarget.value = {
+    chatId,
+    title: (title || '').trim() || 'Neuer Chat'
+  }
+}
+
+const confirmDelete = async () => {
+  const target = deleteTarget.value
+  if (!target) return
+  const { chatId } = target
 
   processingChatId.value = chatId
   try {
@@ -132,10 +150,11 @@ const handleDelete = async (chatId: string) => {
       title: 'Chat gelöscht',
       color: 'neutral'
     })
+    deleteTarget.value = null
   } catch (err) {
     toast.add({
       title: 'Chat konnte nicht gelöscht werden',
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      description: friendlyErrorMessage(err),
       color: 'error'
     })
   } finally {
@@ -144,14 +163,6 @@ const handleDelete = async (chatId: string) => {
     }
     processingChatId.value = null
   }
-}
-
-const goToSettings = () => {
-  router.push('/settings')
-}
-
-const goToModels = () => {
-  router.push('/models')
 }
 </script>
 
@@ -227,7 +238,7 @@ const goToModels = () => {
                 @click="handleSelect(conversation.session.chatId)"
               >
                 <span v-if="!collapsed" class="truncate text-sm">
-                  {{ conversation.session.title || 'New chat' }}
+                  {{ conversation.session.title || 'Neuer Chat' }}
                 </span>
               </button>
 
@@ -250,7 +261,7 @@ const goToModels = () => {
                   aria-label="Chat löschen"
                   class="btn-interactive"
                   :loading="processingChatId === conversation.session.chatId"
-                  @click.stop="handleDelete(conversation.session.chatId)"
+                  @click.stop="requestDelete(conversation.session.chatId, conversation.session.title)"
                 />
               </div>
             </div>
@@ -264,8 +275,8 @@ const goToModels = () => {
       <UButton
         variant="ghost"
         :icon="isDark ? 'i-heroicons-sun' : 'i-heroicons-moon'"
-        :label="collapsed ? '' : isDark ? 'Light Mode' : 'Dark Mode'"
-        :aria-label="isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
+        :label="collapsed ? '' : isDark ? 'Heller Modus' : 'Dunkler Modus'"
+        :aria-label="isDark ? 'Zum hellen Modus wechseln' : 'Zum dunklen Modus wechseln'"
         class="w-full justify-start btn-interactive"
         @click="toggleColorMode"
       />
@@ -273,16 +284,53 @@ const goToModels = () => {
         variant="ghost"
         icon="i-heroicons-cpu-chip"
         :label="collapsed ? '' : 'Modelle'"
+        aria-label="Modelle"
+        to="/models"
         class="w-full justify-start btn-interactive"
-        @click="goToModels"
       />
       <UButton
         variant="ghost"
         icon="i-heroicons-cog-6-tooth"
         :label="collapsed ? '' : 'Einstellungen'"
+        aria-label="Einstellungen"
+        to="/settings"
         class="w-full justify-start btn-interactive"
-        @click="goToSettings"
       />
     </div>
+
+    <!-- Delete confirmation -->
+    <UModal v-model:open="deleteModalOpen" :ui="{ width: 'max-w-md' }">
+      <template #content>
+        <div class="p-5 space-y-4">
+          <div class="flex items-start gap-3">
+            <div class="p-2 rounded-lg bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400">
+              <UIcon name="i-heroicons-trash" class="size-5" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h3 class="text-base font-semibold tracking-tight">Chat löschen?</h3>
+              <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                „<span class="font-medium">{{ deleteTarget?.title }}</span>“ wird unwiderruflich entfernt – inklusive aller Nachrichten.
+              </p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <UButton
+              variant="ghost"
+              color="neutral"
+              label="Abbrechen"
+              :disabled="processingChatId === deleteTarget?.chatId"
+              @click="deleteTarget = null"
+            />
+            <UButton
+              color="error"
+              icon="i-heroicons-trash"
+              label="Endgültig löschen"
+              :loading="processingChatId === deleteTarget?.chatId"
+              @click="confirmDelete"
+            />
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

@@ -139,5 +139,5 @@ function handleClick(event: MouseEvent) {
 </script>
 
 <template>
-  <div class="markdown-body" v-html="rendered" @click="handleClick" />
+  <div class="markdown-body" @click="handleClick" v-html="rendered" />
 </template>
