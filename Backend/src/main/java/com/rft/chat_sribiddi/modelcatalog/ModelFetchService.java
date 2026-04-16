@@ -172,7 +172,7 @@ public class ModelFetchService {
   }
 
   private boolean isRelevantGoogleModel(String id) {
-    return id.startsWith("gemini-");
+    return id.startsWith("gemini-") || id.startsWith("gemma-");
   }
 
   /**

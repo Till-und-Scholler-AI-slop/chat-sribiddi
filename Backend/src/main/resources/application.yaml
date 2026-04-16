@@ -128,6 +128,12 @@ ai:
         label: Gemini 2.0 Flash
       - id: gemini-2.0-flash-lite
         label: Gemini 2.0 Flash Lite
+      - id: gemma-3-27b-it
+        label: Gemma 3 27B
+      - id: gemma-3-12b-it
+        label: Gemma 3 12B
+      - id: gemma-3-4b-it
+        label: Gemma 3 4B
     claude:
       - id: claude-opus-4-6-20260215
         label: Claude Opus 4.6
