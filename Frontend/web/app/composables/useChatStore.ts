@@ -22,32 +22,6 @@ import {
   resolveStreamOutcome
 } from '~/composables/chat-helpers'
 
-// Re-export pure helpers so existing imports (and Vitest suites) keep working.
-export {
-  appendTextToMessage,
-  calculateMessageCost,
-  estimateAssistantOutputTokens,
-  estimateConversationTokens,
-  estimatePreSendCost,
-  estimateTextTokens,
-  extractAssistantText,
-  extractTokenUsage,
-  favoriteModelKey,
-  filterToolCallLogs,
-  formatCost,
-  formatRatePerMillion,
-  getFirstTextContent,
-  parseAttachmentContext,
-  parsePersistedMessageId,
-  resolveStreamOutcome
-}
-
-export type {
-  EstimatedCostBreakdown,
-  MessageCost,
-  MessagePricing
-} from '~/composables/chat-helpers'
-
 type Conversation = {
   session: ChatSession
   messages: UIMessage[]
