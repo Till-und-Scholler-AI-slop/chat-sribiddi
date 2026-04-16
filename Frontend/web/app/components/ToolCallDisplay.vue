@@ -13,7 +13,7 @@ const filterQuery = ref('')
 
 const filteredToolCalls = computed(() => filterToolCallLogs(props.toolCalls, filterQuery.value))
 
-const formattedToolCallsJson = computed(() => JSON.stringify(filteredToolCalls.value, null, 2))
+const formattedToolCallsJson = computed(() => JSON.stringify(props.toolCalls, null, 2))
 
 const toolTriggerLabel = computed(() => {
   if (props.loading) return 'Using tools'
@@ -118,8 +118,8 @@ function formatPayload(payload?: string | null) {
 
             <div v-else class="tool-call-list">
               <details
-                v-for="tc in filteredToolCalls"
-                :key="tc.id ?? `${tc.toolName}-${tc.startedAt}`"
+                v-for="(tc, index) in filteredToolCalls"
+                :key="tc.id ?? `${tc.messageId}-${tc.toolName}-${tc.startedAt ?? 'unknown'}-${index}`"
                 class="tool-call-entry"
                 :open="filteredToolCalls.length === 1"
               >
