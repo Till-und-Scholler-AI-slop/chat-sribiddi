@@ -13,7 +13,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  validate-frontend:
+    name: Validate Frontend Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: Frontend/web
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run tests
+        run: bun run test
+
+      - name: Build
+        run: bun run build
+
   deploy-frontend:
+    needs: validate-frontend
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
