@@ -479,9 +479,10 @@ export function useChatApi() {
 
   /**
    * Probes a backend endpoint that requires authentication. Returns true if
-   * the current session is valid, false on 401 / network errors. Used by
-   * useAuth – we deliberately do NOT throw, because the auth middleware
-   * needs a boolean answer to decide whether to redirect to /login.
+   * the current session is valid, false for any non-2xx response or network
+   * errors. Used by useAuth – we deliberately do NOT throw, because the auth
+   * middleware needs a boolean answer to decide whether to redirect to
+   * /login.
    */
   const checkSession = async (): Promise<boolean> => {
     try {

@@ -309,7 +309,7 @@ const confirmDelete = async () => {
             <div class="flex-1 min-w-0">
               <h3 class="text-base font-semibold tracking-tight">Chat löschen?</h3>
               <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                „<span class="font-medium">{{ deleteTarget?.title }}</span>" wird unwiderruflich entfernt – inklusive aller Nachrichten.
+                „<span class="font-medium">{{ deleteTarget?.title }}</span>“ wird unwiderruflich entfernt – inklusive aller Nachrichten.
               </p>
             </div>
           </div>

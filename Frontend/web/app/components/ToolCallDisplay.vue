@@ -120,7 +120,7 @@ function statusIcon(tc: ToolCallLog) {
             </div>
 
             <div v-if="filteredToolCalls.length === 0" class="tool-call-empty">
-              Kein Tool entspricht „{{ filterQuery.trim() }}".
+              Kein Tool entspricht „{{ filterQuery.trim() }}“.
             </div>
 
             <div v-else class="tool-call-list">
