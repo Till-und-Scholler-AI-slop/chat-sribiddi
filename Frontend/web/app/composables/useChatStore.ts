@@ -1,5 +1,6 @@
 import type { ChatStatus, UIMessage } from 'ai'
 import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, SendMessageResponse, StreamEvent, TokenUsage, ToolCallLog } from '~/composables/useChatApi'
+import type { MessagePricing } from '~/composables/chat-helpers'
 import { PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
 import {
