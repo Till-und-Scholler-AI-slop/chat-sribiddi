@@ -232,11 +232,11 @@ onMounted(async () => {
   background: linear-gradient(135deg, #B82E8E, #3A8CCF);
   color: #fff;
   margin-bottom: 1rem;
-  box-shadow: 0 4px 16px rgba(184, 46, 142, 0.25);
+  box-shadow: 0 4px 16px rgba(184, 46, 142, 0.3);
 }
 .dark .login-brand-icon {
   background: linear-gradient(135deg, #E5338A, #5BB8E8);
-  box-shadow: 0 4px 16px rgba(229, 51, 138, 0.3);
+  box-shadow: 0 4px 20px rgba(229, 51, 138, 0.35);
 }
 
 .login-brand-title {
@@ -259,35 +259,38 @@ onMounted(async () => {
 .login-brand-subtitle {
   margin-top: 0.5rem;
   font-size: 0.9375rem;
-  color: var(--color-gray-500);
+  color: var(--color-gray-600);
   letter-spacing: -0.01em;
+}
+.dark .login-brand-subtitle {
+  color: var(--color-gray-300);
 }
 
 .login-card {
   width: 100%;
   border-radius: 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   padding: 2rem;
   box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.04),
-    0 8px 32px rgba(0, 0, 0, 0.06);
+    0 1px 3px rgba(0, 0, 0, 0.06),
+    0 8px 32px rgba(0, 0, 0, 0.1);
 }
 .dark .login-card {
-  border-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
   box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.2),
-    0 8px 32px rgba(0, 0, 0, 0.2);
+    0 1px 3px rgba(0, 0, 0, 0.3),
+    0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
 .login-card-text {
   text-align: center;
   font-size: 0.9375rem;
-  color: var(--color-gray-500);
+  color: var(--color-gray-600);
   line-height: 1.5;
   margin-bottom: 1.5rem;
 }
 .dark .login-card-text {
-  color: var(--color-gray-400);
+  color: var(--color-gray-300);
 }
 
 .google-btn {
@@ -352,16 +355,17 @@ onMounted(async () => {
   padding: 0.5rem 0.875rem;
   border-radius: 9999px;
   font-size: 0.8125rem;
-  color: var(--color-gray-500);
-  background: rgba(255, 255, 255, 0.4);
+  font-weight: 500;
+  color: var(--color-gray-600);
+  background: rgba(255, 255, 255, 0.5);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(58, 140, 207, 0.1);
+  border: 1px solid rgba(58, 140, 207, 0.15);
 }
 .dark .login-feature {
-  color: var(--color-gray-400);
-  background: rgba(20, 10, 33, 0.5);
-  border-color: rgba(255, 255, 255, 0.06);
+  color: var(--color-gray-300);
+  background: rgba(20, 10, 33, 0.6);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .login-feature-icon {
@@ -376,13 +380,19 @@ onMounted(async () => {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.75rem;
-  color: var(--color-gray-400);
+  color: var(--color-gray-500);
 }
 .login-legal a {
-  color: var(--color-gray-500);
+  color: var(--color-gray-600);
   text-decoration: none;
   transition: color var(--duration-fast) var(--ease-smooth);
   border-bottom: 1px solid transparent;
+}
+.dark .login-legal {
+  color: var(--color-gray-500);
+}
+.dark .login-legal a {
+  color: var(--color-gray-400);
 }
 .login-legal a:hover {
   color: var(--ui-primary);
