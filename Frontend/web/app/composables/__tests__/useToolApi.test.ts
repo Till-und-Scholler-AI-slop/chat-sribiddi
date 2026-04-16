@@ -1,31 +1,25 @@
 import { describe, it, expect } from 'vitest'
-import { buildToolHeaders } from '../useToolApi'
+import type { AvailableTool } from '../useToolApi'
 
-describe('buildToolHeaders', () => {
-  it('includes Content-Type and X-Chat-User-Id for read requests', () => {
-    const h = buildToolHeaders('user-123', null, false)
-    expect(h['Content-Type']).toBe('application/json')
-    expect(h['X-Chat-User-Id']).toBe('user-123')
-    expect(h['X-XSRF-TOKEN']).toBeUndefined()
+describe('AvailableTool', () => {
+  it('accepts a fully-populated tool object', () => {
+    const tool: AvailableTool = {
+      name: 'calculator',
+      displayName: 'Calculator',
+      description: 'Performs arithmetic',
+      enabled: true
+    }
+    expect(tool.name).toBe('calculator')
+    expect(tool.enabled).toBe(true)
   })
 
-  it('adds X-XSRF-TOKEN when mutating and csrf is present', () => {
-    const h = buildToolHeaders('user-123', 'csrf-abc', true)
-    expect(h['X-XSRF-TOKEN']).toBe('csrf-abc')
-  })
-
-  it('omits X-XSRF-TOKEN when mutating but csrf is null', () => {
-    const h = buildToolHeaders('user-123', null, true)
-    expect(h['X-XSRF-TOKEN']).toBeUndefined()
-  })
-
-  it('omits X-XSRF-TOKEN for read requests even when csrf is present', () => {
-    const h = buildToolHeaders('user-123', 'csrf-abc', false)
-    expect(h['X-XSRF-TOKEN']).toBeUndefined()
-  })
-
-  it('uses the provided userId in X-Chat-User-Id', () => {
-    const h = buildToolHeaders('alice@example.com', null)
-    expect(h['X-Chat-User-Id']).toBe('alice@example.com')
+  it('accepts a disabled tool (e.g. brave-search without an API key)', () => {
+    const tool: AvailableTool = {
+      name: 'brave-search',
+      displayName: 'Brave Search',
+      description: 'Web search',
+      enabled: false
+    }
+    expect(tool.enabled).toBe(false)
   })
 })

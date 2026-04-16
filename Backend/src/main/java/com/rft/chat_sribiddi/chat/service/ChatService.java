@@ -18,7 +18,6 @@ import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
-import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedBraveSearchTool;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedCalculatorTool;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedCurrentDateTimeTool;
