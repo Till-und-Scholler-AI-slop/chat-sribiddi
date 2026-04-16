@@ -3,7 +3,7 @@ plugins {
     id("org.springframework.boot") version "4.0.3"
     id("io.spring.dependency-management") version "1.1.7"
 }
-val springAiVersion by extra("2.0.0-M3")
+val springAiVersion by extra("2.0.0-M4")
 val dotenvJavaVersion by extra("3.2.0")
 
 group = "com.rft"
