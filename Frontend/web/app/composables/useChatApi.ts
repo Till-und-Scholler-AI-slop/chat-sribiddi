@@ -484,6 +484,29 @@ export function useChatApi() {
     await requestJson<void>('/account', { method: 'DELETE' })
   }
 
+  /**
+   * Probes a backend endpoint that requires authentication. Returns true if
+   * the current session is valid, false on 401 / network errors. Used by
+   * useAuth – we deliberately do NOT throw, because the auth middleware
+   * needs a boolean answer to decide whether to redirect to /login.
+   */
+  const checkSession = async (): Promise<boolean> => {
+    try {
+      const headers: Record<string, string> = {}
+      if (import.meta.client) {
+        Object.assign(headers, withRequestUserId({}, resolveUserId()))
+      }
+      const response = await fetch(buildUrl('/secured'), {
+        method: 'GET',
+        credentials: 'include',
+        headers
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
   const fetchModels = async (provider: Provider) => {
     const data = await requestJson<Array<{
       id: string
@@ -541,6 +564,7 @@ export function useChatApi() {
     updateChat,
     deleteChat,
     deleteAccount,
+    checkSession,
     fetchModels
   }
 }

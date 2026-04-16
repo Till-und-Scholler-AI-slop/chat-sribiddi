@@ -29,7 +29,7 @@ onMounted(async () => {
       return
     }
   } catch (err) {
-    checkError.value = err instanceof Error ? err.message : 'Could not verify session.'
+    checkError.value = err instanceof Error ? err.message : 'Sitzung konnte nicht geprüft werden.'
     authState.value = 'unauthenticated'
   } finally {
     checking.value = false
@@ -46,14 +46,14 @@ onMounted(async () => {
             <h2>Chat Sribiddi</h2>
           </div>
           <p class="text-sm text-gray-600 dark:text-gray-400">
-            Sign in with your Google account to continue.
+            Melde dich mit deinem Google-Konto an, um fortzufahren.
           </p>
         </div>
 
         <div v-if="checking" class="space-y-3">
           <div class="skeleton-shimmer h-12 w-full" />
           <p class="text-center text-xs text-gray-500 dark:text-gray-400">
-            Checking current session...
+            Sitzung wird geprüft …
           </p>
         </div>
 
@@ -64,7 +64,7 @@ onMounted(async () => {
             icon="i-heroicons-arrow-right-circle"
             :href="loginUrl"
             size="xl"
-            label="Continue with Google"
+            label="Mit Google anmelden"
             class="btn-interactive"
           />
         </div>
@@ -74,14 +74,14 @@ onMounted(async () => {
           color="error"
           variant="soft"
           icon="i-heroicons-x-circle"
-          title="Session check failed"
+          title="Sitzungsprüfung fehlgeschlagen"
           :description="checkError"
         />
 
         <p class="text-center text-xs text-gray-500 dark:text-gray-400">
-          Legal:
+          Rechtliches:
           <NuxtLink to="/impressum" class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">Impressum</NuxtLink>
-          and
+          und
           <NuxtLink to="/datenschutz" class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">Datenschutz</NuxtLink>.
         </p>
       </div>
