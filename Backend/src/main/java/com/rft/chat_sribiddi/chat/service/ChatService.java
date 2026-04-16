@@ -249,7 +249,9 @@ public class ChatService {
     assistantMessage.setMessage(assistantResponse);
     assistantMessage.setRole(Role.ASSISTANT);
     assistantMessage.setContext(
-        "Contains last %d messages including system prompt".formatted(prep.promptMessages().size()));
+        buildAssistantContext(
+            prep.promptMessages().size(),
+            supportsSystemInstruction(requestDTO.provider(), requestDTO.modelId())));
     assistantMessage.setCreatedAt(Instant.now());
     assistantMessage.setPromptTokens(promptTokens);
     assistantMessage.setGenerationTokens(generationTokens);
@@ -313,7 +315,8 @@ public class ChatService {
     String customInstructions =
         userSettingsService.getCustomInstructions(userId).orElse(null);
     List<Message> promptMessages =
-        buildPromptMessages(chatId, validatedMedia, messageId, customInstructions);
+        buildPromptMessages(chatId, validatedMedia, messageId, customInstructions,
+            requestDTO.provider(), requestDTO.modelId());
 
     return createAndSubscribeStream(userId, requestDTO, promptMessages, chatId, null);
   }
@@ -349,7 +352,8 @@ public class ChatService {
     String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
     String customInstructions = userSettingsService.getCustomInstructions(userId).orElse(null);
     List<Message> promptMessages =
-        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId(), customInstructions);
+        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId(), customInstructions,
+            requestDTO.provider(), requestDTO.modelId());
     return new MessagePreparation(updatedTitle, promptMessages);
   }
 
@@ -367,12 +371,15 @@ public class ChatService {
     var promptSpec = client.prompt().options(options).messages(promptMessages);
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
     wireTools(userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
+    String assistantContext = buildAssistantContext(
+        promptMessages.size(),
+        supportsSystemInstruction(requestDTO.provider(), requestDTO.modelId()));
     subscribeToStream(
         promptSpec,
         emitter,
         clientHolder,
         chatId,
-        promptMessages.size(),
+        assistantContext,
         updatedTitle,
         toolExecutionCollector);
     return emitter;
@@ -387,7 +394,7 @@ public class ChatService {
       SseEmitter emitter,
       ClientHolder clientHolder,
       UUID chatId,
-      int promptMessageCount,
+      String assistantContext,
       String updatedTitle,
       ToolExecutionCollector toolExecutionCollector) {
 
@@ -404,7 +411,7 @@ public class ChatService {
                 fullText,
                 lastUsage,
                 chatId,
-                promptMessageCount,
+                assistantContext,
                 updatedTitle,
                 toolExecutionCollector,
                 emitter,
@@ -482,7 +489,7 @@ public class ChatService {
 
   private void handleStreamCompletion(
       StringBuilder fullText, AtomicReference<Usage> lastUsage,
-      UUID chatId, int promptMessageCount, String updatedTitle,
+      UUID chatId, String assistantContext, String updatedTitle,
       ToolExecutionCollector toolExecutionCollector,
       SseEmitter emitter, ClientHolder clientHolder) {
       try (clientHolder) {
@@ -497,8 +504,7 @@ public class ChatService {
           assistantMessage.setChatId(chatId);
           assistantMessage.setMessage(assistantResponse);
           assistantMessage.setRole(Role.ASSISTANT);
-          assistantMessage.setContext(
-                  "Contains last %d messages including system prompt".formatted(promptMessageCount));
+          assistantMessage.setContext(assistantContext);
           assistantMessage.setCreatedAt(Instant.now());
           assistantMessage.setPromptTokens(promptTokens);
           assistantMessage.setGenerationTokens(generationTokens);
@@ -747,18 +753,27 @@ public class ChatService {
 
   private List<Message> buildPromptMessages(
       UUID chatId, List<MediaAttachment> mediaAttachments, Long targetUserMessageId,
-      String customInstructions) {
+      String customInstructions, RequestDTO.Provider provider, String modelId) {
     List<MessageEntity> latestMessages =
         new ArrayList<>(
             messageRepository.findByChatIdOrderByCreatedAtDesc(
                 chatId, PageRequest.of(0, chatProperties.getContextMessageLimit())));
 
     List<Message> messages = new ArrayList<>();
-    String systemContent =
+    String instructionContent =
         (customInstructions != null && !customInstructions.isBlank())
             ? SYSTEM_PROMPT + "\n\n" + customInstructions
             : SYSTEM_PROMPT;
-    messages.add(new SystemMessage(systemContent));
+    if (supportsSystemInstruction(provider, modelId)) {
+      messages.add(new SystemMessage(instructionContent));
+    } else {
+      // Gemma models do not support system instructions - inject as a leading user message instead
+      // so that the system prompt and any custom instructions are still applied.
+      messages.add(
+          new UserMessage(
+              "System instructions for this conversation. Follow them when responding.\n\n"
+                  + instructionContent));
+    }
 
     List<MessageEntity> ordered = latestMessages.reversed();
     for (MessageEntity entity : ordered) {
@@ -772,6 +787,23 @@ public class ChatService {
       messages.add(toChatMessage(entity));
     }
     return messages;
+  }
+
+  /**
+   * Returns {@code false} for Google Gemma models, which do not support system instructions.
+   * All other providers and models support system instructions normally.
+   */
+  static boolean supportsSystemInstruction(RequestDTO.Provider provider, String modelId) {
+    return !(provider == RequestDTO.Provider.GOOGLE
+        && modelId != null
+        && modelId.startsWith("gemma-"));
+  }
+
+  private static String buildAssistantContext(int messageCount, boolean hasSystemInstruction) {
+    if (hasSystemInstruction) {
+      return "Contains last %d messages including system prompt".formatted(messageCount);
+    }
+    return "Contains last %d messages (instructions sent as user message)".formatted(messageCount);
   }
 
   private List<MediaAttachment> validateMediaAttachments(List<MediaAttachment> mediaAttachments) {

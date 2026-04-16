@@ -62,13 +62,15 @@ class ModelFetchServiceTest {
   }
 
   @Test
-  void isRelevantGoogleModel_acceptsGeminiPrefix() throws Exception {
+  void isRelevantGoogleModel_acceptsGeminiAndGemmaPrefix() throws Exception {
     Method isRelevantGoogleModel =
         ModelFetchService.class.getDeclaredMethod("isRelevantGoogleModel", String.class);
     isRelevantGoogleModel.setAccessible(true);
 
     assertThat((boolean) isRelevantGoogleModel.invoke(service, "gemini-3.1-pro-preview")).isTrue();
     assertThat((boolean) isRelevantGoogleModel.invoke(service, "gemini-2.5-flash")).isTrue();
+    assertThat((boolean) isRelevantGoogleModel.invoke(service, "gemma-3-27b-it")).isTrue();
+    assertThat((boolean) isRelevantGoogleModel.invoke(service, "gemma-3-4b-it")).isTrue();
     assertThat((boolean) isRelevantGoogleModel.invoke(service, "text-bison")).isFalse();
   }
 
@@ -137,6 +139,7 @@ class ModelFetchServiceTest {
                 {
                   "models": [
                     { "name": "models/gemini-2.5-flash", "displayName": "Gemini 2.5 Flash" },
+                    { "name": "models/gemma-3-27b-it", "displayName": "Gemma 3 27B" },
                     { "name": "models/text-bison", "displayName": "Text Bison" }
                   ]
                 }
@@ -146,9 +149,9 @@ class ModelFetchServiceTest {
     var models = service.fetchGoogleModels("goog-key");
 
     assertThat(models).extracting(ModelCatalogProperties.ModelOption::getId)
-        .containsExactly("gemini-2.5-flash");
+        .containsExactly("gemini-2.5-flash", "gemma-3-27b-it");
     assertThat(models).extracting(ModelCatalogProperties.ModelOption::getLabel)
-        .containsExactly("Gemini 2.5 Flash");
+        .containsExactly("Gemini 2.5 Flash", "Gemma 3 27B");
   }
 
   @Test
