@@ -301,38 +301,38 @@ onMounted(async () => {
   width: 100%;
   padding: 0.8rem 1.5rem;
   border-radius: 0.875rem;
-  background: linear-gradient(135deg, #B82E8E 0%, #9B1E6E 100%);
+  background: linear-gradient(135deg, #7B1A63 0%, #5E1450 100%);
   color: #fff;
   font-weight: 600;
   font-size: 0.9375rem;
   text-decoration: none;
   box-shadow:
-    0 1px 2px rgba(155, 30, 110, 0.2),
-    0 4px 16px rgba(184, 46, 142, 0.15);
+    0 1px 2px rgba(94, 20, 80, 0.25),
+    0 4px 16px rgba(123, 26, 99, 0.2);
   transition:
     transform var(--duration-fast) var(--ease-smooth),
     box-shadow var(--duration-fast) var(--ease-smooth),
     background var(--duration-fast) var(--ease-smooth);
 }
 .google-btn:hover {
-  background: linear-gradient(135deg, #C9389E 0%, #A8247E 100%);
+  background: linear-gradient(135deg, #8E2074 0%, #6E185D 100%);
   box-shadow:
-    0 2px 4px rgba(155, 30, 110, 0.25),
-    0 8px 24px rgba(184, 46, 142, 0.2);
+    0 2px 4px rgba(94, 20, 80, 0.3),
+    0 8px 24px rgba(123, 26, 99, 0.25);
   color: #fff;
   text-decoration: none;
 }
 .dark .google-btn {
-  background: linear-gradient(135deg, #E5338A 0%, #B82E8E 100%);
+  background: linear-gradient(135deg, #5E1450 0%, #420E3A 100%);
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 4px 16px rgba(229, 51, 138, 0.2);
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 4px 16px rgba(94, 20, 80, 0.25);
 }
 .dark .google-btn:hover {
-  background: linear-gradient(135deg, #F0439A 0%, #C9389E 100%);
+  background: linear-gradient(135deg, #6E185D 0%, #521143 100%);
   box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.4),
-    0 8px 24px rgba(229, 51, 138, 0.25);
+    0 2px 4px rgba(0, 0, 0, 0.45),
+    0 8px 24px rgba(94, 20, 80, 0.3);
 }
 
 .google-btn-svg {
