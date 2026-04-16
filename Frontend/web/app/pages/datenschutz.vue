@@ -41,9 +41,9 @@ definePageMeta({
           <strong>Nutzung der Chat-Funktion</strong><br>
           Bei der Nutzung des Dienstes werden Ihre Eingaben, hochgeladene Inhalte, Modell-Auswahl,
           erzeugte Antworten sowie von Ihnen hinterlegte API-Schl&uuml;ssel verarbeitet. API-Schl&uuml;ssel
-          werden verschl&uuml;sselt gespeichert. Inhalte der Chat-Funktion werden an den jeweils von Ihnen
-          ausgew&auml;hlten KI-Anbieter &uuml;bermittelt, soweit dies zur Bearbeitung Ihrer Anfrage erforderlich
-          ist.
+          werden verschl&uuml;sselt mit AES-GCM gespeichert. Inhalte der Chat-Funktion werden an den
+          jeweils von Ihnen ausgew&auml;hlten KI-Anbieter &uuml;bermittelt, soweit dies zur Bearbeitung Ihrer
+          Anfrage erforderlich ist.
         </p>
 
         <p>
@@ -66,7 +66,8 @@ definePageMeta({
           erforderlich ist oder gesetzliche Aufbewahrungspflichten bestehen. Chat-Inhalte und
           hinterlegte API-Schl&uuml;ssel bleiben gespeichert, bis sie gel&ouml;scht werden oder der Zweck der
           Speicherung entf&auml;llt. Hinterlegte API-Schl&uuml;ssel k&ouml;nnen Sie jederzeit auf der
-          Einstellungsseite entfernen.
+          Einstellungsseite entfernen; bei L&ouml;schung Ihres Kontos werden sie zusammen mit den
+          zugeh&ouml;rigen Chat-Daten entfernt.
         </p>
 
         <p>
