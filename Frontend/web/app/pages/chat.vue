@@ -230,7 +230,7 @@ const processFileList = async (files: File[]) => {
     } else {
       toast.add({
         title: 'Upload fehlgeschlagen',
-        description: result.reason instanceof Error ? result.reason.message : 'Anhang konnte nicht gelesen werden.',
+        description: friendlyErrorMessage(result.reason, 'Anhang konnte nicht gelesen werden.'),
         color: 'error'
       })
     }
@@ -297,7 +297,7 @@ onMounted(async () => {
     console.error(err)
     toast.add({
       title: 'Chat konnte nicht gestartet werden',
-      description: err instanceof Error ? err.message : 'Läuft das Backend?',
+      description: friendlyErrorMessage(err, 'Läuft das Backend?'),
       color: 'error'
     })
   } finally {
@@ -388,6 +388,29 @@ watch(
   },
 )
 
+const welcomeSuggestions = [
+  {
+    label: '💡 Quantencomputing erklären',
+    prompt: 'Erkläre Quantencomputing in einfachen Worten',
+    aria: 'Quantencomputing erklären lassen'
+  },
+  {
+    label: '🐍 Python-Funktion schreiben',
+    prompt: 'Schreibe eine Python-Funktion, die eine Liste sortiert',
+    aria: 'Python-Funktion schreiben lassen'
+  },
+  {
+    label: '🤖 Aktuelle KI-Trends',
+    prompt: 'Welche aktuellen Trends gibt es im Bereich KI?',
+    aria: 'Aktuelle KI-Trends erfahren'
+  }
+]
+
+const applyAndSubmit = (prompt: string) => {
+  input.value = prompt
+  handleSubmit()
+}
+
 async function handleSubmit() {
   if (!input.value.trim() && attachments.value.length === 0) return
   if (!activeConversation.value) {
@@ -410,7 +433,7 @@ async function handleSubmit() {
   } catch (err) {
     toast.add({
       title: 'Nachricht fehlgeschlagen',
-      description: err instanceof Error ? err.message : 'Backend nicht erreichbar.',
+      description: friendlyErrorMessage(err),
       color: 'error'
     })
   }
@@ -432,7 +455,7 @@ const handleReload = async () => {
   } catch (err) {
     toast.add({
       title: 'Wiederholen fehlgeschlagen',
-      description: err instanceof Error ? err.message : 'Anfrage konnte nicht wiederholt werden.',
+      description: friendlyErrorMessage(err, 'Anfrage konnte nicht wiederholt werden.'),
       color: 'error'
     })
   }
@@ -465,7 +488,7 @@ const submitEditMessage = async () => {
   } catch (err) {
     toast.add({
       title: 'Bearbeitung fehlgeschlagen',
-      description: err instanceof Error ? err.message : 'Nachricht konnte nicht bearbeitet werden.',
+      description: friendlyErrorMessage(err, 'Nachricht konnte nicht bearbeitet werden.'),
       color: 'error'
     })
   }
@@ -491,27 +514,12 @@ const submitEditMessage = async () => {
         </div>
 
           <div v-else-if="!activeConversation">
-          <div class="welcome-hero animate-fade-in-up">
-            <h2>Chat Sribiddi</h2>
-            <p class="mt-3 text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-              Wähle unten ein Modell und leg los. Dateien anhängen, im Web suchen und vieles mehr.
-            </p>
-            <div class="mt-6 flex flex-wrap justify-center gap-3">
-              <button class="prompt-suggestion" aria-label="Quantencomputing erklären lassen" @click="input = 'Erkläre Quantencomputing in einfachen Worten'">
-                💡 Quantencomputing erklären
-              </button>
-              <button class="prompt-suggestion" aria-label="Python-Funktion schreiben lassen" @click="input = 'Schreibe eine Python-Funktion, die eine Liste sortiert'">
-                🐍 Python-Funktion schreiben
-              </button>
-              <button class="prompt-suggestion" aria-label="Aktuelle KI-Trends erfahren" @click="input = 'Welche aktuellen Trends gibt es im Bereich KI?'">
-                🤖 Aktuelle KI-Trends
-              </button>
-            </div>
-            <UButton color="primary" icon="i-heroicons-plus" class="mt-6 btn-interactive" @click="startChat()">
-              Chat starten
-            </UButton>
+            <ChatWelcomeHero
+              :suggestions="welcomeSuggestions"
+              @pick="applyAndSubmit"
+              @start="startChat()"
+            />
           </div>
-        </div>
 
         <div v-else class="space-y-4 flex-1 min-h-0 flex flex-col">
           <div class="flex items-center justify-end gap-2">
@@ -544,33 +552,11 @@ const submitEditMessage = async () => {
                       />
                     </template>
                     <template v-if="message?.role === 'user' && message.id && editingMessageId === message.id">
-                      <div class="space-y-2">
-                        <textarea
-                          v-model="editingText"
-                          class="w-full min-h-[80px] rounded-xl bg-gray-100/80 dark:bg-white/[0.04] border border-gray-200 dark:border-white/[0.08] text-sm text-gray-800 dark:text-gray-100 px-3.5 py-2.5 resize-y focus:outline-none focus:ring-2 focus:ring-primary/40 transition-shadow"
-                          @keydown.enter.ctrl="submitEditMessage"
-                          @keydown.escape="cancelEditMessage"
-                        />
-                        <div class="flex items-center gap-2">
-                          <UButton
-                            size="xs"
-                            color="primary"
-                            icon="i-heroicons-check"
-                            label="Speichern & neu generieren"
-                            class="btn-interactive"
-                            :disabled="!editingText.trim()"
-                            @click="submitEditMessage"
-                          />
-                          <UButton
-                            size="xs"
-                            color="neutral"
-                            variant="ghost"
-                            icon="i-heroicons-x-mark"
-                            label="Abbrechen"
-                            @click="cancelEditMessage"
-                          />
-                        </div>
-                      </div>
+                      <ChatMessageEditor
+                        v-model="editingText"
+                        @submit="submitEditMessage"
+                        @cancel="cancelEditMessage"
+                      />
                     </template>
                       <template v-else>
                         <div class="group relative">

@@ -223,13 +223,6 @@ export function useChatApi() {
       return userIdState.value
     }
 
-    const configuredUserId =
-      typeof config.public.userId === 'string' ? config.public.userId.trim() : ''
-    if (configuredUserId) {
-      userIdState.value = configuredUserId
-      return configuredUserId
-    }
-
     if (import.meta.client) {
       const stored = localStorage.getItem('chat-user-id')
       if (stored && stored.trim() !== '') {

@@ -178,30 +178,43 @@ landed on `frontend-polish`; remaining items are good first tasks.
     Nuxt UI's semantic tokens).
 11. Extracted `ChatMessageReasoning` and `ChatMessageFooter` from the
     `chat.vue` content slot.
+12. Removed dead `runtimeConfig.public.userId` config and the matching
+    `configuredUserId` fallback in `useChatApi.resolveUserId`.
+13. Extracted `ChatWelcomeHero.vue` and `ChatMessageEditor.vue` from
+    `chat.vue`; welcome prompt suggestions now auto-submit via
+    `applyAndSubmit`.
+14. Extracted pure helpers from `useChatStore.ts` into
+    `composables/chat-helpers.ts`; `useChatStore` re-exports the public
+    helpers and types so existing imports (and tests) keep working.
+15. Added `utils/errors.ts` with `friendlyErrorMessage()` and applied it
+    to all toast descriptions in `chat.vue` and `ChatSidebar.vue` (German
+    copy, including 401/403/404/413/429/5xx and API-key errors).
+16. Added `aria-label`s on the collapsed sidebar nav (`Modelle`,
+    `Einstellungen`) and translated remaining English strings in
+    `settings.vue` and `models.vue`.
+17. ESLint set up via `@nuxt/eslint` (flat config in `eslint.config.mjs`).
+    `npm run lint` / `npm run lint:fix` available; baseline is 0 errors,
+    pre-existing patterns (dynamic-delete, invalid-void, v-for key alias)
+    tracked as warnings.
 
 ### 🔜 Next up
 
-- **Split `chat.vue` further** (~820 lines). Candidates to extract: the
-  inline editor, the welcome hero, and the bottom prompt toolbar. Keep the
-  slot template for `<UChatMessages>` in `chat.vue` so state stays local.
-- **Lint/format setup**. No shared ESLint/Prettier config on the frontend
-  yet. Introduce one (Nuxt's `@nuxt/eslint` module is the obvious choice)
-  and run it in CI.
-- **Store split**. Extract pure helpers from `useChatStore.ts` into
-  `chat-helpers.ts` *and re-export* from `useChatStore.ts` so tests still
-  work. Keep reactive state in `useChatStore`.
-- **Dead config**. `runtimeConfig.public.userId` in `nuxt.config.ts` is
-  never set anywhere — candidate for removal.
 - **Light-mode contrast audit**. After the palette revert, spot-check
   `UCard`, `UButton variant="soft"`, `UBadge`, and `UAlert` in both modes.
-- **Prompt suggestions**. `chat.vue`'s welcome suggestions now only fill the
-  input. Decide whether they should also auto-submit (previous behavior)
-  once `handleSubmit` is callable without a pre-existing conversation.
-- **Accessibility**. Add missing `aria-label`s to icon-only buttons
-  throughout the sidebar and composer; verify focus rings on custom
-  `.prompt-suggestion` etc.
-- **Error surface**. Toasts currently show raw `err.message`. Consider a
-  small error-mapping helper to produce friendly German messages.
+  (Manual visual task — no code change required upfront.)
+- **Lint warning cleanup** (optional follow-up). `npm run lint` currently
+  reports 59 warnings. The high-value targets:
+    - `useChatStore.ts`: replace `delete obj[dynKey]` with rest-spread
+      assignments (`{ [dynKey]: _, ...rest } = obj`) to satisfy
+      `@typescript-eslint/no-dynamic-delete`.
+    - API composables: narrow `Promise<void | T>` unions to
+      `Promise<T | undefined>` for `no-invalid-void-type`.
+    - `chat.vue`: two `v-for="x in [computed]" :key="message.id"` alias
+      patterns inside `UChatMessages` slots — refactor to a computed.
+- **Prettier / formatter**. ESLint is installed but no formatter is
+  wired. Optional: add `@nuxt/eslint` stylistic rules or plain Prettier.
+- **CI step**. Wire `npm run lint` and `npm run test` into the frontend
+  CI pipeline (currently only backend is linted/tested in CI).
 
 ---
 

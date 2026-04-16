@@ -424,7 +424,7 @@ async function handleDeleteAccount() {
                             color="neutral"
                             size="sm"
                             :icon="reveal[item.provider] ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
-                            :label="reveal[item.provider] ? 'Hide' : 'Show'"
+                            :label="reveal[item.provider] ? 'Verbergen' : 'Anzeigen'"
                             @click="reveal[item.provider] = !reveal[item.provider]"
                         />
                         <UButton
@@ -432,7 +432,7 @@ async function handleDeleteAccount() {
                             color="primary"
                             size="sm"
                             icon="i-heroicons-check-circle"
-                            label="Save key"
+                            label="Schlüssel speichern"
                             class="btn-interactive"
                             :loading="savingProvider[item.provider]"
                             :disabled="!keyPresent(item.provider) || isProviderBusy(item.provider)"
@@ -445,7 +445,7 @@ async function handleDeleteAccount() {
                           color="error"
                           size="sm"
                           icon="i-heroicons-trash"
-                          label="Remove"
+                          label="Entfernen"
                           :loading="deletingProvider[item.provider]"
                           :disabled="isProviderBusy(item.provider)"
                           @click="handleDelete(item.provider)"
@@ -511,7 +511,7 @@ async function handleDeleteAccount() {
                           color="neutral"
                           size="sm"
                           :icon="braveSearchReveal ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
-                          :label="braveSearchReveal ? 'Hide' : 'Show'"
+                          :label="braveSearchReveal ? 'Verbergen' : 'Anzeigen'"
                           @click="braveSearchReveal = !braveSearchReveal"
                       />
                       <UButton
@@ -519,7 +519,7 @@ async function handleDeleteAccount() {
                           color="primary"
                           size="sm"
                           icon="i-heroicons-check-circle"
-                          label="Save key"
+                          label="Schlüssel speichern"
                           class="btn-interactive"
                           :loading="savingBraveSearch"
                           :disabled="!braveSearchKey.trim() || savingBraveSearch || deletingBraveSearch"
@@ -532,7 +532,7 @@ async function handleDeleteAccount() {
                         color="error"
                         size="sm"
                         icon="i-heroicons-trash"
-                        label="Remove"
+                        label="Entfernen"
                         :loading="deletingBraveSearch"
                         :disabled="savingBraveSearch || deletingBraveSearch"
                         @click="handleDeleteBraveSearch"

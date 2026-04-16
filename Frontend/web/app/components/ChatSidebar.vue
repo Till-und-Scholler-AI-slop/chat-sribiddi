@@ -55,7 +55,7 @@ onMounted(async () => {
     console.error(err)
     toast.add({
       title: 'Chats konnten nicht geladen werden',
-      description: err instanceof Error ? err.message : 'Backend nicht erreichbar.',
+      description: friendlyErrorMessage(err),
       color: 'error'
     })
   }
@@ -78,7 +78,7 @@ const handleNewChat = async () => {
     console.error(err)
     toast.add({
       title: 'Chat konnte nicht erstellt werden',
-      description: err instanceof Error ? err.message : 'Backend nicht erreichbar.',
+      description: friendlyErrorMessage(err),
       color: 'error'
     })
   }
@@ -123,7 +123,7 @@ const saveTitle = async (chatId: string) => {
   } catch (err) {
     toast.add({
       title: 'Chat konnte nicht umbenannt werden',
-      description: err instanceof Error ? err.message : 'Backend nicht erreichbar.',
+      description: friendlyErrorMessage(err),
       color: 'error'
     })
   } finally {
@@ -154,7 +154,7 @@ const confirmDelete = async () => {
   } catch (err) {
     toast.add({
       title: 'Chat konnte nicht gelöscht werden',
-      description: err instanceof Error ? err.message : 'Backend nicht erreichbar.',
+      description: friendlyErrorMessage(err),
       color: 'error'
     })
   } finally {
@@ -284,6 +284,7 @@ const confirmDelete = async () => {
         variant="ghost"
         icon="i-heroicons-cpu-chip"
         :label="collapsed ? '' : 'Modelle'"
+        aria-label="Modelle"
         to="/models"
         class="w-full justify-start btn-interactive"
       />
@@ -291,6 +292,7 @@ const confirmDelete = async () => {
         variant="ghost"
         icon="i-heroicons-cog-6-tooth"
         :label="collapsed ? '' : 'Einstellungen'"
+        aria-label="Einstellungen"
         to="/settings"
         class="w-full justify-start btn-interactive"
       />
