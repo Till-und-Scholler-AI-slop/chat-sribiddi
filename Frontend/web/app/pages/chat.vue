@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
-import type { AvailableTool } from '~/composables/useToolApi'
 import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/useChatStore'
 
 definePageMeta({
@@ -38,7 +37,6 @@ const {
   webSearchEnabled
 } = useChatStore()
 const { settings } = useUserSettings()
-const { fetchAvailableTools } = useToolApi()
 
 const input = ref('')
 const attachments = ref<MediaAttachment[]>([])
@@ -205,9 +203,6 @@ const toDataUrl = (file: File) =>
   })
 
 const isDragOver = ref(false)
-const availableTools = ref<AvailableTool[]>([])
-const toolsLoading = ref(false)
-const toolsAbortController = ref<AbortController | undefined>(undefined)
 
 const clearAttachments = () => {
   attachments.value = []
@@ -283,27 +278,6 @@ const handlePaste = async (event: ClipboardEvent) => {
   }
 }
 
-const loadAvailableTools = async () => {
-  if (!activeChatId.value) return
-  toolsAbortController.value?.abort()
-  const controller = new AbortController()
-  toolsAbortController.value = controller
-  toolsLoading.value = true
-  try {
-    availableTools.value = await fetchAvailableTools(activeChatId.value, controller.signal)
-  } catch (err: any) {
-    if (err.name !== 'AbortError') {
-      availableTools.value = []
-    }
-  } finally {
-    if (toolsAbortController.value === controller) {
-      toolsAbortController.value = undefined
-    }
-    toolsLoading.value = false
-  }
-}
-
-
 onMounted(async () => {
   document.addEventListener('paste', handlePaste)
   document.addEventListener('dragover', handleDragOver)
@@ -319,9 +293,6 @@ onMounted(async () => {
     if (activeConversation.value && !activeConversation.value.model && defaultModel.value) {
       setModelForChat(activeConversation.value.session.chatId, defaultModel.value)
     }
-
-    // Load available tools
-    loadAvailableTools()
   } catch (err) {
     console.error(err)
     toast.add({
@@ -354,7 +325,6 @@ watch(activeChatId, async newId => {
     skipNextSmoothScroll.value = true
     await loadMessagesForChat(newId)
   }
-  loadAvailableTools()
   scrollToBottom('auto')
 })
 
@@ -621,12 +591,12 @@ const submitEditMessage = async () => {
                         </div>
                       </div>
                     </template>
-                    <template v-else>
-                      <div class="group relative">
-                        <div
-                          v-if="showEditMessageButton(message)"
-                          class="msg-actions absolute -left-7 top-0.5"
-                        >
+                      <template v-else>
+                        <div class="group relative">
+                          <div
+                            v-if="showEditMessageButton(message)"
+                            class="msg-actions absolute -left-7 top-0.5"
+                          >
                           <UButton
                             size="xs"
                             color="neutral"
@@ -635,14 +605,20 @@ const submitEditMessage = async () => {
                             :padded="false"
                             aria-label="Edit message"
                             class="btn-interactive"
-                            @click="startEditMessage(message.id, firstText(parts))"
+                              @click="startEditMessage(message.id, firstText(parts))"
+                            />
+                          </div>
+                          <ToolCallDisplay
+                            v-if="message?.role === 'assistant' && hasToolCalls(message.id)"
+                            :tool-calls="getToolCalls(message.id)"
+                            :loading="isToolCallLoading(message.id)"
+                            :error="getToolCallError(message.id)"
                           />
-                        </div>
-                        <div :class="message?.role === 'user' ? 'msg-user' : message?.role === 'assistant' ? 'msg-assistant' : ''">
-                          <MarkdownMessage
-                            :text="firstText(parts)"
-                            :class="message?.role === 'assistant' && status === 'streaming' && isLastMessage(message) ? 'streaming-cursor' : ''"
-                          />
+                          <div :class="message?.role === 'user' ? 'msg-user' : message?.role === 'assistant' ? 'msg-assistant' : ''">
+                            <MarkdownMessage
+                              :text="firstText(parts)"
+                              :class="message?.role === 'assistant' && status === 'streaming' && isLastMessage(message) ? 'streaming-cursor' : ''"
+                            />
                           <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
                             <UBadge
                               v-for="(file, idx) in getFileParts(parts)"
@@ -652,17 +628,11 @@ const submitEditMessage = async () => {
                               size="sm"
                             >
                               <UIcon :name="fileIcon(file.mediaType)" class="size-3.5 mr-1" />
-                              {{ file.filename || formatMimeType(file.mediaType) }}
-                            </UBadge>
+                                {{ file.filename || formatMimeType(file.mediaType) }}
+                              </UBadge>
+                            </div>
                           </div>
-                          <ToolCallDisplay
-                            v-if="message?.role === 'assistant' && hasToolCalls(message.id)"
-                            :tool-calls="getToolCalls(message.id)"
-                            :loading="isToolCallLoading(message.id)"
-                            :error="getToolCallError(message.id)"
-                          />
                         </div>
-                      </div>
                       <template v-if="message?.role === 'assistant'">
                         <!-- Typing indicator before first content -->
                         <div
@@ -820,11 +790,6 @@ const submitEditMessage = async () => {
                   @click="webSearchEnabled = !webSearchEnabled"
                 />
               </UTooltip>
-              <ToolSelector
-                :chat-id="activeChatId || ''"
-                :tools="availableTools"
-                :loading="toolsLoading"
-              />
               <span
                 v-if="modelPricingSummary"
                 class="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1"
