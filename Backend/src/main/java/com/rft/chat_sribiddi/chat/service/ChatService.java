@@ -975,7 +975,8 @@ public class ChatService {
         case "current-datetime" ->
             promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, collector));
         case "brave-search" -> {
-          // Brave search requires a per-user API key; only wire when explicitly enabled
+          // Only wire when the web-search toggle is on; resolveWebSearchTool() will
+          // return empty if the user has no Brave Search API key configured.
           if (Boolean.TRUE.equals(webSearchEnabled)) {
             resolveWebSearchTool(userId)
                 .map(t -> new LoggedBraveSearchTool(t, collector))
