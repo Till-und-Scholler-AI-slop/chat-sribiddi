@@ -391,50 +391,11 @@ body {
   transform: scale(1.02);
 }
 
-/* ── Login Animated Gradient ────────────────────────────────────────── */
-.login-gradient {
-  background: linear-gradient(
-    -45deg,
-    #F0F9FF,
-    #ADE8FB,
-    #F0F9FF,
-    #FFFFFF
-  );
-}
-.dark .login-gradient {
-  background: linear-gradient(
-    -45deg,
-    #0B0514,
-    #140A21,
-    #1E1030,
-    #0B0514
-  );
-}
-@media (prefers-reduced-motion: no-preference) {
-  .login-gradient {
-    background-size: 300% 300%;
-    animation: gradient-shift 12s ease infinite;
-  }
-  .dark .login-gradient {
-    background-size: 300% 300%;
-    animation: gradient-shift 12s ease infinite;
-  }
-}
-
 /* ── Status Indicator Dot ───────────────────────────────────────────── */
 .status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-}
-
-/* ── Welcome Hero Login Variant ─────────────────────────────────────── */
-.welcome-hero-login {
-  padding: 0;
-}
-.welcome-hero-login h2 {
-  font-size: 1.875rem;
-  margin-bottom: 0.5rem;
 }
 
 /* ── Attachment Card ────────────────────────────────────────────────── */
