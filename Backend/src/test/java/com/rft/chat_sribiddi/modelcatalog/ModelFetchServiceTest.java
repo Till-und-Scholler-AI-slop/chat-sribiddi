@@ -149,9 +149,9 @@ class ModelFetchServiceTest {
     var models = service.fetchGoogleModels("goog-key");
 
     assertThat(models).extracting(ModelCatalogProperties.ModelOption::getId)
-        .containsExactlyInAnyOrder("gemini-2.5-flash", "gemma-3-27b-it");
+        .containsExactly("gemini-2.5-flash", "gemma-3-27b-it");
     assertThat(models).extracting(ModelCatalogProperties.ModelOption::getLabel)
-        .containsExactlyInAnyOrder("Gemini 2.5 Flash", "Gemma 3 27B");
+        .containsExactly("Gemini 2.5 Flash", "Gemma 3 27B");
   }
 
   @Test

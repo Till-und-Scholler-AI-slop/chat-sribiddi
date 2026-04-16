@@ -1045,7 +1045,7 @@ class ChatServiceTest {
   }
 
   @Test
-  void sendMessage_gemmaModel_omitsSystemMessage() {
+  void sendMessage_gemmaModel_usesUserMessageForInstructions() {
     RequestDTO request =
         new RequestDTO("hello", RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", "goog-key", null, null);
 
@@ -1073,7 +1073,20 @@ class ChatServiceTest {
     verify(requestSpec).messages(messagesCaptor.capture());
 
     List<Message> prompt = messagesCaptor.getValue();
+    // Gemma: no SystemMessage, but first message must be a UserMessage carrying the instructions
     assertThat(prompt).noneMatch(m -> m instanceof org.springframework.ai.chat.messages.SystemMessage);
+    assertThat(prompt.getFirst()).isInstanceOf(UserMessage.class);
+    assertThat(((UserMessage) prompt.getFirst()).getText())
+        .contains("System instructions for this conversation")
+        .contains("helpful assistant");
+
+    // Context string must NOT claim a system prompt was included
+    ArgumentCaptor<MessageEntity> savedMessages = ArgumentCaptor.forClass(MessageEntity.class);
+    verify(messageRepository, times(2)).save(savedMessages.capture());
+    MessageEntity assistantMsg = savedMessages.getAllValues().get(1);
+    assertThat(assistantMsg.getContext())
+        .doesNotContain("including system prompt")
+        .contains("instructions sent as user message");
   }
 
   @Test

@@ -259,7 +259,9 @@ public class ChatService {
     assistantMessage.setMessage(assistantResponse);
     assistantMessage.setRole(Role.ASSISTANT);
     assistantMessage.setContext(
-        "Contains last %d messages including system prompt".formatted(prep.promptMessages().size()));
+        buildAssistantContext(
+            prep.promptMessages().size(),
+            supportsSystemInstruction(requestDTO.provider(), requestDTO.modelId())));
     assistantMessage.setCreatedAt(Instant.now());
     assistantMessage.setPromptTokens(promptTokens);
     assistantMessage.setGenerationTokens(generationTokens);
@@ -384,12 +386,15 @@ public class ChatService {
           .map(tool -> new LoggedBraveSearchTool(tool, toolExecutionCollector))
           .ifPresent(promptSpec::tools);
     }
+    String assistantContext = buildAssistantContext(
+        promptMessages.size(),
+        supportsSystemInstruction(requestDTO.provider(), requestDTO.modelId()));
     subscribeToStream(
         promptSpec,
         emitter,
         clientHolder,
         chatId,
-        promptMessages.size(),
+        assistantContext,
         updatedTitle,
         toolExecutionCollector);
     return emitter;
@@ -404,7 +409,7 @@ public class ChatService {
       SseEmitter emitter,
       ClientHolder clientHolder,
       UUID chatId,
-      int promptMessageCount,
+      String assistantContext,
       String updatedTitle,
       ToolExecutionCollector toolExecutionCollector) {
 
@@ -421,7 +426,7 @@ public class ChatService {
                 fullText,
                 lastUsage,
                 chatId,
-                promptMessageCount,
+                assistantContext,
                 updatedTitle,
                 toolExecutionCollector,
                 emitter,
@@ -499,7 +504,7 @@ public class ChatService {
 
   private void handleStreamCompletion(
       StringBuilder fullText, AtomicReference<Usage> lastUsage,
-      UUID chatId, int promptMessageCount, String updatedTitle,
+      UUID chatId, String assistantContext, String updatedTitle,
       ToolExecutionCollector toolExecutionCollector,
       SseEmitter emitter, ClientHolder clientHolder) {
       try (clientHolder) {
@@ -514,8 +519,7 @@ public class ChatService {
           assistantMessage.setChatId(chatId);
           assistantMessage.setMessage(assistantResponse);
           assistantMessage.setRole(Role.ASSISTANT);
-          assistantMessage.setContext(
-                  "Contains last %d messages including system prompt".formatted(promptMessageCount));
+          assistantMessage.setContext(assistantContext);
           assistantMessage.setCreatedAt(Instant.now());
           assistantMessage.setPromptTokens(promptTokens);
           assistantMessage.setGenerationTokens(generationTokens);
@@ -771,12 +775,19 @@ public class ChatService {
                 chatId, PageRequest.of(0, chatProperties.getContextMessageLimit())));
 
     List<Message> messages = new ArrayList<>();
+    String instructionContent =
+        (customInstructions != null && !customInstructions.isBlank())
+            ? SYSTEM_PROMPT + "\n\n" + customInstructions
+            : SYSTEM_PROMPT;
     if (supportsSystemInstruction(provider, modelId)) {
-      String systemContent =
-          (customInstructions != null && !customInstructions.isBlank())
-              ? SYSTEM_PROMPT + "\n\n" + customInstructions
-              : SYSTEM_PROMPT;
-      messages.add(new SystemMessage(systemContent));
+      messages.add(new SystemMessage(instructionContent));
+    } else {
+      // Gemma models do not support system instructions — inject as a leading user message instead
+      // so that the system prompt and any custom instructions are still applied.
+      messages.add(
+          new UserMessage(
+              "System instructions for this conversation. Follow them when responding.\n\n"
+                  + instructionContent));
     }
 
     List<MessageEntity> ordered = latestMessages.reversed();
@@ -801,6 +812,13 @@ public class ChatService {
     return !(provider == RequestDTO.Provider.GOOGLE
         && modelId != null
         && modelId.startsWith("gemma-"));
+  }
+
+  private static String buildAssistantContext(int messageCount, boolean hasSystemInstruction) {
+    if (hasSystemInstruction) {
+      return "Contains last %d messages including system prompt".formatted(messageCount);
+    }
+    return "Contains last %d messages (instructions sent as user message)".formatted(messageCount);
   }
 
   private List<MediaAttachment> validateMediaAttachments(List<MediaAttachment> mediaAttachments) {
