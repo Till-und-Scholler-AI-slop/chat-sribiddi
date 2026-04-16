@@ -18,7 +18,6 @@ import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
-import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedBraveSearchTool;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedCalculatorTool;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedCurrentDateTimeTool;
@@ -217,7 +216,7 @@ public class ChatService {
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(prep.promptMessages());
-      wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
+      wireTools(userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
       chatResponse = promptSpec.call().chatResponse();
     }
 
@@ -370,7 +369,7 @@ public class ChatService {
     var client = clientHolder.client();
     var promptSpec = client.prompt().options(options).messages(promptMessages);
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
-    wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
+    wireTools(userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
     String assistantContext = buildAssistantContext(
         promptMessages.size(),
         supportsSystemInstruction(requestDTO.provider(), requestDTO.modelId()));
@@ -993,48 +992,37 @@ public class ChatService {
   }
 
   /**
-   * Wires up extensible tools for a chat based on chat_tools configuration.
-   * Always includes CurrentDateTimeTool. Checks chat_tools table for calculator, url-fetcher, etc.
-   * Brave search is wired if webSearchEnabled is true (legacy behavior preserved).
+   * Wires up all available tools for a chat automatically.
+   * All tools are always active except brave-search, which still requires a per-user API key
+   * and is only wired when webSearchEnabled is true.
    */
   private void wireTools(
-      UUID chatId,
       String userId,
       Boolean webSearchEnabled,
       ToolExecutionCollector collector,
       ChatClient.ChatClientRequestSpec promptSpec) {
-    // Get enabled tools from chat_tools table
-    Set<String> enabledToolNames = chatToolRepository.findByChatId(chatId).stream()
-        .filter(ChatToolEntity::isEnabled)
-        .map(ChatToolEntity::getToolName)
-        .collect(Collectors.toSet());
-
-    // CurrentDateTimeTool is always active (no DB check needed)
     for (com.rft.chat_sribiddi.tools.api.ChatTool tool : toolRegistry.getAll()) {
-      if ("current-datetime".equals(tool.getName())) {
-        promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, collector));
-        continue;
-      }
-      if ("brave-search".equals(tool.getName())) {
-        // Brave search requires per-user API key
-        boolean webSearchViaTools = enabledToolNames.contains("brave-search");
-        if (Boolean.TRUE.equals(webSearchEnabled) || webSearchViaTools) {
-          resolveWebSearchTool(userId)
-              .map(t -> new LoggedBraveSearchTool(t, collector))
-              .ifPresent(promptSpec::tools);
+      switch (tool.getName()) {
+        case "current-datetime" ->
+            promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, collector));
+        case "brave-search" -> {
+          // Only wire when the web-search toggle is on; resolveWebSearchTool() will
+          // return empty if the user has no Brave Search API key configured.
+          if (Boolean.TRUE.equals(webSearchEnabled)) {
+            resolveWebSearchTool(userId)
+                .map(t -> new LoggedBraveSearchTool(t, collector))
+                .ifPresent(promptSpec::tools);
+          }
         }
-      } else if ("calculator".equals(tool.getName())) {
-        if (!enabledToolNames.contains("calculator")) continue;
-        promptSpec.tools(new LoggedCalculatorTool(calculatorTool, collector));
-      } else if ("url-fetcher".equals(tool.getName())) {
-        if (!enabledToolNames.contains("url-fetcher")) continue;
-        promptSpec.tools(new LoggedUrlFetcherTool(urlFetcherTool, collector));
-      } else if ("python-interpreter".equals(tool.getName())) {
-        if (!enabledToolNames.contains("python-interpreter")) continue;
-        promptSpec.tools(new LoggedPythonInterpreterTool(pythonInterpreterTool, collector));
-      } else if (enabledToolNames.contains(tool.getName())) {
-        // Use the tool's own @Tool-annotated methods directly via Spring AI reflection
-        promptSpec.tools(tool);
+        case "calculator" ->
+            promptSpec.tools(new LoggedCalculatorTool(calculatorTool, collector));
+        case "url-fetcher" ->
+            promptSpec.tools(new LoggedUrlFetcherTool(urlFetcherTool, collector));
+        case "python-interpreter" ->
+            promptSpec.tools(new LoggedPythonInterpreterTool(pythonInterpreterTool, collector));
+        default ->
+            // Use the tool's own @Tool-annotated methods directly via Spring AI reflection
+            promptSpec.tools(tool);
       }
     }
   }
