@@ -24,4 +24,22 @@ class GoogleProviderPropertiesTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("must be between 1ms");
   }
+
+  @Test
+  void setTimeout_rejectsNonPositiveValue() {
+    GoogleProviderProperties properties = new GoogleProviderProperties();
+
+    assertThatThrownBy(() -> properties.setTimeout(Duration.ZERO))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("must be between 1ms");
+  }
+
+  @Test
+  void setTimeout_rejectsMillisConversionOverflow() {
+    GoogleProviderProperties properties = new GoogleProviderProperties();
+
+    assertThatThrownBy(() -> properties.setTimeout(Duration.ofSeconds(Long.MAX_VALUE)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("too large to be represented in milliseconds");
+  }
 }

@@ -19,7 +19,13 @@ public class GoogleProviderProperties {
     if (timeout == null) {
       throw new IllegalArgumentException("Google timeout must not be null");
     }
-    long timeoutMillis = timeout.toMillis();
+    long timeoutMillis;
+    try {
+      timeoutMillis = timeout.toMillis();
+    } catch (ArithmeticException e) {
+      throw new IllegalArgumentException(
+          "Google timeout is too large to be represented in milliseconds", e);
+    }
     if (timeoutMillis <= 0 || timeoutMillis > Integer.MAX_VALUE) {
       throw new IllegalArgumentException(
           "Google timeout must be between 1ms and %dms".formatted(Integer.MAX_VALUE));
