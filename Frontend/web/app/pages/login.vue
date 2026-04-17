@@ -84,6 +84,11 @@ onMounted(async () => {
             </svg>
             <span>Mit Google anmelden</span>
           </a>
+
+          <p class="login-card-hint">
+            Du wirst nach deinem Google-Konto gefragt – so kannst du jederzeit
+            zwischen mehreren Konten wechseln.
+          </p>
         </template>
 
         <UAlert
@@ -342,6 +347,17 @@ onMounted(async () => {
   width: 20px;
   height: 20px;
   flex-shrink: 0;
+}
+
+.login-card-hint {
+  margin-top: 1rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--color-gray-500);
+}
+.dark .login-card-hint {
+  color: var(--color-gray-400);
 }
 
 .login-features {
