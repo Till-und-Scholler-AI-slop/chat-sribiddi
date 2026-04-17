@@ -486,17 +486,8 @@ export function useChatApi() {
    */
   const logout = async (): Promise<boolean> => {
     try {
-      const headers: Record<string, string> = {}
-      const csrfToken = getCsrfToken()
-      if (csrfToken) {
-        headers['X-XSRF-TOKEN'] = csrfToken
-      }
-      const response = await fetch(buildUrl('/logout'), {
-        method: 'POST',
-        credentials: 'include',
-        headers
-      })
-      return response.ok
+      await requestJson<void>('/logout', { method: 'POST' })
+      return true
     } catch {
       return false
     }
