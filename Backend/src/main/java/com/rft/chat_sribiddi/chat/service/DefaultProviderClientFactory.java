@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.genai.Client;
+import com.google.genai.types.HttpOptions;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import java.net.http.HttpClient;
 import java.util.concurrent.TimeUnit;
@@ -30,6 +31,7 @@ import org.springframework.web.client.RestClient;
 public class DefaultProviderClientFactory implements ProviderClientFactory {
 
   private final OpenAiProviderProperties openAiProperties;
+  private final GoogleProviderProperties googleProperties;
   private final OpenRouterProviderProperties openRouterProperties;
   private final Cache<String, ChatService.ClientHolder> openAiCache;
   private final Cache<String, ChatService.ClientHolder> googleCache;
@@ -37,8 +39,11 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
   private final Cache<String, ChatService.ClientHolder> openRouterCache;
 
   public DefaultProviderClientFactory(
-      OpenAiProviderProperties openAiProperties, OpenRouterProviderProperties openRouterProperties) {
+      OpenAiProviderProperties openAiProperties,
+      GoogleProviderProperties googleProperties,
+      OpenRouterProviderProperties openRouterProperties) {
     this.openAiProperties = openAiProperties;
+    this.googleProperties = googleProperties;
     this.openRouterProperties = openRouterProperties;
     this.openAiCache = buildCache();
     this.googleCache = buildCache();
@@ -93,7 +98,8 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
           googleCache.get(
               apiKey,
               key -> {
-                Client googleClient = Client.builder().apiKey(key).build();
+                Client googleClient =
+                    Client.builder().apiKey(key).httpOptions(buildGoogleHttpOptions()).build();
                 GoogleGenAiChatModel model =
                     GoogleGenAiChatModel.builder().genAiClient(googleClient).build();
                 ChatClient chatClient = ChatClient.create(model);
@@ -152,5 +158,11 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
       case BRAVE_SEARCH ->
           throw new UnsupportedOperationException("BRAVE_SEARCH is not a chat model provider");
     };
+  }
+
+  HttpOptions buildGoogleHttpOptions() {
+    return HttpOptions.builder()
+        .timeout(Math.toIntExact(googleProperties.getTimeout().toMillis()))
+        .build();
   }
 }
