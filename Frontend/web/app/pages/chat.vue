@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
-import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/useChatStore'
+import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/chat-helpers'
 
 definePageMeta({
   layout: 'default'

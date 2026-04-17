@@ -1,5 +1,6 @@
 import type { ChatStatus, UIMessage } from 'ai'
 import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, SendMessageResponse, StreamEvent, TokenUsage, ToolCallLog } from '~/composables/useChatApi'
+import type { MessagePricing } from '~/composables/chat-helpers'
 import { PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
 import {
@@ -20,32 +21,6 @@ import {
   parseAttachmentContext,
   parsePersistedMessageId,
   resolveStreamOutcome
-} from '~/composables/chat-helpers'
-
-// Re-export pure helpers so existing imports (and Vitest suites) keep working.
-export {
-  appendTextToMessage,
-  calculateMessageCost,
-  estimateAssistantOutputTokens,
-  estimateConversationTokens,
-  estimatePreSendCost,
-  estimateTextTokens,
-  extractAssistantText,
-  extractTokenUsage,
-  favoriteModelKey,
-  filterToolCallLogs,
-  formatCost,
-  formatRatePerMillion,
-  getFirstTextContent,
-  parseAttachmentContext,
-  parsePersistedMessageId,
-  resolveStreamOutcome
-}
-
-export type {
-  EstimatedCostBreakdown,
-  MessageCost,
-  MessagePricing
 } from '~/composables/chat-helpers'
 
 type Conversation = {

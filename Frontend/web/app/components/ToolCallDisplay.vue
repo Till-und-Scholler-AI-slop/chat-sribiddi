@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ToolCallLog } from '~/composables/useChatApi'
-import { filterToolCallLogs } from '~/composables/useChatStore'
+import { filterToolCallLogs } from '~/composables/chat-helpers'
 
 const props = defineProps<{
   toolCalls: ToolCallLog[]

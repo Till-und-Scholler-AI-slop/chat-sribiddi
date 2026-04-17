@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendTextToMessage, calculateMessageCost, estimateAssistantOutputTokens, estimateConversationTokens, estimatePreSendCost, estimateTextTokens, extractAssistantText, extractTokenUsage, favoriteModelKey, filterToolCallLogs, formatCost, formatRatePerMillion, parseAttachmentContext, parsePersistedMessageId, resolveStreamOutcome } from '../useChatStore'
+import { appendTextToMessage, calculateMessageCost, estimateAssistantOutputTokens, estimateConversationTokens, estimatePreSendCost, estimateTextTokens, extractAssistantText, extractTokenUsage, favoriteModelKey, filterToolCallLogs, formatCost, formatRatePerMillion, parseAttachmentContext, parsePersistedMessageId, resolveStreamOutcome } from '../chat-helpers'
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {
