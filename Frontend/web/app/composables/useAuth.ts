@@ -25,10 +25,28 @@ export function useAuth() {
     return result === 'authenticated'
   }
 
+  /**
+   * Terminates the backend session and clears local auth state. The caller
+   * is responsible for navigating to `/login` afterwards. Local state is
+   * always cleared, even if the backend call fails, so stale cookies can't
+   * leave the UI in an "authenticated" state.
+   */
+  const logout = async (): Promise<boolean> => {
+    const { logout: apiLogout } = useChatApi()
+    let ok = false
+    try {
+      ok = await apiLogout()
+    } finally {
+      status.value = 'unauthenticated'
+    }
+    return ok
+  }
+
   return {
     status,
     checking,
     checkAuth,
-    ensureAuthenticated
+    ensureAuthenticated,
+    logout
   }
 }

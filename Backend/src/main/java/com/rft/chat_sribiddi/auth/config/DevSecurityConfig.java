@@ -4,9 +4,11 @@ import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -20,6 +22,15 @@ public class DevSecurityConfig {
   SecurityFilterChain devSecurityFilterChain(HttpSecurity http) {
     return http.csrf(AbstractHttpConfigurer::disable)
         .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+        .logout(
+            logout ->
+                logout
+                    .logoutUrl("/logout")
+                    .invalidateHttpSession(true)
+                    .clearAuthentication(true)
+                    .deleteCookies("JSESSIONID", "XSRF-TOKEN")
+                    .logoutSuccessHandler(
+                        new HttpStatusReturningLogoutSuccessHandler(HttpStatus.NO_CONTENT)))
         .build();
   }
 

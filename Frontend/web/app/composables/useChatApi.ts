@@ -478,6 +478,22 @@ export function useChatApi() {
   }
 
   /**
+   * Terminates the current server session (Spring Security `/logout`) and
+   * instructs the backend to clear the `JSESSIONID` and `XSRF-TOKEN` cookies.
+   * Returns true on success, false on any network / non-2xx response. Callers
+   * typically follow up by resetting local auth state and redirecting to
+   * `/login`.
+   */
+  const logout = async (): Promise<boolean> => {
+    try {
+      await requestJson<void>('/logout', { method: 'POST' })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * Probes a backend endpoint that requires authentication. Returns true if
    * the current session is valid, false for any non-2xx response or network
    * errors. Used by useAuth – we deliberately do NOT throw, because the auth
@@ -558,6 +574,7 @@ export function useChatApi() {
     updateChat,
     deleteChat,
     deleteAccount,
+    logout,
     checkSession,
     fetchModels
   }

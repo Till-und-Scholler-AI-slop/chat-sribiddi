@@ -22,7 +22,8 @@ const isDark = computed({
 const toggleColorMode = () => {
   isDark.value = !isDark.value
 }
-const { ensureAuthenticated } = useAuth()
+const { ensureAuthenticated, logout } = useAuth()
+const { baseUrl: backendBaseUrl } = useChatApi()
 const {
   conversations,
   activeChatId,
@@ -164,6 +165,39 @@ const confirmDelete = async () => {
     processingChatId.value = null
   }
 }
+
+const loggingOut = ref(false)
+
+const handleLogout = async () => {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  const ok = await logout()
+  loggingOut.value = false
+  toast.add(
+    ok
+      ? { title: 'Abgemeldet', color: 'neutral' }
+      : {
+          title: 'Abmeldung unvollständig',
+          description:
+            'Die Sitzung konnte serverseitig nicht bestätigt werden. Du wirst trotzdem zur Anmeldeseite geleitet.',
+          color: 'warning'
+        }
+  )
+  await router.push('/login')
+}
+
+const handleSwitchAccount = async () => {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  // Terminate the current backend session first so the subsequent OAuth2
+  // flow starts clean. The authorization request already includes
+  // `prompt=select_account`, so Google will show the account picker.
+  await logout()
+  loggingOut.value = false
+  if (import.meta.client) {
+    window.location.href = `${backendBaseUrl.value}/oauth2/authorization/google`
+  }
+}
 </script>
 
 <template>
@@ -295,6 +329,25 @@ const confirmDelete = async () => {
         aria-label="Einstellungen"
         to="/settings"
         class="w-full justify-start btn-interactive"
+      />
+      <UButton
+        variant="ghost"
+        icon="i-heroicons-user-plus"
+        :label="collapsed ? '' : 'Konto wechseln'"
+        aria-label="Google-Konto wechseln"
+        :disabled="loggingOut"
+        class="w-full justify-start btn-interactive"
+        @click="handleSwitchAccount"
+      />
+      <UButton
+        variant="ghost"
+        color="error"
+        icon="i-heroicons-arrow-right-on-rectangle"
+        :label="collapsed ? '' : 'Abmelden'"
+        aria-label="Abmelden"
+        :loading="loggingOut"
+        class="w-full justify-start btn-interactive"
+        @click="handleLogout"
       />
     </div>
 
