@@ -178,6 +178,8 @@ app:
     openai:
       connect-timeout: ${OPENAI_CONNECT_TIMEOUT:10s}
       read-timeout: ${OPENAI_READ_TIMEOUT:1200s}
+    google:
+      timeout: ${GOOGLE_TIMEOUT:120s}
     model-catalog:
       connect-timeout: ${MODEL_CATALOG_CONNECT_TIMEOUT:5s}
       read-timeout: ${MODEL_CATALOG_READ_TIMEOUT:15s}

@@ -3,6 +3,7 @@ package com.rft.chat_sribiddi.chat.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
+import java.time.Duration;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,7 +15,9 @@ class DefaultProviderClientFactoryTest {
   @BeforeEach
   void setUp() {
     OpenAiProviderProperties props = new OpenAiProviderProperties();
-    factory = new DefaultProviderClientFactory(props, new OpenRouterProviderProperties());
+    factory =
+        new DefaultProviderClientFactory(
+            props, new GoogleProviderProperties(), new OpenRouterProviderProperties());
   }
 
   @Test
@@ -52,5 +55,19 @@ class DefaultProviderClientFactoryTest {
 
     assertThat(options).isInstanceOf(OpenAiChatOptions.class);
     assertThat(((OpenAiChatOptions) options).getModel()).isEqualTo("openai/gpt-4o-mini");
+  }
+
+  @Test
+  void buildGoogleHttpOptions_usesConfiguredTimeoutMillis() {
+    OpenAiProviderProperties openAiProperties = new OpenAiProviderProperties();
+    GoogleProviderProperties googleProperties = new GoogleProviderProperties();
+    googleProperties.setTimeout(Duration.ofSeconds(123));
+    DefaultProviderClientFactory customFactory =
+        new DefaultProviderClientFactory(
+            openAiProperties, googleProperties, new OpenRouterProviderProperties());
+
+    var options = customFactory.buildGoogleHttpOptions();
+
+    assertThat(options.timeout()).contains(123_000);
   }
 }
