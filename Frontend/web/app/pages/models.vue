@@ -343,7 +343,7 @@ onMounted(async () => {
   outline-offset: 2px;
 }
 :global(.dark) .model-card {
-  background: rgba(20, 10, 33, 0.4);
+  background: color-mix(in oklab, var(--paper-2) 70%, transparent);
   border-color: var(--color-gray-800);
 }
 :global(.dark) .model-card:hover {
@@ -369,8 +369,8 @@ onMounted(async () => {
   color: #B82E8E;
 }
 .provider-avatar-google {
-  background: rgba(58, 140, 207, 0.12);
-  color: #2D6FA8;
+  background: rgba(184, 134, 11, 0.12);
+  color: #8A6410;
 }
 .provider-avatar-claude {
   background: rgba(214, 124, 84, 0.14);
@@ -385,8 +385,8 @@ onMounted(async () => {
   color: #F388C0;
 }
 :global(.dark) .provider-avatar-google {
-  background: rgba(91, 184, 232, 0.16);
-  color: #8FCFEF;
+  background: rgba(214, 168, 84, 0.16);
+  color: #E8C27A;
 }
 :global(.dark) .provider-avatar-claude {
   background: rgba(214, 124, 84, 0.20);

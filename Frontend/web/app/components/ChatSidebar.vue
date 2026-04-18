@@ -8,22 +8,9 @@ const emit = defineEmits<(e: 'toggle') => void>()
 const router = useRouter()
 const route = useRoute()
 const toast = useToast()
-const { t, locale, locales, setLocale } = useI18n()
+const { t } = useI18n()
 const tt = useTranslatedError()
 
-const colorMode = useColorMode()
-
-const isDark = computed({
-  get: () => colorMode.value === 'dark',
-  set: (value: boolean) => {
-    const next = value ? 'dark' : 'light'
-    colorMode.preference = next
-  }
-})
-
-const toggleColorMode = () => {
-  isDark.value = !isDark.value
-}
 const { ensureAuthenticated, logout } = useAuth()
 const { baseUrl: backendBaseUrl } = useChatApi()
 const {
@@ -48,18 +35,6 @@ const deleteModalOpen = computed({
     if (!value) deleteTarget.value = null
   }
 })
-
-const localeItems = computed(() =>
-  (locales.value as Array<{ code: string; name?: string }>).map(l => ({
-    label: l.name || l.code,
-    value: l.code
-  }))
-)
-
-const handleLocaleChange = async (next: string) => {
-  if (!next || next === locale.value) return
-  await setLocale(next as 'de' | 'en')
-}
 
 onMounted(async () => {
   try {
@@ -319,29 +294,6 @@ const handleSwitchAccount = async () => {
 
     <!-- Footer -->
     <div class="border-t border-gray-200/60 dark:border-white/[0.06] p-2 space-y-1">
-      <div v-if="!collapsed" class="px-1 pb-1">
-        <USelect
-          :model-value="locale"
-          :items="localeItems"
-          value-key="value"
-          label-key="label"
-          size="xs"
-          color="neutral"
-          variant="ghost"
-          icon="i-heroicons-language"
-          :aria-label="t('language.switchAria')"
-          class="w-full"
-          @update:model-value="handleLocaleChange"
-        />
-      </div>
-      <UButton
-        variant="ghost"
-        :icon="isDark ? 'i-heroicons-sun' : 'i-heroicons-moon'"
-        :label="collapsed ? '' : isDark ? t('sidebar.lightMode') : t('sidebar.darkMode')"
-        :aria-label="isDark ? t('sidebar.switchToLight') : t('sidebar.switchToDark')"
-        class="w-full justify-start btn-interactive"
-        @click="toggleColorMode"
-      />
       <UButton
         variant="ghost"
         icon="i-heroicons-cpu-chip"

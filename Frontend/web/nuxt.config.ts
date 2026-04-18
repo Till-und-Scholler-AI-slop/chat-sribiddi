@@ -21,7 +21,9 @@ export default defineNuxtConfig({
             useCookie: true,
             cookieKey: 'i18n_redirected',
             redirectOn: 'root',
-            fallbackLocale: 'de'
+            // If the browser language matches `de`, the user stays on German.
+            // Every other detected language falls back to English.
+            fallbackLocale: 'en'
         },
         vueI18n: './i18n/i18n.config.ts'
     },
