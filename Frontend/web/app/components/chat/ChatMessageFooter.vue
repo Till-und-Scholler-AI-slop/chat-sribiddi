@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { t } = useI18n()
 interface Usage {
   promptTokens?: number | null
   generationTokens?: number | null
@@ -31,7 +32,7 @@ defineProps<Props>()
       {{ formatTokenCount(usage.generationTokens) }}
     </span>
     <span v-if="usage?.totalTokens != null" class="inline-flex items-center gap-1">
-      {{ formatTokenCount(usage.totalTokens) }} Tokens
+      {{ formatTokenCount(usage.totalTokens) }} {{ t('chat.tokenSuffix') }}
     </span>
     <span
       v-if="cost"

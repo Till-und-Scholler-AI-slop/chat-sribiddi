@@ -3,6 +3,8 @@ import type { ModelOption, Provider } from '~/composables/useChatApi'
 import { PROVIDERS } from '~/composables/useChatApi'
 import { formatRatePerMillion } from '~/composables/chat-helpers'
 
+const { t } = useI18n()
+
 definePageMeta({
   layout: 'default'
 })
@@ -36,7 +38,7 @@ const providerBadgeColor = (provider: Provider) =>
   provider === 'OPENROUTER' ? 'primary' : 'neutral'
 
 const providerFilters = computed(() => [
-  { label: 'All providers', value: 'ALL' as const },
+  { label: t('models.providerFilterAll'), value: 'ALL' as const },
   ...PROVIDERS.map(provider => ({
     label: providerLabels[provider],
     value: provider
@@ -100,9 +102,9 @@ const formatInteger = (value?: number | null) => {
 }
 
 const formatTokenWindow = (value?: number | null) =>
-  value == null ? 'Unknown' : `${formatInteger(value)} tokens`
+  value == null ? t('common.unknown') : t('models.tokensSuffix', { count: formatInteger(value) })
 
-const toPriceLabel = (value?: string | null, suffix = '/ 1M tokens') => {
+const toPriceLabel = (value?: string | null, suffix = t('models.perMillionTokens')) => {
   const formatted = formatRatePerMillion(value)
   if (formatted == null) return '—'
   return `${formatted} ${suffix}`
@@ -112,11 +114,11 @@ const toRequestPriceLabel = (value?: string | null) => {
   if (!value) return '—'
   const numeric = Number(value)
   if (Number.isNaN(numeric)) return value
-  return `$${numeric.toFixed(numeric === 0 ? 0 : numeric >= 1 ? 2 : 4)} / request`
+  return `$${numeric.toFixed(numeric === 0 ? 0 : numeric >= 1 ? 2 : 4)} ${t('models.perRequest')}`
 }
 
 const formatCreated = (value?: number | null) => {
-  if (!value) return 'Unknown'
+  if (!value) return t('common.unknown')
   return new Date(value * 1000).toLocaleDateString()
 }
 
@@ -124,21 +126,21 @@ const useModel = async (model: ModelOption) => {
   try {
     const conversation =
       activeConversation.value || {
-        session: await startChat(`Chat with ${model.label}`),
+        session: await startChat(t('models.chatWithModel', { label: model.label })),
         model: null
       }
 
     setModelForChat(conversation.session.chatId, model)
     toast.add({
-      title: `${model.label} selected`,
-      description: `Using ${providerLabels[model.provider]} for the current chat.`,
+      title: t('models.useModelToastTitle', { label: model.label }),
+      description: t('models.useModelToastDescription', { provider: providerLabels[model.provider] }),
       color: 'primary'
     })
     await router.push('/chat')
   } catch (err) {
     toast.add({
-      title: 'Could not apply model',
-      description: err instanceof Error ? err.message : 'Unable to open chat.',
+      title: t('models.useModelFailedTitle'),
+      description: err instanceof Error ? err.message : t('models.useModelFailedDescription'),
       color: 'error'
     })
   }
@@ -150,8 +152,8 @@ onMounted(async () => {
   } catch (err) {
     console.error(err)
     toast.add({
-      title: 'Could not load model catalog',
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      title: t('models.loadCatalogFailed'),
+      description: err instanceof Error ? err.message : t('models.backendNotReachable'),
       color: 'error'
     })
   }
@@ -163,8 +165,8 @@ onMounted(async () => {
   <UDashboardPanel>
     <template #header>
       <UDashboardNavbar
-        title="Model Catalog"
-        :badge="modelsLoading ? 'Loading…' : `${filteredModels.length} models`"
+        :title="t('models.title')"
+        :badge="modelsLoading ? t('models.loading') : t('models.modelsCount', { count: filteredModels.length })"
       />
     </template>
 
@@ -180,9 +182,9 @@ onMounted(async () => {
         <UCard class="card-elevated">
           <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div class="space-y-1">
-              <div class="text-lg font-semibold tracking-tight">Browse available models</div>
+              <div class="text-lg font-semibold tracking-tight">{{ t('models.browseHeading') }}</div>
               <p class="text-sm text-gray-500 dark:text-gray-400">
-                Compare providers, pricing, and context windows before choosing a model for chat.
+                {{ t('models.browseDescription') }}
               </p>
             </div>
 
@@ -190,7 +192,7 @@ onMounted(async () => {
               <UInput
                 v-model="search"
                 icon="i-heroicons-magnifying-glass"
-                placeholder="Search models, providers, or parameters"
+                :placeholder="t('models.searchPlaceholder')"
                 class="min-w-[18rem]"
               />
               <USelectMenu
@@ -211,8 +213,8 @@ onMounted(async () => {
         <UEmptyState
           v-else-if="!filteredModels.length"
           icon="i-heroicons-cpu-chip"
-          title="No models found"
-          description="Try a different provider filter, or add an API key to load live provider catalogs."
+          :title="t('models.noModelsFoundTitle')"
+          :description="t('models.noModelsFoundDescription')"
           class="animate-fade-in-up"
         />
 
@@ -240,7 +242,7 @@ onMounted(async () => {
                     v-if="model.canonicalSlug && model.canonicalSlug !== model.value"
                     class="text-xs text-gray-500 dark:text-gray-400 break-all"
                   >
-                    Canonical: {{ model.canonicalSlug }}
+                    {{ t('models.canonical', { value: model.canonicalSlug }) }}
                   </div>
                 </div>
 
@@ -250,7 +252,7 @@ onMounted(async () => {
                     :color="isFavorite(model) ? 'warning' : 'neutral'"
                     variant="ghost"
                     size="sm"
-                    :aria-label="isFavorite(model) ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'"
+                    :aria-label="isFavorite(model) ? t('models.removeFromFavorites') : t('models.addToFavorites')"
                     class="btn-interactive"
                     @click="toggleFavorite(model)"
                   />
@@ -259,7 +261,7 @@ onMounted(async () => {
                     variant="soft"
                     size="sm"
                     icon="i-heroicons-arrow-right-circle"
-                    label="Modell verwenden"
+                    :label="t('models.useModel')"
                     class="btn-interactive"
                     @click="useModel(model)"
                   />
@@ -276,13 +278,13 @@ onMounted(async () => {
               <div class="grid gap-3 sm:grid-cols-2">
                 <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
                   <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    Context window
+                    {{ t('models.contextWindow') }}
                   </div>
                   <div class="mt-1 font-medium">{{ formatTokenWindow(model.contextLength) }}</div>
                 </div>
                 <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
                   <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    Max output
+                    {{ t('models.maxOutput') }}
                   </div>
                   <div class="mt-1 font-medium">{{ formatTokenWindow(model.maxCompletionTokens) }}</div>
                 </div>
@@ -291,25 +293,25 @@ onMounted(async () => {
               <div class="grid gap-3 sm:grid-cols-2">
                 <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
                   <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    Prompt price
+                    {{ t('models.promptPrice') }}
                   </div>
                   <div class="mt-1 font-medium">{{ toPriceLabel(model.promptPrice) }}</div>
                 </div>
                 <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
                   <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    Completion price
+                    {{ t('models.completionPrice') }}
                   </div>
                   <div class="mt-1 font-medium">{{ toPriceLabel(model.completionPrice) }}</div>
                 </div>
                 <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
                   <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    Request price
+                    {{ t('models.requestPrice') }}
                   </div>
                   <div class="mt-1 font-medium">{{ toRequestPriceLabel(model.requestPrice) }}</div>
                 </div>
                 <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
                   <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    Released
+                    {{ t('models.released') }}
                   </div>
                   <div class="mt-1 font-medium">{{ formatCreated(model.created) }}</div>
                 </div>
@@ -318,7 +320,7 @@ onMounted(async () => {
               <div class="grid gap-4 lg:grid-cols-2">
                 <div class="space-y-2">
                   <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    Architecture
+                    {{ t('models.architecture') }}
                   </div>
                   <div class="flex flex-wrap gap-2">
                     <UBadge
@@ -330,14 +332,14 @@ onMounted(async () => {
                     <UBadge
                       v-for="item in model.inputModalities || []"
                       :key="`input-${item}`"
-                      :label="`In: ${item}`"
+                      :label="t('models.inputModality', { value: item })"
                       variant="soft"
                       color="neutral"
                     />
                     <UBadge
                       v-for="item in model.outputModalities || []"
                       :key="`output-${item}`"
-                      :label="`Out: ${item}`"
+                      :label="t('models.outputModality', { value: item })"
                       variant="soft"
                       color="neutral"
                     />
@@ -346,7 +348,7 @@ onMounted(async () => {
 
                 <div class="space-y-2">
                   <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    Supported parameters
+                    {{ t('models.supportedParameters') }}
                   </div>
                   <div class="flex flex-wrap gap-2">
                     <UBadge
@@ -360,13 +362,13 @@ onMounted(async () => {
                       v-if="(model.supportedParameters || []).length > 8"
                       class="text-xs text-gray-500 dark:text-gray-400"
                     >
-                      +{{ (model.supportedParameters || []).length - 8 }} more
+                      {{ t('models.moreParameters', { count: (model.supportedParameters || []).length - 8 }) }}
                     </span>
                     <span
                       v-if="!(model.supportedParameters || []).length"
                       class="text-sm text-gray-500 dark:text-gray-400"
                     >
-                      No parameter metadata available.
+                      {{ t('models.noParameterMetadata') }}
                     </span>
                   </div>
                 </div>

@@ -8,6 +8,8 @@ const emit = defineEmits<(e: 'toggle') => void>()
 const router = useRouter()
 const route = useRoute()
 const toast = useToast()
+const { t, locale, locales, setLocale } = useI18n()
+const tt = useTranslatedError()
 
 const colorMode = useColorMode()
 
@@ -47,6 +49,18 @@ const deleteModalOpen = computed({
   }
 })
 
+const localeItems = computed(() =>
+  (locales.value as Array<{ code: string; name?: string }>).map(l => ({
+    label: l.name || l.code,
+    value: l.code
+  }))
+)
+
+const handleLocaleChange = async (next: string) => {
+  if (!next || next === locale.value) return
+  await setLocale(next as 'de' | 'en')
+}
+
 onMounted(async () => {
   try {
     const ok = await ensureAuthenticated()
@@ -55,8 +69,8 @@ onMounted(async () => {
   } catch (err) {
     console.error(err)
     toast.add({
-      title: 'Chats konnten nicht geladen werden',
-      description: friendlyErrorMessage(err),
+      title: t('sidebar.loadChatsFailed'),
+      description: tt(err),
       color: 'error'
     })
   }
@@ -78,8 +92,8 @@ const handleNewChat = async () => {
   } catch (err) {
     console.error(err)
     toast.add({
-      title: 'Chat konnte nicht erstellt werden',
-      description: friendlyErrorMessage(err),
+      title: t('sidebar.createChatFailed'),
+      description: tt(err),
       color: 'error'
     })
   }
@@ -94,7 +108,7 @@ const handleSelect = (chatId: string) => {
 
 const startEditing = (chatId: string, currentTitle?: string | null) => {
   editingChatId.value = chatId
-  titleDraft.value = (currentTitle || '').trim() || 'Neuer Chat'
+  titleDraft.value = (currentTitle || '').trim() || t('sidebar.newChatPlaceholder')
 }
 
 const cancelEditing = () => {
@@ -106,8 +120,8 @@ const saveTitle = async (chatId: string) => {
   const title = titleDraft.value.trim()
   if (!title) {
     toast.add({
-      title: 'Titel fehlt',
-      description: 'Bitte gib einen Chat-Titel ein.',
+      title: t('sidebar.missingTitle'),
+      description: t('sidebar.missingTitleDescription'),
       color: 'warning'
     })
     return
@@ -117,14 +131,14 @@ const saveTitle = async (chatId: string) => {
   try {
     await renameChat(chatId, title)
     toast.add({
-      title: 'Chat umbenannt',
+      title: t('sidebar.renameSuccess'),
       color: 'primary'
     })
     cancelEditing()
   } catch (err) {
     toast.add({
-      title: 'Chat konnte nicht umbenannt werden',
-      description: friendlyErrorMessage(err),
+      title: t('sidebar.renameFailed'),
+      description: tt(err),
       color: 'error'
     })
   } finally {
@@ -135,7 +149,7 @@ const saveTitle = async (chatId: string) => {
 const requestDelete = (chatId: string, title?: string | null) => {
   deleteTarget.value = {
     chatId,
-    title: (title || '').trim() || 'Neuer Chat'
+    title: (title || '').trim() || t('sidebar.newChatPlaceholder')
   }
 }
 
@@ -148,14 +162,14 @@ const confirmDelete = async () => {
   try {
     await removeChat(chatId)
     toast.add({
-      title: 'Chat gelöscht',
+      title: t('sidebar.deleteSuccess'),
       color: 'neutral'
     })
     deleteTarget.value = null
   } catch (err) {
     toast.add({
-      title: 'Chat konnte nicht gelöscht werden',
-      description: friendlyErrorMessage(err),
+      title: t('sidebar.deleteFailed'),
+      description: tt(err),
       color: 'error'
     })
   } finally {
@@ -175,11 +189,10 @@ const handleLogout = async () => {
   loggingOut.value = false
   toast.add(
     ok
-      ? { title: 'Abgemeldet', color: 'neutral' }
+      ? { title: t('auth.logoutSuccess'), color: 'neutral' }
       : {
-          title: 'Abmeldung unvollständig',
-          description:
-            'Die Sitzung konnte serverseitig nicht bestätigt werden. Du wirst trotzdem zur Anmeldeseite geleitet.',
+          title: t('auth.logoutPartialTitle'),
+          description: t('auth.logoutPartialDescription'),
           color: 'warning'
         }
   )
@@ -207,19 +220,19 @@ const handleSwitchAccount = async () => {
       <UButton
           variant="ghost"
           icon="i-heroicons-bars-3"
-          :aria-label="collapsed ? 'Sidebar öffnen' : 'Sidebar schließen'"
+          :aria-label="collapsed ? t('sidebar.openSidebar') : t('sidebar.closeSidebar')"
           class="btn-interactive"
           @click="emit('toggle')"
       />
       <div v-if="!collapsed" class="flex-1 font-semibold truncate tracking-tight">
-        Chats
+        {{ t('sidebar.chatsTitle') }}
       </div>
       <UButton
           v-if="!collapsed"
           color="primary"
           variant="soft"
           icon="i-heroicons-plus"
-          label="Neu"
+          :label="t('sidebar.newChat')"
           class="btn-interactive"
           @click="handleNewChat"
       />
@@ -250,7 +263,7 @@ const handleSwitchAccount = async () => {
                 <UButton
                   size="xs"
                   color="primary"
-                  label="Speichern"
+                  :label="t('common.save')"
                   class="btn-interactive"
                   :loading="processingChatId === conversation.session.chatId"
                   @click="saveTitle(conversation.session.chatId)"
@@ -259,7 +272,7 @@ const handleSwitchAccount = async () => {
                   size="xs"
                   variant="ghost"
                   color="neutral"
-                  label="Abbrechen"
+                  :label="t('common.cancel')"
                   :disabled="processingChatId === conversation.session.chatId"
                   @click="cancelEditing"
                 />
@@ -272,7 +285,7 @@ const handleSwitchAccount = async () => {
                 @click="handleSelect(conversation.session.chatId)"
               >
                 <span v-if="!collapsed" class="truncate text-sm">
-                  {{ conversation.session.title || 'Neuer Chat' }}
+                  {{ conversation.session.title || t('sidebar.newChatPlaceholder') }}
                 </span>
               </button>
 
@@ -282,7 +295,7 @@ const handleSwitchAccount = async () => {
                   variant="ghost"
                   color="neutral"
                   icon="i-heroicons-pencil-square"
-                  aria-label="Chat umbenennen"
+                  :aria-label="t('sidebar.renameChat')"
                   class="btn-interactive"
                   :disabled="processingChatId === conversation.session.chatId"
                   @click.stop="startEditing(conversation.session.chatId, conversation.session.title)"
@@ -292,7 +305,7 @@ const handleSwitchAccount = async () => {
                   variant="ghost"
                   color="error"
                   icon="i-heroicons-trash"
-                  aria-label="Chat löschen"
+                  :aria-label="t('sidebar.deleteChat')"
                   class="btn-interactive"
                   :loading="processingChatId === conversation.session.chatId"
                   @click.stop="requestDelete(conversation.session.chatId, conversation.session.title)"
@@ -306,35 +319,50 @@ const handleSwitchAccount = async () => {
 
     <!-- Footer -->
     <div class="border-t border-gray-200/60 dark:border-white/[0.06] p-2 space-y-1">
+      <div v-if="!collapsed" class="px-1 pb-1">
+        <USelect
+          :model-value="locale"
+          :items="localeItems"
+          value-key="value"
+          label-key="label"
+          size="xs"
+          color="neutral"
+          variant="ghost"
+          icon="i-heroicons-language"
+          :aria-label="t('language.switchAria')"
+          class="w-full"
+          @update:model-value="handleLocaleChange"
+        />
+      </div>
       <UButton
         variant="ghost"
         :icon="isDark ? 'i-heroicons-sun' : 'i-heroicons-moon'"
-        :label="collapsed ? '' : isDark ? 'Heller Modus' : 'Dunkler Modus'"
-        :aria-label="isDark ? 'Zum hellen Modus wechseln' : 'Zum dunklen Modus wechseln'"
+        :label="collapsed ? '' : isDark ? t('sidebar.lightMode') : t('sidebar.darkMode')"
+        :aria-label="isDark ? t('sidebar.switchToLight') : t('sidebar.switchToDark')"
         class="w-full justify-start btn-interactive"
         @click="toggleColorMode"
       />
       <UButton
         variant="ghost"
         icon="i-heroicons-cpu-chip"
-        :label="collapsed ? '' : 'Modelle'"
-        aria-label="Modelle"
+        :label="collapsed ? '' : t('sidebar.models')"
+        :aria-label="t('sidebar.models')"
         to="/models"
         class="w-full justify-start btn-interactive"
       />
       <UButton
         variant="ghost"
         icon="i-heroicons-cog-6-tooth"
-        :label="collapsed ? '' : 'Einstellungen'"
-        aria-label="Einstellungen"
+        :label="collapsed ? '' : t('sidebar.settings')"
+        :aria-label="t('sidebar.settings')"
         to="/settings"
         class="w-full justify-start btn-interactive"
       />
       <UButton
         variant="ghost"
         icon="i-heroicons-user-plus"
-        :label="collapsed ? '' : 'Konto wechseln'"
-        aria-label="Google-Konto wechseln"
+        :label="collapsed ? '' : t('sidebar.switchAccount')"
+        :aria-label="t('sidebar.switchGoogleAccount')"
         :disabled="loggingOut"
         class="w-full justify-start btn-interactive"
         @click="handleSwitchAccount"
@@ -343,8 +371,8 @@ const handleSwitchAccount = async () => {
         variant="ghost"
         color="error"
         icon="i-heroicons-arrow-right-on-rectangle"
-        :label="collapsed ? '' : 'Abmelden'"
-        aria-label="Abmelden"
+        :label="collapsed ? '' : t('sidebar.logout')"
+        :aria-label="t('sidebar.logout')"
         :loading="loggingOut"
         class="w-full justify-start btn-interactive"
         @click="handleLogout"
@@ -360,24 +388,30 @@ const handleSwitchAccount = async () => {
               <UIcon name="i-heroicons-trash" class="size-5" />
             </div>
             <div class="flex-1 min-w-0">
-              <h3 class="text-base font-semibold tracking-tight">Chat löschen?</h3>
-              <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                „<span class="font-medium">{{ deleteTarget?.title }}</span>“ wird unwiderruflich entfernt – inklusive aller Nachrichten.
-              </p>
+              <h3 class="text-base font-semibold tracking-tight">{{ t('sidebar.deleteConfirmTitle') }}</h3>
+              <i18n-t
+                keypath="sidebar.deleteConfirmDescription"
+                tag="p"
+                class="text-sm text-gray-600 dark:text-gray-400 mt-1"
+              >
+                <template #title>
+                  <span class="font-medium">{{ deleteTarget?.title }}</span>
+                </template>
+              </i18n-t>
             </div>
           </div>
           <div class="flex justify-end gap-2 pt-2">
             <UButton
               variant="ghost"
               color="neutral"
-              label="Abbrechen"
+              :label="t('common.cancel')"
               :disabled="processingChatId === deleteTarget?.chatId"
               @click="deleteTarget = null"
             />
             <UButton
               color="error"
               icon="i-heroicons-trash"
-              label="Endgültig löschen"
+              :label="t('sidebar.deleteConfirmAction')"
               :loading="processingChatId === deleteTarget?.chatId"
               @click="confirmDelete"
             />
