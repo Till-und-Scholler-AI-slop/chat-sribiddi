@@ -496,10 +496,10 @@ const submitEditMessage = async () => {
 </script>
 
 <template>
-  <div class="h-full">
-  <UDashboardPanel class="h-full flex flex-col">
+  <div class="h-full min-h-0 flex flex-col">
+  <UDashboardPanel class="h-full min-h-0 flex flex-col">
     <template #body>
-      <UContainer class="py-4 space-y-4 flex-1 overflow-hidden flex flex-col">
+      <UContainer class="py-4 space-y-4 flex-1 min-h-0 overflow-hidden flex flex-col">
         <UAlert
           v-if="errorMessage"
           color="error"

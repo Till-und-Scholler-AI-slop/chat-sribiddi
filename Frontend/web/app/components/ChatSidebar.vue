@@ -201,7 +201,7 @@ const handleSwitchAccount = async () => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
+  <div class="h-full min-h-0 overflow-hidden flex flex-col">
     <!-- Header -->
     <div class="flex items-center gap-2 p-2">
       <UButton
@@ -226,7 +226,7 @@ const handleSwitchAccount = async () => {
     </div>
 
     <!-- List -->
-    <nav class="flex-1 overflow-auto px-2 pb-2 scrollbar-thin">
+    <nav class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 scrollbar-thin">
       <ul class="space-y-1">
         <li
           v-for="conversation in conversations"
