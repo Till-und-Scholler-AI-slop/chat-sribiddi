@@ -126,11 +126,11 @@ const statusByProvider = (provider: Provider) => {
 
 const statusLabel = (provider: Provider) => {
   if (loadingStatus.value) {
-    return `${providerDisplay(provider)} status loading...`
+    return `${providerDisplay(provider)} Status wird geladen…`
   }
   return statusByProvider(provider)
-      ? `${providerDisplay(provider)} key set`
-      : `${providerDisplay(provider)} key missing`
+      ? `${providerDisplay(provider)}-Schlüssel hinterlegt`
+      : `${providerDisplay(provider)}-Schlüssel fehlt`
 }
 
 const keyPresent = (provider: Provider) => form[provider].trim().length > 0
@@ -335,12 +335,18 @@ async function handleDeleteAccount() {
 <template>
   <div>
   <UDashboardPanel>
-    <template #header>
-      <UDashboardNavbar title="Settings"/>
-    </template>
-
     <template #body>
-      <UContainer class="py-8 space-y-8">
+      <UContainer class="py-10 max-w-4xl space-y-10">
+
+        <!-- Page heading -->
+        <header class="space-y-3">
+          <h1 class="font-serif-display text-4xl sm:text-5xl text-gray-900 dark:text-gray-50">
+            Einstellungen
+          </h1>
+          <p class="text-base text-gray-500 dark:text-gray-400 max-w-2xl">
+            Verwalte deine API-Schlüssel, Chat-Optionen und Kontodaten.
+          </p>
+        </header>
 
         <div v-if="!hydrated" class="space-y-4">
           <div class="skeleton-shimmer h-14"/>
@@ -352,9 +358,9 @@ async function handleDeleteAccount() {
           <UCard class="card-elevated">
             <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">Model API keys</div>
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">API-Schlüssel</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
-                  Save keys per provider. Each key is stored encrypted in the backend.
+                  Speichere pro Anbieter einen Schlüssel. Jeder Schlüssel wird verschlüsselt im Backend abgelegt.
                 </p>
               </div>
               <div class="flex items-center gap-2 flex-wrap">
@@ -364,7 +370,7 @@ async function handleDeleteAccount() {
                     variant="outline"
                     size="sm"
                     icon="i-heroicons-cpu-chip"
-                    label="Browse models"
+                    label="Alle Modelle ansehen"
                 />
                 <UBadge
                     v-for="item in providerCards"
@@ -387,7 +393,7 @@ async function handleDeleteAccount() {
                     <UBadge
                         variant="soft"
                         :color="statusByProvider(item.provider) ? 'primary' : 'neutral'"
-                        :label="statusByProvider(item.provider) ? 'Stored' : 'Not stored'"
+                        :label="statusByProvider(item.provider) ? 'Hinterlegt' : 'Nicht hinterlegt'"
                     />
                   </div>
 
@@ -451,16 +457,16 @@ async function handleDeleteAccount() {
           <UCard class="card-elevated">
             <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">Web Search</div>
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">Web-Suche</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
-                  Configure the Brave Search API to enable web search in chat.
-                  The AI can search the web when the toggle is activated in the chat prompt.
+                  Konfiguriere die Brave-Search-API, um die Web-Suche im Chat zu aktivieren.
+                  Die KI kann das Web durchsuchen, wenn der Schalter im Chat-Prompt aktiviert ist.
                 </p>
               </div>
               <UBadge
                   color="primary"
                   variant="soft"
-                  :label="braveSearchStatus ? 'Brave Search key set' : 'Brave Search key missing'"
+                  :label="braveSearchStatus ? 'Brave-Search-Schlüssel gesetzt' : 'Brave-Search-Schlüssel fehlt'"
               />
             </div>
 
@@ -474,13 +480,13 @@ async function handleDeleteAccount() {
                   <UBadge
                       variant="soft"
                       :color="braveSearchStatus ? 'primary' : 'neutral'"
-                      :label="braveSearchStatus ? 'Stored' : 'Not stored'"
+                      :label="braveSearchStatus ? 'Hinterlegt' : 'Nicht hinterlegt'"
                   />
                 </div>
 
                 <UFormGroup
-                    label="Brave Search API key"
-                    description="Used for web search within chat conversations. Get your key at https://brave.com/search/api/."
+                    label="Brave-Search-API-Schlüssel"
+                    description="Wird für die Web-Suche in Chats verwendet. Schlüssel erhältst du unter https://brave.com/search/api/."
                     name="brave_search"
                 >
                   <UInput
@@ -536,16 +542,16 @@ async function handleDeleteAccount() {
           <UCard class="card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">Chat UI</div>
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">Chat-Oberfläche</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
-                  Customize optional chat helpers shown before you send a message.
+                  Passe optionale Chat-Hilfen an, die vor dem Senden einer Nachricht angezeigt werden.
                 </p>
               </div>
 
               <UCheckbox
                 v-model="settings.showPreSendCostEstimate"
-                label="Show pre-send cost estimate"
-                description="Displays a small estimated request cost next to the send button using the current chat context and model pricing."
+                label="Kosten-Voranschlag vor dem Senden anzeigen"
+                description="Zeigt die geschätzten Kosten der Anfrage neben dem Senden-Button anhand des aktuellen Chat-Kontexts und der Modellpreise."
               />
             </div>
           </UCard>
@@ -553,16 +559,16 @@ async function handleDeleteAccount() {
           <UCard class="card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">Custom instructions</div>
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">Eigene Anweisungen</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
-                  Add personal instructions that will be appended to the system prompt in every conversation. The base system prompt is always preserved.
+                  Hinterlege persönliche Anweisungen, die in jedem Chat an den System-Prompt angehängt werden. Der Basis-System-Prompt bleibt erhalten.
                 </p>
               </div>
               <div v-if="loadingInstructions" class="skeleton-shimmer h-28" />
               <div v-else class="space-y-3">
                 <UTextarea
                     v-model="customInstructions"
-                    placeholder="e.g. Always reply in German. Prefer concise bullet-point answers."
+                    placeholder="z. B. Antworte immer auf Deutsch. Bevorzuge knappe Antworten in Stichpunkten."
                     :rows="5"
                     :maxlength="4000"
                     autoresize
@@ -574,7 +580,7 @@ async function handleDeleteAccount() {
                       color="primary"
                       size="sm"
                       icon="i-heroicons-check-circle"
-                      label="Save instructions"
+                      label="Anweisungen speichern"
                       class="btn-interactive"
                       :loading="savingInstructions"
                       @click="handleSaveInstructions"
@@ -587,9 +593,9 @@ async function handleDeleteAccount() {
           <UCard class="border border-red-500/30 card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight text-red-500">Danger Zone</div>
+                <h2 class="font-serif-display text-2xl text-red-500">Gefahrenzone</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
-                  Permanently delete your account and all associated data including chats, messages, and stored API keys. This action cannot be undone.
+                  Lösche dein Konto und alle zugehörigen Daten dauerhaft, einschließlich Chats, Nachrichten und gespeicherter API-Schlüssel. Diese Aktion kann nicht rückgängig gemacht werden.
                 </p>
               </div>
               <UButton
@@ -597,16 +603,16 @@ async function handleDeleteAccount() {
                   color="error"
                   variant="outline"
                   icon="i-heroicons-trash"
-                  label="Delete my account"
+                  label="Konto löschen"
                   @click="showDeleteAccountModal = true"
               />
             </div>
           </UCard>
 
-          <UModal v-model:open="showDeleteAccountModal" title="Delete account" description="This action is permanent and cannot be undone.">
+          <UModal v-model:open="showDeleteAccountModal" title="Konto löschen" description="Diese Aktion ist permanent und kann nicht rückgängig gemacht werden.">
             <template #body>
               <p class="text-sm text-gray-600 dark:text-gray-300">
-                Are you sure you want to permanently delete your account? All your chats, messages, and stored API keys will be erased immediately.
+                Möchtest du dein Konto wirklich dauerhaft löschen? Alle Chats, Nachrichten und gespeicherten API-Schlüssel werden sofort entfernt.
               </p>
             </template>
             <template #footer>
@@ -615,7 +621,7 @@ async function handleDeleteAccount() {
                     type="button"
                     variant="ghost"
                     color="neutral"
-                    label="Cancel"
+                    label="Abbrechen"
                     :disabled="deletingAccount"
                     @click="showDeleteAccountModal = false"
                 />
@@ -623,7 +629,7 @@ async function handleDeleteAccount() {
                     type="button"
                     color="error"
                     icon="i-heroicons-trash"
-                    label="Yes, delete my account"
+                    label="Ja, Konto löschen"
                     :loading="deletingAccount"
                     @click="handleDeleteAccount"
                 />
