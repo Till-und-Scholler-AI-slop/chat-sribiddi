@@ -1,14 +1,24 @@
 /**
- * Maps raw errors (from `fetch`, API clients, etc.) to a user-friendly
- * German message. The mapping only covers the most common cases; unknown
- * errors fall back to a generic message (so we never expose raw stack
- * traces or provider internals in toasts).
+ * Maps raw errors (from `fetch`, API clients, etc.) to a translation key from
+ * the `errors.*` namespace. Use {@link useTranslatedError} (or pass the
+ * resulting key to your translator) to obtain a localized string.
+ *
+ * Returns either:
+ *   - an `errors.*` translation key (string), or
+ *   - the raw error message itself when it's short and otherwise meaningful
+ *     (e.g. validation messages from the backend).
  */
-export function friendlyErrorMessage(
-  err: unknown,
-  fallback = 'Unbekannter Fehler. Bitte versuche es erneut.'
-): string {
-  if (!err) return fallback
+export type FriendlyErrorResult = {
+  /** A translation key like `errors.backendUnreachable`, or `null` when the
+   * raw message should be displayed verbatim. */
+  key: string | null
+  /** Raw fallback text – the original error message if usable, otherwise an
+   * `errors.fallback` translation key. */
+  raw: string
+}
+
+export function friendlyErrorKey(err: unknown): FriendlyErrorResult {
+  if (!err) return { key: 'errors.fallback', raw: '' }
 
   const raw = err instanceof Error ? err.message : String(err)
   const lower = raw.toLowerCase()
@@ -19,37 +29,38 @@ export function friendlyErrorMessage(
     lower.includes('load failed') ||
     lower.includes('err_connection')
   ) {
-    return 'Backend nicht erreichbar. Läuft der Server?'
+    return { key: 'errors.backendUnreachable', raw }
   }
   if (lower.includes('abort')) {
-    return 'Anfrage wurde abgebrochen.'
+    return { key: 'errors.aborted', raw }
   }
 
   if (/\b401\b/.test(raw) || lower.includes('unauthorized')) {
-    return 'Sitzung abgelaufen. Bitte melde dich erneut an.'
+    return { key: 'errors.unauthorized', raw }
   }
   if (/\b403\b/.test(raw) || lower.includes('forbidden') || lower.includes('csrf')) {
-    return 'Aktion nicht erlaubt. Bitte lade die Seite neu.'
+    return { key: 'errors.forbidden', raw }
   }
   if (/\b404\b/.test(raw)) {
-    return 'Ressource nicht gefunden.'
+    return { key: 'errors.notFound', raw }
   }
   if (/\b413\b/.test(raw) || lower.includes('payload too large')) {
-    return 'Anhang ist zu groß.'
+    return { key: 'errors.payloadTooLarge', raw }
   }
   if (/\b429\b/.test(raw) || lower.includes('rate limit')) {
-    return 'Zu viele Anfragen. Bitte kurz warten.'
+    return { key: 'errors.rateLimit', raw }
   }
   if (/\b5\d{2}\b/.test(raw)) {
-    return 'Server-Fehler. Bitte später erneut versuchen.'
+    return { key: 'errors.serverError', raw }
   }
 
   if (lower.includes('api key') || lower.includes('api-key')) {
-    return 'API-Schlüssel ungültig oder fehlt. Bitte in den Einstellungen prüfen.'
+    return { key: 'errors.apiKey', raw }
   }
 
   if (raw.length > 0 && raw.length < 200) {
-    return raw
+    // Pass through raw (likely backend-provided) message, no translation key.
+    return { key: null, raw }
   }
-  return fallback
+  return { key: 'errors.fallback', raw }
 }

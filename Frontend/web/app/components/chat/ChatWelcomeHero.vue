@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { t } = useI18n()
 interface Suggestion {
   label: string
   prompt: string
@@ -15,9 +16,9 @@ const emit = defineEmits<{
 
 <template>
   <div class="welcome-hero animate-fade-in-up">
-    <h2>Chat Sribiddi</h2>
+    <h2>{{ t('common.appName') }}</h2>
     <p class="mt-3 text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-      Wähle unten ein Modell und leg los. Dateien anhängen, im Web suchen und vieles mehr.
+      {{ t('chat.welcomeIntro') }}
     </p>
     <div class="mt-6 flex flex-wrap justify-center gap-3">
       <button
@@ -31,7 +32,7 @@ const emit = defineEmits<{
       </button>
     </div>
     <UButton color="primary" icon="i-heroicons-plus" class="mt-6 btn-interactive" @click="emit('start')">
-      Chat starten
+      {{ t('chat.startChat') }}
     </UButton>
   </div>
 </template>

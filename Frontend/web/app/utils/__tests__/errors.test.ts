@@ -1,38 +1,37 @@
 import { describe, expect, it } from 'vitest'
-import { friendlyErrorMessage } from '../errors'
+import { friendlyErrorKey } from '../errors'
 
-describe('friendlyErrorMessage', () => {
+describe('friendlyErrorKey', () => {
   it('maps common network failures', () => {
-    expect(friendlyErrorMessage('Failed to fetch')).toBe('Backend nicht erreichbar. Läuft der Server?')
-    expect(friendlyErrorMessage('ERR_CONNECTION_REFUSED')).toBe('Backend nicht erreichbar. Läuft der Server?')
+    expect(friendlyErrorKey('Failed to fetch').key).toBe('errors.backendUnreachable')
+    expect(friendlyErrorKey('ERR_CONNECTION_REFUSED').key).toBe('errors.backendUnreachable')
   })
 
   it('maps abort errors', () => {
-    expect(friendlyErrorMessage(new Error('Request abort'))).toBe('Anfrage wurde abgebrochen.')
+    expect(friendlyErrorKey(new Error('Request abort')).key).toBe('errors.aborted')
   })
 
   it('maps HTTP auth and permission errors', () => {
-    expect(friendlyErrorMessage('401 Unauthorized')).toBe('Sitzung abgelaufen. Bitte melde dich erneut an.')
-    expect(friendlyErrorMessage('Forbidden CSRF token mismatch')).toBe('Aktion nicht erlaubt. Bitte lade die Seite neu.')
+    expect(friendlyErrorKey('401 Unauthorized').key).toBe('errors.unauthorized')
+    expect(friendlyErrorKey('Forbidden CSRF token mismatch').key).toBe('errors.forbidden')
   })
 
   it('maps common backend status and api key errors', () => {
-    expect(friendlyErrorMessage('404 Not Found')).toBe('Ressource nicht gefunden.')
-    expect(friendlyErrorMessage('413 Payload Too Large')).toBe('Anhang ist zu groß.')
-    expect(friendlyErrorMessage('rate limit exceeded')).toBe('Zu viele Anfragen. Bitte kurz warten.')
-    expect(friendlyErrorMessage('500 Internal Server Error')).toBe('Server-Fehler. Bitte später erneut versuchen.')
-    expect(friendlyErrorMessage('API key invalid')).toBe(
-      'API-Schlüssel ungültig oder fehlt. Bitte in den Einstellungen prüfen.'
-    )
+    expect(friendlyErrorKey('404 Not Found').key).toBe('errors.notFound')
+    expect(friendlyErrorKey('413 Payload Too Large').key).toBe('errors.payloadTooLarge')
+    expect(friendlyErrorKey('rate limit exceeded').key).toBe('errors.rateLimit')
+    expect(friendlyErrorKey('500 Internal Server Error').key).toBe('errors.serverError')
+    expect(friendlyErrorKey('API key invalid').key).toBe('errors.apiKey')
   })
 
-  it('returns a short unknown message unchanged', () => {
-    expect(friendlyErrorMessage('Etwas passt nicht')).toBe('Etwas passt nicht')
+  it('returns no key for short unknown messages and exposes the raw text', () => {
+    const result = friendlyErrorKey('Etwas passt nicht')
+    expect(result.key).toBeNull()
+    expect(result.raw).toBe('Etwas passt nicht')
   })
 
   it('falls back for empty or very long messages', () => {
-    const fallback = 'Eigener Fallback'
-    expect(friendlyErrorMessage('', fallback)).toBe(fallback)
-    expect(friendlyErrorMessage('x'.repeat(200), fallback)).toBe(fallback)
+    expect(friendlyErrorKey('').key).toBe('errors.fallback')
+    expect(friendlyErrorKey('x'.repeat(200)).key).toBe('errors.fallback')
   })
 })

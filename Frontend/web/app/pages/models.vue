@@ -3,6 +3,9 @@ import type { ModelOption, Provider } from '~/composables/useChatApi'
 import { PROVIDERS } from '~/composables/useChatApi'
 import { formatRatePerMillion } from '~/composables/chat-helpers'
 
+const { t } = useI18n()
+const tt = useTranslatedError()
+
 definePageMeta({
   layout: 'default'
 })
@@ -47,13 +50,13 @@ const providerSlug: Record<Provider, string> = {
   OPENROUTER: 'openrouter'
 }
 
-const providerFilters = [
-  { label: 'Alle', value: 'ALL' as const },
-  { label: 'Claude', value: 'CLAUDE' as const },
-  { label: 'OpenAI', value: 'OPENAI' as const },
-  { label: 'Google', value: 'GOOGLE' as const },
-  { label: 'OpenRouter', value: 'OPENROUTER' as const }
-]
+const providerFilters = computed(() => [
+  { label: t('models.providerFilterAllShort'), value: 'ALL' as const },
+  { label: providerLabels.CLAUDE, value: 'CLAUDE' as const },
+  { label: providerLabels.OPENAI, value: 'OPENAI' as const },
+  { label: providerLabels.GOOGLE, value: 'GOOGLE' as const },
+  { label: providerLabels.OPENROUTER, value: 'OPENROUTER' as const }
+])
 
 const sortedModels = computed(() =>
   [...models.value].sort((left, right) => {
@@ -102,21 +105,21 @@ const useModel = async (model: ModelOption) => {
   try {
     const conversation =
       activeConversation.value || {
-        session: await startChat(`Chat with ${model.label}`),
+        session: await startChat(t('models.chatWithModel', { label: model.label })),
         model: null
       }
 
     setModelForChat(conversation.session.chatId, model)
     toast.add({
-      title: `${model.label} ausgewählt`,
-      description: `Modell wird im aktuellen Chat verwendet.`,
+      title: t('models.useModelToastTitle', { label: model.label }),
+      description: t('models.useModelToastDescription', { provider: providerLabels[model.provider] }),
       color: 'primary'
     })
     await router.push('/chat')
   } catch (err) {
     toast.add({
-      title: 'Modell konnte nicht angewendet werden',
-      description: err instanceof Error ? err.message : 'Chat konnte nicht geöffnet werden.',
+      title: t('models.useModelFailedTitle'),
+      description: tt(err, 'models.useModelFailedDescription'),
       color: 'error'
     })
   }
@@ -128,8 +131,8 @@ onMounted(async () => {
   } catch (err) {
     console.error(err)
     toast.add({
-      title: 'Modellkatalog konnte nicht geladen werden',
-      description: err instanceof Error ? err.message : 'Backend nicht erreichbar.',
+      title: t('models.loadCatalogFailed'),
+      description: tt(err, 'models.backendNotReachable'),
       color: 'error'
     })
   }
@@ -152,11 +155,11 @@ onMounted(async () => {
           <!-- Page heading -->
           <header class="mb-8 space-y-3">
             <h1 class="font-serif-display text-4xl sm:text-5xl text-gray-900 dark:text-gray-50">
-              Modellkatalog
+              {{ t('models.title') }}
             </h1>
             <p class="text-base text-gray-500 dark:text-gray-400 max-w-2xl">
-              Alle Modelle, die du mit deinen hinterlegten API-Schlüsseln nutzen kannst.<br>
-              Favoriten erscheinen zuerst im Chat-Umschalter.
+              {{ t('models.pageIntroLine1') }}<br>
+              {{ t('models.pageIntroLine2') }}
             </p>
           </header>
 
@@ -183,8 +186,8 @@ onMounted(async () => {
           <UEmptyState
             v-else-if="!filteredModels.length"
             icon="i-heroicons-cpu-chip"
-            title="Keine Modelle gefunden"
-            description="Hinterlege einen API-Schlüssel oder wähle einen anderen Anbieter, um Modelle zu sehen."
+            :title="t('models.noModelsFoundTitle')"
+            :description="t('models.noModelsFoundDescriptionShort')"
             class="animate-fade-in-up"
           />
 
@@ -223,7 +226,7 @@ onMounted(async () => {
                   type="button"
                   class="favorite-btn"
                   :class="{ 'favorite-btn-active': isFavorite(model) }"
-                  :aria-label="isFavorite(model) ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'"
+                  :aria-label="isFavorite(model) ? t('models.removeFromFavorites') : t('models.addToFavorites')"
                   @click.stop="toggleFavorite(model)"
                 >
                   <UIcon
@@ -235,11 +238,11 @@ onMounted(async () => {
 
               <div class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800/60 space-y-2">
                 <div class="flex items-center justify-between text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">Eingabe</span>
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('models.inputLabel') }}</span>
                   <span class="font-mono text-gray-700 dark:text-gray-200">{{ formatPrice(model.promptPrice) }}</span>
                 </div>
                 <div class="flex items-center justify-between text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">Ausgabe</span>
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('models.outputLabel') }}</span>
                   <span class="font-mono text-gray-700 dark:text-gray-200">{{ formatPrice(model.completionPrice) }}</span>
                 </div>
               </div>

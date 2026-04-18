@@ -2,6 +2,9 @@
 import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
 import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/chat-helpers'
 
+const { t } = useI18n()
+const tt = useTranslatedError()
+
 definePageMeta({
   layout: 'default'
 })
@@ -153,10 +156,10 @@ const modelPricingSummary = computed(() => {
   const c = formatRatePerMillion(model?.completionPrice)
   if (!p && !c) return null
 
-  const parts: string[] = []
-  if (p != null) parts.push(`${p} in`)
-  if (c != null) parts.push(`${c} out`)
-  return parts.length ? `${parts.join(' / ')} pro 1M Tokens` : null
+  if (p != null && c != null) {
+    return t('chat.pricingPerMillionInOut', { input: p, output: c })
+  }
+  return t('chat.pricingPerMillion', { prompt: p ?? c })
 })
 
 const optionPriceLabel = (option: ModelOption): string | null =>
@@ -165,7 +168,7 @@ const optionPriceLabel = (option: ModelOption): string | null =>
 const pendingPromptText = computed(() => {
   const trimmed = input.value.trim()
   if (trimmed) return trimmed
-  return attachments.value.length ? 'Bitte analysiere den Anhang.' : ''
+  return attachments.value.length ? t('chat.analyzeAttachment') : ''
 })
 
 const preSendCostEstimate = computed(() => {
@@ -198,7 +201,7 @@ const toDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-    reader.onerror = () => reject(new Error(`Datei ${file.name} konnte nicht gelesen werden.`))
+    reader.onerror = () => reject(new Error(t('chat.fileReadFailed', { name: file.name })))
     reader.readAsDataURL(file)
   })
 
@@ -229,8 +232,8 @@ const processFileList = async (files: File[]) => {
       attachments.value.push(result.value)
     } else {
       toast.add({
-        title: 'Upload fehlgeschlagen',
-        description: friendlyErrorMessage(result.reason, 'Anhang konnte nicht gelesen werden.'),
+        title: t('chat.uploadFailedTitle'),
+        description: tt(result.reason, 'chat.attachmentReadFallback'),
         color: 'error'
       })
     }
@@ -296,8 +299,8 @@ onMounted(async () => {
   } catch (err) {
     console.error(err)
     toast.add({
-      title: 'Chat konnte nicht gestartet werden',
-      description: friendlyErrorMessage(err, 'Läuft das Backend?'),
+      title: t('chat.startFailedTitle'),
+      description: tt(err, 'chat.startFailedDescription'),
       color: 'error'
     })
   } finally {
@@ -388,23 +391,23 @@ watch(
   },
 )
 
-const welcomeSuggestions = [
+const welcomeSuggestions = computed(() => [
   {
-    label: '💡 Quantencomputing erklären',
-    prompt: 'Erkläre Quantencomputing in einfachen Worten',
-    aria: 'Quantencomputing erklären lassen'
+    label: t('chat.suggestionQuantum'),
+    prompt: t('chat.suggestionQuantumPrompt'),
+    aria: t('chat.suggestionQuantumAria')
   },
   {
-    label: '🐍 Python-Funktion schreiben',
-    prompt: 'Schreibe eine Python-Funktion, die eine Liste sortiert',
-    aria: 'Python-Funktion schreiben lassen'
+    label: t('chat.suggestionPython'),
+    prompt: t('chat.suggestionPythonPrompt'),
+    aria: t('chat.suggestionPythonAria')
   },
   {
-    label: '🤖 Aktuelle KI-Trends',
-    prompt: 'Welche aktuellen Trends gibt es im Bereich KI?',
-    aria: 'Aktuelle KI-Trends erfahren'
+    label: t('chat.suggestionAi'),
+    prompt: t('chat.suggestionAiPrompt'),
+    aria: t('chat.suggestionAiAria')
   }
-]
+])
 
 const applyAndSubmit = (prompt: string) => {
   input.value = prompt
@@ -421,7 +424,7 @@ async function handleSubmit() {
   const model = selectedModel.value
   if (!conversation || !model) return
 
-  const text = input.value.trim() || 'Bitte analysiere den Anhang.'
+  const text = input.value.trim() || t('chat.analyzeAttachment')
   const media = [...attachments.value]
   input.value = ''
   clearAttachments()
@@ -432,8 +435,8 @@ async function handleSubmit() {
     })
   } catch (err) {
     toast.add({
-      title: 'Nachricht fehlgeschlagen',
-      description: friendlyErrorMessage(err),
+      title: t('chat.messageFailedTitle'),
+      description: tt(err),
       color: 'error'
     })
   }
@@ -454,8 +457,8 @@ const handleReload = async () => {
     await retryLastPrompt(conversation.session.chatId, model)
   } catch (err) {
     toast.add({
-      title: 'Wiederholen fehlgeschlagen',
-      description: friendlyErrorMessage(err, 'Anfrage konnte nicht wiederholt werden.'),
+      title: t('chat.retryFailedTitle'),
+      description: tt(err, 'chat.retryFailedDescription'),
       color: 'error'
     })
   }
@@ -487,8 +490,8 @@ const submitEditMessage = async () => {
     await editMessage(conversation.session.chatId, msgId, newText, model)
   } catch (err) {
     toast.add({
-      title: 'Bearbeitung fehlgeschlagen',
-      description: friendlyErrorMessage(err, 'Nachricht konnte nicht bearbeitet werden.'),
+      title: t('chat.editFailedTitle'),
+      description: tt(err, 'chat.editFailedDescription'),
       color: 'error'
     })
   }
@@ -570,7 +573,7 @@ const submitEditMessage = async () => {
                             variant="ghost"
                             icon="i-heroicons-pencil-square"
                             :padded="false"
-                            aria-label="Nachricht bearbeiten"
+                            :aria-label="t('chat.editMessage')"
                             class="btn-interactive"
                               @click="startEditMessage(message.id, firstText(parts))"
                             />
@@ -651,7 +654,7 @@ const submitEditMessage = async () => {
               variant="ghost"
               color="neutral"
               icon="i-heroicons-paper-clip"
-              label="Anhänge hinzufügen"
+              :label="t('chat.addAttachments')"
               class="btn-interactive"
               @click="fileInput?.click()"
             />
@@ -661,7 +664,7 @@ const submitEditMessage = async () => {
               variant="ghost"
               color="neutral"
               icon="i-heroicons-x-mark"
-              label="Leeren"
+              :label="t('chat.clearAttachments')"
               class="btn-interactive"
               @click="clearAttachments"
             />
@@ -677,8 +680,8 @@ const submitEditMessage = async () => {
               <span class="truncate max-w-[150px]">{{ item.name || item.mimeType }}</span>
               <button
                 class="inline-flex text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                :aria-label="`Remove attachment ${item.name || item.mimeType}`"
-                :title="`Remove attachment ${item.name || item.mimeType}`"
+                :aria-label="t('chat.removeAttachment', { name: item.name || item.mimeType })"
+                :title="t('chat.removeAttachment', { name: item.name || item.mimeType })"
                 @click="removeAttachment(index)"
               >
                 <UIcon name="i-heroicons-x-mark" class="size-3.5" />
@@ -695,7 +698,7 @@ const submitEditMessage = async () => {
                 :loading="modelsLoading"
                 label-key="label"
                 by="value"
-                placeholder="Modell auswählen"
+                :placeholder="t('chat.modelPlaceholder')"
                 variant="subtle"
                 color="neutral"
               >
@@ -724,13 +727,13 @@ const submitEditMessage = async () => {
                   </div>
                 </template>
               </USelectMenu>
-              <UTooltip :text="webSearchEnabled ? 'Web-Suche aktiv' : 'Web-Suche deaktiviert'">
+              <UTooltip :text="webSearchEnabled ? t('chat.webSearchActive') : t('chat.webSearchInactive')">
                 <UButton
                   :icon="webSearchEnabled ? 'i-heroicons-globe-alt-solid' : 'i-heroicons-globe-alt'"
                   :color="webSearchEnabled ? 'primary' : 'neutral'"
                   :variant="webSearchEnabled ? 'soft' : 'ghost'"
                   size="sm"
-                  :aria-label="webSearchEnabled ? 'Web-Suche deaktivieren' : 'Web-Suche aktivieren'"
+                  :aria-label="webSearchEnabled ? t('chat.webSearchDisable') : t('chat.webSearchEnable')"
                   @click="webSearchEnabled = !webSearchEnabled"
                 />
               </UTooltip>
@@ -751,7 +754,7 @@ const submitEditMessage = async () => {
                 <button
                   type="button"
                   class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                  :aria-label="`Geschätzte Kosten ${formatCost(preSendCostEstimate.totalCost)}`"
+                  :aria-label="t('chat.estimatedCostAria', { amount: formatCost(preSendCostEstimate.totalCost) })"
                 >
                   <UIcon name="i-heroicons-banknotes" class="size-3" />
                   ~{{ formatCost(preSendCostEstimate.totalCost) }}
@@ -759,22 +762,22 @@ const submitEditMessage = async () => {
                 <template #content>
                   <div class="space-y-2 text-xs">
                     <div class="font-medium text-gray-900 dark:text-gray-100">
-                      Geschätzte Anfragekosten
+                      {{ t('chat.estimatedRequestCost') }}
                     </div>
                     <div class="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 whitespace-nowrap">
-                      <span class="text-gray-500 dark:text-gray-400">Eingabe-Tokens</span>
+                      <span class="text-gray-500 dark:text-gray-400">{{ t('chat.inputTokens') }}</span>
                       <span class="text-right text-gray-900 dark:text-gray-100">
                         {{ formatTokenCount(preSendCostEstimate.inputTokens) }}
                       </span>
-                      <span class="text-gray-500 dark:text-gray-400">Geschätzte Ausgabe</span>
+                      <span class="text-gray-500 dark:text-gray-400">{{ t('chat.estimatedOutput') }}</span>
                       <span class="text-right text-gray-900 dark:text-gray-100">
                         {{ formatTokenCount(preSendCostEstimate.estimatedOutputTokens) }}
                       </span>
-                      <span class="text-gray-500 dark:text-gray-400">Preis Eingabe / 1M</span>
+                      <span class="text-gray-500 dark:text-gray-400">{{ t('chat.priceInputPerMillion') }}</span>
                       <span class="text-right text-gray-900 dark:text-gray-100">
                         {{ preSendPromptRateLabel || '—' }}
                       </span>
-                      <span class="text-gray-500 dark:text-gray-400">Preis Ausgabe / 1M</span>
+                      <span class="text-gray-500 dark:text-gray-400">{{ t('chat.priceOutputPerMillion') }}</span>
                       <span class="text-right text-gray-900 dark:text-gray-100">
                         {{ preSendCompletionRateLabel || '—' }}
                       </span>
@@ -802,7 +805,7 @@ const submitEditMessage = async () => {
     >
       <div class="animate-scale-in flex flex-col items-center gap-3 text-primary glass-surface rounded-2xl px-10 py-8 ring-2 ring-primary/50 ring-inset shadow-2xl">
         <UIcon name="i-heroicons-arrow-down-tray" class="size-12" />
-        <span class="text-lg font-semibold tracking-tight">Dateien zum Anhängen loslassen</span>
+        <span class="text-lg font-semibold tracking-tight">{{ t('chat.dropToAttach') }}</span>
       </div>
     </div>
   </Transition>
