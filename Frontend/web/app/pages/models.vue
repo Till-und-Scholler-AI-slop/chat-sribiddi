@@ -91,7 +91,27 @@ const paginatedModels = computed(() => {
 const formatPrice = (value?: string | null) => {
   const formatted = formatRatePerMillion(value)
   if (formatted == null) return '—'
-  return `${formatted} / 1M`
+  return `${formatted} ${t('models.perMillionTokens')}`
+}
+
+const handleCardKeydown = (event: KeyboardEvent, model: ModelOption) => {
+  // Avoid retriggering on key auto-repeat; Space activation should fire on
+  // keyup, but Enter conventionally activates on keydown like a native button.
+  if (event.repeat) return
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    void useModel(model)
+  } else if (event.key === ' ') {
+    // Prevent the default page scroll while the user holds Space.
+    event.preventDefault()
+  }
+}
+
+const handleCardKeyup = (event: KeyboardEvent, model: ModelOption) => {
+  if (event.key === ' ') {
+    event.preventDefault()
+    void useModel(model)
+  }
 }
 
 const modelSlug = (model: ModelOption) => {
@@ -199,9 +219,10 @@ onMounted(async () => {
               class="model-card"
               role="button"
               tabindex="0"
+              :aria-label="t('models.chatWithModel', { label: model.label })"
               @click="useModel(model)"
-              @keydown.enter.prevent="useModel(model)"
-              @keydown.space.prevent="useModel(model)"
+              @keydown="handleCardKeydown($event, model)"
+              @keyup="handleCardKeyup($event, model)"
             >
               <div class="flex items-start justify-between gap-3">
                 <div class="flex items-start gap-3 min-w-0">
