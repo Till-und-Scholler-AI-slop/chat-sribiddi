@@ -2,6 +2,8 @@
 import type { ToolCallLog } from '~/composables/useChatApi'
 import { filterToolCallLogs } from '~/composables/chat-helpers'
 
+const { t } = useI18n()
+
 const props = defineProps<{
   toolCalls: ToolCallLog[]
   loading: boolean
@@ -17,11 +19,11 @@ const filteredToolCalls = computed(() => filterToolCallLogs(props.toolCalls, fil
 const formattedToolCallsJson = computed(() => JSON.stringify(props.toolCalls, null, 2))
 
 const toolTriggerLabel = computed(() => {
-  if (props.loading) return 'Tools werden ausgeführt'
+  if (props.loading) return t('tools.running')
   const count = props.toolCalls.length
-  if (count === 0) return 'Tool-Aktivität'
+  if (count === 0) return t('tools.activity')
   if (count === 1) return formatToolNameForDisplay(props.toolCalls[0].toolName)
-  return `${count} Tool-Aufrufe`
+  return t('tools.callsCount', { count })
 })
 
 function toggle() {
@@ -103,7 +105,7 @@ function statusIcon(tc: ToolCallLog) {
 
           <div v-else-if="loading && toolCalls.length === 0" class="tool-call-alert">
             <UIcon name="i-heroicons-arrow-path" class="size-4 shrink-0 animate-spin" />
-            <span>Warte auf Ergebnisse…</span>
+            <span>{{ t('tools.waitingResults') }}</span>
           </div>
 
           <template v-else>
@@ -113,14 +115,14 @@ function statusIcon(tc: ToolCallLog) {
                 <input
                   v-model="filterQuery"
                   type="search"
-                  placeholder="Nach Tool-Namen filtern"
+                  :placeholder="t('tools.filterByName')"
                   class="search-input"
                 >
               </label>
             </div>
 
             <div v-if="filteredToolCalls.length === 0" class="tool-call-empty">
-              Kein Tool entspricht „{{ filterQuery.trim() }}“.
+              {{ t('tools.noToolMatches', { query: filterQuery.trim() }) }}
             </div>
 
             <div v-else class="tool-call-list">
@@ -161,7 +163,7 @@ function statusIcon(tc: ToolCallLog) {
                   <div class="payload-block">
                     <div class="payload-label">
                       <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
-                      Input
+                      {{ t('tools.input') }}
                     </div>
                     <pre>{{ formatPayload(tc.inputPayload) }}</pre>
                   </div>
@@ -169,7 +171,7 @@ function statusIcon(tc: ToolCallLog) {
                   <div class="payload-block">
                     <div class="payload-label">
                       <UIcon name="i-heroicons-arrow-down-tray" class="size-3" />
-                      Output
+                      {{ t('tools.output') }}
                     </div>
                     <pre>{{ formatPayload(tc.outputPayload) }}</pre>
                   </div>
@@ -177,7 +179,7 @@ function statusIcon(tc: ToolCallLog) {
                   <div v-if="tc.contextExcerpt" class="payload-block">
                     <div class="payload-label">
                       <UIcon name="i-heroicons-document-text" class="size-3" />
-                      Kontextauszug
+                      {{ t('tools.contextExcerpt') }}
                     </div>
                     <pre>{{ formatPayload(tc.contextExcerpt) }}</pre>
                   </div>
@@ -188,7 +190,7 @@ function statusIcon(tc: ToolCallLog) {
             <div class="raw-json-toggle">
               <button type="button" class="raw-json-button" @click="showRawJson = !showRawJson">
                 <UIcon :name="showRawJson ? 'i-heroicons-eye-slash' : 'i-heroicons-code-bracket'" class="size-3" />
-                {{ showRawJson ? 'Roh-JSON ausblenden' : 'Roh-JSON anzeigen' }}
+                {{ showRawJson ? t('tools.hideRawJson') : t('tools.showRawJson') }}
               </button>
               <div v-if="showRawJson" class="payload-block raw-json-block">
                 <pre>{{ formattedToolCallsJson }}</pre>

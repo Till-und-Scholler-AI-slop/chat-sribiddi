@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { DEFAULT_BACKEND_BASE_URL, normalizeBaseUrl } from '~/composables/useChatApi'
 
+const { t } = useI18n()
+
 definePageMeta({
   layout: 'login'
 })
@@ -37,7 +39,7 @@ onMounted(async () => {
       return
     }
   } catch (err) {
-    checkError.value = err instanceof Error ? err.message : 'Sitzung konnte nicht geprüft werden.'
+    checkError.value = err instanceof Error ? err.message : t('auth.checkSessionFailed')
     authState.value = 'unauthenticated'
   } finally {
     checking.value = false
@@ -57,8 +59,8 @@ onMounted(async () => {
         <div class="login-brand-icon">
           <UIcon name="i-heroicons-chat-bubble-left-right" class="size-7" />
         </div>
-        <h1 class="login-brand-title">Chat Sribiddi</h1>
-        <p class="login-brand-subtitle">Dein intelligenter KI-Assistent</p>
+        <h1 class="login-brand-title">{{ t('auth.loginTitle') }}</h1>
+        <p class="login-brand-subtitle">{{ t('auth.loginSubtitle') }}</p>
       </div>
 
       <div class="login-card glass-surface">
@@ -66,13 +68,13 @@ onMounted(async () => {
           <div class="skeleton-shimmer h-12 w-full rounded-xl" />
           <div class="skeleton-shimmer h-4 w-3/4 mx-auto rounded-lg" />
           <p class="text-center text-sm text-gray-500 dark:text-gray-400 pt-1">
-            Sitzung wird geprüft …
+            {{ t('auth.checkingSession') }}
           </p>
         </div>
 
         <template v-else>
           <p class="login-card-text">
-            Melde dich mit deinem Google-Konto an, um auf deine Chats und KI-Modelle zuzugreifen.
+            {{ t('auth.loginCta') }}
           </p>
 
           <a :href="loginUrl" class="google-btn btn-interactive">
@@ -82,12 +84,11 @@ onMounted(async () => {
               <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
               <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
             </svg>
-            <span>Mit Google anmelden</span>
+            <span>{{ t('auth.loginButton') }}</span>
           </a>
 
           <p class="login-card-hint">
-            Du wirst nach deinem Google-Konto gefragt – so kannst du jederzeit
-            zwischen mehreren Konten wechseln.
+            {{ t('auth.loginHint') }}
           </p>
         </template>
 
@@ -96,7 +97,7 @@ onMounted(async () => {
           color="error"
           variant="soft"
           icon="i-heroicons-x-circle"
-          title="Sitzungsprüfung fehlgeschlagen"
+          :title="t('auth.checkSessionFailedTitle')"
           :description="checkError"
           class="mt-4"
         />
@@ -107,26 +108,26 @@ onMounted(async () => {
           <div class="login-feature-icon">
             <UIcon name="i-heroicons-cpu-chip" class="size-4" />
           </div>
-          <span>Mehrere KI-Modelle</span>
+          <span>{{ t('auth.featureModels') }}</span>
         </div>
         <div class="login-feature">
           <div class="login-feature-icon">
             <UIcon name="i-heroicons-globe-alt" class="size-4" />
           </div>
-          <span>Web-Suche</span>
+          <span>{{ t('auth.featureWebSearch') }}</span>
         </div>
         <div class="login-feature">
           <div class="login-feature-icon">
             <UIcon name="i-heroicons-paper-clip" class="size-4" />
           </div>
-          <span>Dateianalyse</span>
+          <span>{{ t('auth.featureFiles') }}</span>
         </div>
       </div>
 
       <p class="login-legal">
-        <NuxtLink to="/impressum">Impressum</NuxtLink>
+        <NuxtLink to="/impressum">{{ t('legal.impressum.title') }}</NuxtLink>
         <span class="login-legal-dot">&middot;</span>
-        <NuxtLink to="/datenschutz">Datenschutz</NuxtLink>
+        <NuxtLink to="/datenschutz">{{ t('legal.datenschutz.title') }}</NuxtLink>
       </p>
     </div>
   </div>

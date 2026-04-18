@@ -2,8 +2,29 @@
 export default defineNuxtConfig({
     compatibilityDate: '2025-07-15',
     devtools: {enabled: true},
-    modules: ['@nuxt/ui', '@nuxt/eslint'],
+    modules: ['@nuxt/ui', '@nuxt/eslint', '@nuxtjs/i18n'],
     css: ['~/assets/css/main.css'],
+    i18n: {
+        // German is the default locale; English is fully supported as a second locale.
+        // See AGENTS.md for the project i18n conventions (every user-facing string must be
+        // translated and added to BOTH locale files).
+        defaultLocale: 'de',
+        strategy: 'no_prefix',
+        locales: [
+            { code: 'de', name: 'Deutsch', language: 'de-DE', file: 'de.json' },
+            { code: 'en', name: 'English', language: 'en-US', file: 'en.json' }
+        ],
+        bundle: {
+            optimizeTranslationDirective: false
+        },
+        detectBrowserLanguage: {
+            useCookie: true,
+            cookieKey: 'i18n_redirected',
+            redirectOn: 'root',
+            fallbackLocale: 'de'
+        },
+        vueI18n: './i18n/i18n.config.ts'
+    },
     app: {
         head: {
             title: 'chat-sribiddi – AI Chat UI',
@@ -30,7 +51,7 @@ export default defineNuxtConfig({
                 },
                 {
                     rel: 'stylesheet',
-                    href: 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap'
+                    href: 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lora:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap'
                 }
             ]
         },

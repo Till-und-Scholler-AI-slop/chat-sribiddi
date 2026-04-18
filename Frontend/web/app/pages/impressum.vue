@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { t } = useI18n()
 definePageMeta({
   layout: 'auth'
 })
@@ -8,33 +9,33 @@ definePageMeta({
   <UCard class="mx-auto max-w-2xl">
     <div class="space-y-6">
       <div class="space-y-1">
-        <h1 class="text-2xl font-semibold">Impressum</h1>
-        <p class="text-sm text-gray-600 dark:text-gray-400">Angaben gem&auml;&szlig; &sect; 5 DDG</p>
+        <h1 class="text-2xl font-semibold">{{ t('legal.impressum.title') }}</h1>
+        <p class="text-sm text-gray-600 dark:text-gray-400">{{ t('legal.impressum.subtitle') }}</p>
       </div>
 
       <div class="space-y-4 text-sm text-gray-700 dark:text-gray-300">
         <p>
-          <strong>Chat Sribiddi</strong><br>
-          Rafael Till<br>
-          Scheffelstra&szlig;e 55<br>
-          76135 Karlsruhe<br>
-          Deutschland
+          <strong>{{ t('legal.impressum.siteName') }}</strong><br>
+          {{ t('legal.impressum.address.name') }}<br>
+          {{ t('legal.impressum.address.street') }}<br>
+          {{ t('legal.impressum.address.city') }}<br>
+          {{ t('legal.impressum.address.country') }}
         </p>
 
         <p>
-          Kontakt:<br>
-          E-Mail: tillrafael@icloud.com
+          {{ t('legal.impressum.contactHeading') }}<br>
+          {{ t('legal.impressum.email') }}
         </p>
 
         <p>
-          Verantwortlich f&uuml;r die Inhalte dieser Website:<br>
-          Rafael Till, Anschrift wie oben
+          {{ t('legal.impressum.responsibleHeading') }}<br>
+          {{ t('legal.impressum.responsibleAddress') }}
         </p>
       </div>
 
       <div class="flex flex-wrap gap-3">
-        <UButton to="/login" variant="outline" color="neutral" label="Zurueck zum Login" />
-        <UButton to="/datenschutz" variant="ghost" color="neutral" label="Datenschutz" />
+        <UButton to="/login" variant="outline" color="neutral" :label="t('legal.backToLogin')" />
+        <UButton to="/datenschutz" variant="ghost" color="neutral" :label="t('legal.datenschutz.title')" />
       </div>
     </div>
   </UCard>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { t } = useI18n()
 const modelValue = defineModel<string>({ required: true })
 defineProps<{ disabled?: boolean }>()
 const emit = defineEmits<{
@@ -20,7 +21,7 @@ const emit = defineEmits<{
         size="xs"
         color="primary"
         icon="i-heroicons-check"
-        label="Speichern & neu generieren"
+        :label="t('chat.saveAndRegenerate')"
         class="btn-interactive"
         :disabled="disabled || !modelValue.trim()"
         @click="emit('submit')"
@@ -30,7 +31,7 @@ const emit = defineEmits<{
         color="neutral"
         variant="ghost"
         icon="i-heroicons-x-mark"
-        label="Abbrechen"
+        :label="t('common.cancel')"
         @click="emit('cancel')"
       />
     </div>
