@@ -350,12 +350,18 @@ async function handleDeleteAccount() {
 <template>
   <div>
   <UDashboardPanel>
-    <template #header>
-      <UDashboardNavbar :title="t('settings.title')"/>
-    </template>
-
     <template #body>
-      <UContainer class="py-8 space-y-8">
+      <UContainer class="py-10 max-w-4xl space-y-10">
+
+        <!-- Page heading -->
+        <header class="space-y-3">
+          <h1 class="font-serif-display text-4xl sm:text-5xl text-gray-900 dark:text-gray-50">
+            {{ t('settings.title') }}
+          </h1>
+          <p class="text-base text-gray-500 dark:text-gray-400 max-w-2xl">
+            {{ t('settings.pageIntro') }}
+          </p>
+        </header>
 
         <div v-if="!hydrated" class="space-y-4">
           <div class="skeleton-shimmer h-14"/>
@@ -367,7 +373,7 @@ async function handleDeleteAccount() {
           <UCard class="card-elevated">
             <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">{{ t('settings.modelKeysHeading') }}</div>
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.modelKeysHeading') }}</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   {{ t('settings.modelKeysDescription') }}
                 </p>
@@ -466,7 +472,7 @@ async function handleDeleteAccount() {
           <UCard class="card-elevated">
             <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">{{ t('settings.webSearchHeading') }}</div>
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.webSearchHeading') }}</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   {{ t('settings.webSearchDescription') }}
                 </p>
@@ -550,7 +556,7 @@ async function handleDeleteAccount() {
           <UCard class="card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">{{ t('settings.languageHeading') }}</div>
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.languageHeading') }}</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   {{ t('settings.languageDescription') }}
                 </p>
@@ -571,7 +577,7 @@ async function handleDeleteAccount() {
           <UCard class="card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">{{ t('settings.chatUiHeading') }}</div>
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.chatUiHeading') }}</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   {{ t('settings.chatUiDescription') }}
                 </p>
@@ -588,7 +594,7 @@ async function handleDeleteAccount() {
           <UCard class="card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">{{ t('settings.customInstructionsHeading') }}</div>
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.customInstructionsHeading') }}</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   {{ t('settings.customInstructionsDescription') }}
                 </p>
@@ -622,7 +628,7 @@ async function handleDeleteAccount() {
           <UCard class="border border-red-500/30 card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight text-red-500">{{ t('settings.dangerZone') }}</div>
+                <h2 class="font-serif-display text-2xl text-red-500">{{ t('settings.dangerZone') }}</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   {{ t('settings.dangerZoneDescription') }}
                 </p>

@@ -155,7 +155,13 @@
     "useModelFailedDescription": "Unable to open chat.",
     "loadCatalogFailed": "Could not load model catalog",
     "backendNotReachable": "Backend not reachable.",
-    "chatWithModel": "Chat with {label}"
+    "chatWithModel": "Chat with {label}",
+    "pageIntroLine1": "All models you can use with your stored API keys.",
+    "pageIntroLine2": "Favorites appear first in the chat model picker.",
+    "providerFilterAllShort": "All",
+    "noModelsFoundDescriptionShort": "Add an API key or pick another provider to see models.",
+    "inputLabel": "Input",
+    "outputLabel": "Output"
   },
   "settings": {
     "title": "Settings",
@@ -222,7 +228,8 @@
     "deleteAccountConfirmAction": "Yes, delete my account",
     "accountDeletedTitle": "Account deleted",
     "accountDeletedDescription": "Your account and all associated data have been permanently deleted.",
-    "deleteAccountFailed": "Could not delete account"
+    "deleteAccountFailed": "Could not delete account",
+    "pageIntro": "Manage your API keys, chat options, and account data."
   },
   "errors": {
     "fallback": "Unknown error. Please try again.",

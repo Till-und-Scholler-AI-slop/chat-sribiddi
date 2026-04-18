@@ -4,6 +4,7 @@ import { PROVIDERS } from '~/composables/useChatApi'
 import { formatRatePerMillion } from '~/composables/chat-helpers'
 
 const { t } = useI18n()
+const tt = useTranslatedError()
 
 definePageMeta({
   layout: 'default'
@@ -24,7 +25,6 @@ const {
 const toast = useToast()
 const router = useRouter()
 
-const search = ref('')
 const providerFilter = ref<'ALL' | Provider>('ALL')
 
 const providerLabels: Record<Provider, string> = {
@@ -34,29 +34,29 @@ const providerLabels: Record<Provider, string> = {
   OPENROUTER: 'OpenRouter'
 }
 
-const providerBadgeColor = (provider: Provider) =>
-  provider === 'OPENROUTER' ? 'primary' : 'neutral'
+// First letter shown inside the provider avatar
+const providerInitial: Record<Provider, string> = {
+  OPENAI: 'O',
+  GOOGLE: 'G',
+  CLAUDE: 'C',
+  OPENROUTER: 'O'
+}
+
+// Provider slug used to compose the visible identifier (e.g. "openai/gpt-5")
+const providerSlug: Record<Provider, string> = {
+  OPENAI: 'openai',
+  GOOGLE: 'google',
+  CLAUDE: 'claude',
+  OPENROUTER: 'openrouter'
+}
 
 const providerFilters = computed(() => [
-  { label: t('models.providerFilterAll'), value: 'ALL' as const },
-  ...PROVIDERS.map(provider => ({
-    label: providerLabels[provider],
-    value: provider
-  }))
+  { label: t('models.providerFilterAllShort'), value: 'ALL' as const },
+  { label: providerLabels.CLAUDE, value: 'CLAUDE' as const },
+  { label: providerLabels.OPENAI, value: 'OPENAI' as const },
+  { label: providerLabels.GOOGLE, value: 'GOOGLE' as const },
+  { label: providerLabels.OPENROUTER, value: 'OPENROUTER' as const }
 ])
-
-const searchableText = (model: ModelOption) =>
-  [
-    model.label,
-    model.value,
-    model.description,
-    model.canonicalSlug,
-    providerLabels[model.provider],
-    ...(model.supportedParameters || [])
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase()
 
 const sortedModels = computed(() =>
   [...models.value].sort((left, right) => {
@@ -71,55 +71,54 @@ const sortedModels = computed(() =>
 )
 
 const filteredModels = computed(() => {
-  const query = search.value.trim().toLowerCase()
-  return sortedModels.value.filter(model => {
-    if (providerFilter.value !== 'ALL' && model.provider !== providerFilter.value) {
-      return false
-    }
-    if (!query) return true
-    return searchableText(model).includes(query)
-  })
+  if (providerFilter.value === 'ALL') return sortedModels.value
+  return sortedModels.value.filter(model => model.provider === providerFilter.value)
 })
 
-const PAGE_SIZE = 24
+const PAGE_SIZE = 30
 const currentPage = ref(1)
 
-// Reset to first page when filters change
-watch([search, providerFilter], () => {
+watch(providerFilter, () => {
   currentPage.value = 1
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredModels.value.length / PAGE_SIZE)))
-
 const paginatedModels = computed(() => {
   const start = (currentPage.value - 1) * PAGE_SIZE
   return filteredModels.value.slice(start, start + PAGE_SIZE)
 })
 
-const formatInteger = (value?: number | null) => {
-  if (value == null || Number.isNaN(value)) return '—'
-  return value.toLocaleString()
-}
-
-const formatTokenWindow = (value?: number | null) =>
-  value == null ? t('common.unknown') : t('models.tokensSuffix', { count: formatInteger(value) })
-
-const toPriceLabel = (value?: string | null, suffix = t('models.perMillionTokens')) => {
+const formatPrice = (value?: string | null) => {
   const formatted = formatRatePerMillion(value)
   if (formatted == null) return '—'
-  return `${formatted} ${suffix}`
+  return `${formatted} ${t('models.perMillionTokens')}`
 }
 
-const toRequestPriceLabel = (value?: string | null) => {
-  if (!value) return '—'
-  const numeric = Number(value)
-  if (Number.isNaN(numeric)) return value
-  return `$${numeric.toFixed(numeric === 0 ? 0 : numeric >= 1 ? 2 : 4)} ${t('models.perRequest')}`
+const handleCardKeydown = (event: KeyboardEvent, model: ModelOption) => {
+  // Avoid retriggering on key auto-repeat; Space activation should fire on
+  // keyup, but Enter conventionally activates on keydown like a native button.
+  if (event.repeat) return
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    void useModel(model)
+  } else if (event.key === ' ') {
+    // Prevent the default page scroll while the user holds Space.
+    event.preventDefault()
+  }
 }
 
-const formatCreated = (value?: number | null) => {
-  if (!value) return t('common.unknown')
-  return new Date(value * 1000).toLocaleDateString()
+const handleCardKeyup = (event: KeyboardEvent, model: ModelOption) => {
+  if (event.key === ' ') {
+    event.preventDefault()
+    void useModel(model)
+  }
+}
+
+const modelSlug = (model: ModelOption) => {
+  // Prefer the canonical slug from the backend if it already contains a provider prefix.
+  if (model.canonicalSlug && model.canonicalSlug.includes('/')) return model.canonicalSlug
+  if (model.value.includes('/')) return model.value
+  return `${providerSlug[model.provider]}/${model.value}`
 }
 
 const useModel = async (model: ModelOption) => {
@@ -140,7 +139,7 @@ const useModel = async (model: ModelOption) => {
   } catch (err) {
     toast.add({
       title: t('models.useModelFailedTitle'),
-      description: err instanceof Error ? err.message : t('models.useModelFailedDescription'),
+      description: tt(err, 'models.useModelFailedDescription'),
       color: 'error'
     })
   }
@@ -153,7 +152,7 @@ onMounted(async () => {
     console.error(err)
     toast.add({
       title: t('models.loadCatalogFailed'),
-      description: err instanceof Error ? err.message : t('models.backendNotReachable'),
+      description: tt(err, 'models.backendNotReachable'),
       color: 'error'
     })
   }
@@ -162,226 +161,271 @@ onMounted(async () => {
 
 <template>
   <div>
-  <UDashboardPanel>
-    <template #header>
-      <UDashboardNavbar
-        :title="t('models.title')"
-        :badge="modelsLoading ? t('models.loading') : t('models.modelsCount', { count: filteredModels.length })"
-      />
-    </template>
+    <UDashboardPanel>
+      <template #body>
+        <UContainer class="py-10 max-w-6xl">
+          <UAlert
+            v-if="modelsError"
+            color="error"
+            icon="i-heroicons-exclamation-triangle"
+            :description="modelsError"
+            class="mb-8"
+          />
 
-    <template #body>
-      <UContainer class="py-6 space-y-6">
-        <UAlert
-          v-if="modelsError"
-          color="error"
-          icon="i-heroicons-exclamation-triangle"
-          :description="modelsError"
-        />
+          <!-- Page heading -->
+          <header class="mb-8 space-y-3">
+            <h1 class="font-serif-display text-4xl sm:text-5xl text-gray-900 dark:text-gray-50">
+              {{ t('models.title') }}
+            </h1>
+            <p class="text-base text-gray-500 dark:text-gray-400 max-w-2xl">
+              {{ t('models.pageIntroLine1') }}<br>
+              {{ t('models.pageIntroLine2') }}
+            </p>
+          </header>
 
-        <UCard class="card-elevated">
-          <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div class="space-y-1">
-              <div class="text-lg font-semibold tracking-tight">{{ t('models.browseHeading') }}</div>
-              <p class="text-sm text-gray-500 dark:text-gray-400">
-                {{ t('models.browseDescription') }}
-              </p>
-            </div>
+          <!-- Provider filter pills -->
+          <div class="flex flex-wrap gap-2 mb-8">
+            <button
+              v-for="filter in providerFilters"
+              :key="filter.value"
+              type="button"
+              :aria-pressed="providerFilter === filter.value"
+              class="filter-pill"
+              :class="providerFilter === filter.value ? 'filter-pill-active' : 'filter-pill-inactive'"
+              @click="providerFilter = filter.value"
+            >
+              {{ filter.label }}
+            </button>
+          </div>
 
-            <div class="flex flex-col gap-3 sm:flex-row">
-              <UInput
-                v-model="search"
-                icon="i-heroicons-magnifying-glass"
-                :placeholder="t('models.searchPlaceholder')"
-                class="min-w-[18rem]"
-              />
-              <USelectMenu
-                v-model="providerFilter"
-                :items="providerFilters"
-                value-key="value"
-                label-key="label"
-                class="min-w-[13rem]"
-              />
+          <!-- Loading skeletons -->
+          <div v-if="modelsLoading && !models.length" class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            <div v-for="index in 6" :key="index" class="skeleton-shimmer h-44" />
+          </div>
+
+          <UEmptyState
+            v-else-if="!filteredModels.length"
+            icon="i-heroicons-cpu-chip"
+            :title="t('models.noModelsFoundTitle')"
+            :description="t('models.noModelsFoundDescriptionShort')"
+            class="animate-fade-in-up"
+          />
+
+          <!-- Model grid -->
+          <div v-else class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3 stagger-children">
+            <div
+              v-for="model in paginatedModels"
+              :key="`${model.provider}:${model.value}`"
+              class="model-card"
+              role="button"
+              tabindex="0"
+              :aria-label="t('models.chatWithModel', { label: model.label })"
+              @click="useModel(model)"
+              @keydown="handleCardKeydown($event, model)"
+              @keyup="handleCardKeyup($event, model)"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex items-start gap-3 min-w-0">
+                  <div
+                    class="provider-avatar"
+                    :class="`provider-avatar-${model.provider.toLowerCase()}`"
+                    aria-hidden="true"
+                  >
+                    {{ providerInitial[model.provider] }}
+                  </div>
+                  <div class="min-w-0">
+                    <div class="text-base font-semibold text-gray-900 dark:text-gray-50 truncate">
+                      {{ model.label }}
+                    </div>
+                    <div class="text-xs font-mono text-gray-500 dark:text-gray-400 truncate">
+                      {{ modelSlug(model) }}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  class="favorite-btn"
+                  :class="{ 'favorite-btn-active': isFavorite(model) }"
+                  :aria-label="isFavorite(model) ? t('models.removeFromFavorites') : t('models.addToFavorites')"
+                  @click.stop="toggleFavorite(model)"
+                >
+                  <UIcon
+                    :name="isFavorite(model) ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
+                    class="w-5 h-5"
+                  />
+                </button>
+              </div>
+
+              <div class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800/60 space-y-2">
+                <div class="flex items-center justify-between text-sm">
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('models.inputLabel') }}</span>
+                  <span class="font-mono text-gray-700 dark:text-gray-200">{{ formatPrice(model.promptPrice) }}</span>
+                </div>
+                <div class="flex items-center justify-between text-sm">
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('models.outputLabel') }}</span>
+                  <span class="font-mono text-gray-700 dark:text-gray-200">{{ formatPrice(model.completionPrice) }}</span>
+                </div>
+              </div>
             </div>
           </div>
-        </UCard>
 
-        <div v-if="modelsLoading && !models.length" class="grid gap-4 xl:grid-cols-2">
-          <div v-for="index in 6" :key="index" class="skeleton-shimmer h-56" />
-        </div>
-
-        <UEmptyState
-          v-else-if="!filteredModels.length"
-          icon="i-heroicons-cpu-chip"
-          :title="t('models.noModelsFoundTitle')"
-          :description="t('models.noModelsFoundDescription')"
-          class="animate-fade-in-up"
-        />
-
-        <div v-else class="grid gap-4 xl:grid-cols-2 stagger-children">
-          <UCard
-            v-for="model in paginatedModels"
-            :key="`${model.provider}:${model.value}`"
-            class="h-full card-elevated"
-          >
-            <div class="flex h-full flex-col gap-4">
-              <div class="flex items-start justify-between gap-3">
-                <div class="space-y-1 min-w-0">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <div class="text-base font-semibold">{{ model.label }}</div>
-                    <UBadge
-                      :label="providerLabels[model.provider]"
-                      :color="providerBadgeColor(model.provider)"
-                      variant="soft"
-                    />
-                  </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400 break-all">
-                    {{ model.value }}
-                  </div>
-                  <div
-                    v-if="model.canonicalSlug && model.canonicalSlug !== model.value"
-                    class="text-xs text-gray-500 dark:text-gray-400 break-all"
-                  >
-                    {{ t('models.canonical', { value: model.canonicalSlug }) }}
-                  </div>
-                </div>
-
-                <div class="flex items-center gap-2 flex-shrink-0">
-                  <UButton
-                    :icon="isFavorite(model) ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
-                    :color="isFavorite(model) ? 'warning' : 'neutral'"
-                    variant="ghost"
-                    size="sm"
-                    :aria-label="isFavorite(model) ? t('models.removeFromFavorites') : t('models.addToFavorites')"
-                    class="btn-interactive"
-                    @click="toggleFavorite(model)"
-                  />
-                  <UButton
-                    color="primary"
-                    variant="soft"
-                    size="sm"
-                    icon="i-heroicons-arrow-right-circle"
-                    :label="t('models.useModel')"
-                    class="btn-interactive"
-                    @click="useModel(model)"
-                  />
-                </div>
-              </div>
-
-              <p
-                v-if="model.description"
-                class="text-sm leading-6 text-gray-600 dark:text-gray-300"
-              >
-                {{ model.description }}
-              </p>
-
-              <div class="grid gap-3 sm:grid-cols-2">
-                <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
-                  <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    {{ t('models.contextWindow') }}
-                  </div>
-                  <div class="mt-1 font-medium">{{ formatTokenWindow(model.contextLength) }}</div>
-                </div>
-                <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
-                  <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    {{ t('models.maxOutput') }}
-                  </div>
-                  <div class="mt-1 font-medium">{{ formatTokenWindow(model.maxCompletionTokens) }}</div>
-                </div>
-              </div>
-
-              <div class="grid gap-3 sm:grid-cols-2">
-                <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
-                  <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    {{ t('models.promptPrice') }}
-                  </div>
-                  <div class="mt-1 font-medium">{{ toPriceLabel(model.promptPrice) }}</div>
-                </div>
-                <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
-                  <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    {{ t('models.completionPrice') }}
-                  </div>
-                  <div class="mt-1 font-medium">{{ toPriceLabel(model.completionPrice) }}</div>
-                </div>
-                <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
-                  <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    {{ t('models.requestPrice') }}
-                  </div>
-                  <div class="mt-1 font-medium">{{ toRequestPriceLabel(model.requestPrice) }}</div>
-                </div>
-                <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
-                  <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    {{ t('models.released') }}
-                  </div>
-                  <div class="mt-1 font-medium">{{ formatCreated(model.created) }}</div>
-                </div>
-              </div>
-
-              <div class="grid gap-4 lg:grid-cols-2">
-                <div class="space-y-2">
-                  <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    {{ t('models.architecture') }}
-                  </div>
-                  <div class="flex flex-wrap gap-2">
-                    <UBadge
-                      v-if="model.modality"
-                      :label="model.modality"
-                      variant="outline"
-                      color="neutral"
-                    />
-                    <UBadge
-                      v-for="item in model.inputModalities || []"
-                      :key="`input-${item}`"
-                      :label="t('models.inputModality', { value: item })"
-                      variant="soft"
-                      color="neutral"
-                    />
-                    <UBadge
-                      v-for="item in model.outputModalities || []"
-                      :key="`output-${item}`"
-                      :label="t('models.outputModality', { value: item })"
-                      variant="soft"
-                      color="neutral"
-                    />
-                  </div>
-                </div>
-
-                <div class="space-y-2">
-                  <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    {{ t('models.supportedParameters') }}
-                  </div>
-                  <div class="flex flex-wrap gap-2">
-                    <UBadge
-                      v-for="parameter in (model.supportedParameters || []).slice(0, 8)"
-                      :key="parameter"
-                      :label="parameter"
-                      variant="outline"
-                      color="neutral"
-                    />
-                    <span
-                      v-if="(model.supportedParameters || []).length > 8"
-                      class="text-xs text-gray-500 dark:text-gray-400"
-                    >
-                      {{ t('models.moreParameters', { count: (model.supportedParameters || []).length - 8 }) }}
-                    </span>
-                    <span
-                      v-if="!(model.supportedParameters || []).length"
-                      class="text-sm text-gray-500 dark:text-gray-400"
-                    >
-                      {{ t('models.noParameterMetadata') }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </UCard>
-        </div>
-
-        <div v-if="totalPages > 1" class="flex justify-center pt-2">
-          <UPagination v-model:page="currentPage" :total="filteredModels.length" :items-per-page="PAGE_SIZE" />
-        </div>
-      </UContainer>
-    </template>
-  </UDashboardPanel>
+          <div v-if="totalPages > 1" class="flex justify-center pt-8">
+            <UPagination v-model:page="currentPage" :total="filteredModels.length" :items-per-page="PAGE_SIZE" />
+          </div>
+        </UContainer>
+      </template>
+    </UDashboardPanel>
   </div>
 </template>
+
+<style scoped>
+/* ── Filter pills ────────────────────────────────────────────────────── */
+.filter-pill {
+  padding: 0.4rem 1rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition:
+    background-color var(--duration-fast, 120ms) var(--ease-smooth, ease),
+    color var(--duration-fast, 120ms) var(--ease-smooth, ease),
+    border-color var(--duration-fast, 120ms) var(--ease-smooth, ease);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.filter-pill-active {
+  background: var(--color-gray-900);
+  color: var(--color-gray-50);
+  border-color: var(--color-gray-900);
+}
+:global(.dark) .filter-pill-active {
+  background: var(--color-gray-50);
+  color: var(--color-gray-900);
+  border-color: var(--color-gray-50);
+}
+.filter-pill-inactive {
+  background: transparent;
+  color: var(--color-gray-700);
+  border-color: var(--color-gray-200);
+}
+.filter-pill-inactive:hover {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: var(--color-gray-300);
+}
+:global(.dark) .filter-pill-inactive {
+  color: var(--color-gray-300);
+  border-color: var(--color-gray-700);
+}
+:global(.dark) .filter-pill-inactive:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--color-gray-600);
+}
+
+/* ── Model card ──────────────────────────────────────────────────────── */
+.model-card {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--color-gray-200);
+  border-radius: 0.875rem;
+  padding: 1.25rem;
+  transition:
+    border-color var(--duration-fast, 120ms) var(--ease-smooth, ease),
+    transform var(--duration-fast, 120ms) var(--ease-smooth, ease),
+    box-shadow var(--duration-fast, 120ms) var(--ease-smooth, ease);
+  cursor: pointer;
+}
+.model-card:hover {
+  border-color: var(--color-gray-300);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+.model-card:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+:global(.dark) .model-card {
+  background: rgba(20, 10, 33, 0.4);
+  border-color: var(--color-gray-800);
+}
+:global(.dark) .model-card:hover {
+  border-color: var(--color-gray-700);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Provider avatar ─────────────────────────────────────────────────── */
+.provider-avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  font-weight: 600;
+  flex-shrink: 0;
+  font-family: var(--font-serif);
+}
+.provider-avatar-openai {
+  background: rgba(184, 46, 142, 0.10);
+  color: #B82E8E;
+}
+.provider-avatar-google {
+  background: rgba(58, 140, 207, 0.12);
+  color: #2D6FA8;
+}
+.provider-avatar-claude {
+  background: rgba(214, 124, 84, 0.14);
+  color: #BC5A2E;
+}
+.provider-avatar-openrouter {
+  background: rgba(100, 116, 139, 0.14);
+  color: var(--color-gray-700);
+}
+:global(.dark) .provider-avatar-openai {
+  background: rgba(229, 51, 138, 0.16);
+  color: #F388C0;
+}
+:global(.dark) .provider-avatar-google {
+  background: rgba(91, 184, 232, 0.16);
+  color: #8FCFEF;
+}
+:global(.dark) .provider-avatar-claude {
+  background: rgba(214, 124, 84, 0.20);
+  color: #E89A6B;
+}
+:global(.dark) .provider-avatar-openrouter {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--color-gray-300);
+}
+
+/* ── Favorite button ─────────────────────────────────────────────────── */
+.favorite-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.375rem;
+  border-radius: 0.5rem;
+  color: var(--color-gray-300);
+  transition:
+    color var(--duration-fast, 120ms) var(--ease-smooth, ease),
+    background-color var(--duration-fast, 120ms) var(--ease-smooth, ease);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.favorite-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--color-gray-500);
+}
+:global(.dark) .favorite-btn {
+  color: var(--color-gray-600);
+}
+:global(.dark) .favorite-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-gray-400);
+}
+.favorite-btn-active {
+  color: var(--ui-primary);
+}
+.favorite-btn-active:hover {
+  color: var(--ui-primary);
+}
+</style>

@@ -155,7 +155,13 @@
     "useModelFailedDescription": "Chat konnte nicht geöffnet werden.",
     "loadCatalogFailed": "Modellkatalog konnte nicht geladen werden",
     "backendNotReachable": "Backend nicht erreichbar.",
-    "chatWithModel": "Chat mit {label}"
+    "chatWithModel": "Chat mit {label}",
+    "pageIntroLine1": "Alle Modelle, die du mit deinen hinterlegten API-Schlüsseln nutzen kannst.",
+    "pageIntroLine2": "Favoriten erscheinen zuerst im Chat-Umschalter.",
+    "providerFilterAllShort": "Alle",
+    "noModelsFoundDescriptionShort": "Hinterlege einen API-Schlüssel oder wähle einen anderen Anbieter, um Modelle zu sehen.",
+    "inputLabel": "Eingabe",
+    "outputLabel": "Ausgabe"
   },
   "settings": {
     "title": "Einstellungen",
@@ -222,7 +228,8 @@
     "deleteAccountConfirmAction": "Ja, mein Konto löschen",
     "accountDeletedTitle": "Konto gelöscht",
     "accountDeletedDescription": "Dein Konto und alle zugehörigen Daten wurden endgültig gelöscht.",
-    "deleteAccountFailed": "Konto konnte nicht gelöscht werden"
+    "deleteAccountFailed": "Konto konnte nicht gelöscht werden",
+    "pageIntro": "Verwalte deine API-Schlüssel, Chat-Optionen und Kontodaten."
   },
   "errors": {
     "fallback": "Unbekannter Fehler. Bitte versuche es erneut.",
