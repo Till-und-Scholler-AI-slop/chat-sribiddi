@@ -141,15 +141,15 @@ onMounted(async () => {
   justify-content: center;
   overflow: hidden;
   background:
-    radial-gradient(ellipse 80% 60% at 20% 20%, rgba(184, 46, 142, 0.06) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 80% 80%, rgba(58, 140, 207, 0.05) 0%, transparent 50%),
-    #F0F9FF;
+    radial-gradient(ellipse 80% 60% at 20% 20%, color-mix(in oklab, var(--accent) 8%, transparent) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 80%, color-mix(in oklab, var(--accent) 5%, transparent) 0%, transparent 50%),
+    var(--paper);
 }
 .dark .login-page {
   background:
-    radial-gradient(ellipse 80% 60% at 20% 20%, rgba(229, 51, 138, 0.1) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 80% 80%, rgba(58, 88, 180, 0.08) 0%, transparent 50%),
-    #0B0514;
+    radial-gradient(ellipse 80% 60% at 20% 20%, color-mix(in oklab, var(--accent) 12%, transparent) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 80%, color-mix(in oklab, var(--accent) 8%, transparent) 0%, transparent 50%),
+    var(--paper);
 }
 
 .login-orb {
@@ -167,40 +167,28 @@ onMounted(async () => {
   height: 320px;
   top: -10%;
   left: -8%;
-  background: rgba(184, 46, 142, 0.15);
-}
-.dark .login-orb--1 {
-  background: rgba(229, 51, 138, 0.2);
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
 }
 .login-orb--2 {
   width: 260px;
   height: 260px;
   bottom: -8%;
   right: -6%;
-  background: rgba(58, 140, 207, 0.12);
-}
-.dark .login-orb--2 {
-  background: rgba(91, 184, 232, 0.15);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
 }
 .login-orb--3 {
   width: 190px;
   height: 190px;
   top: 50%;
   left: 60%;
-  background: rgba(184, 46, 142, 0.08);
-}
-.dark .login-orb--3 {
-  background: rgba(229, 51, 138, 0.12);
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
 }
 .login-orb--4 {
   width: 140px;
   height: 140px;
   bottom: 20%;
   left: 5%;
-  background: rgba(58, 140, 207, 0.08);
-}
-.dark .login-orb--4 {
-  background: rgba(91, 184, 232, 0.1);
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -241,14 +229,10 @@ onMounted(async () => {
   width: 56px;
   height: 56px;
   border-radius: 16px;
-  background: linear-gradient(135deg, #B82E8E, #3A8CCF);
-  color: #fff;
+  background: var(--accent);
+  color: var(--paper);
   margin-bottom: 1rem;
-  box-shadow: 0 4px 16px rgba(184, 46, 142, 0.3);
-}
-.dark .login-brand-icon {
-  background: linear-gradient(135deg, #E5338A, #5BB8E8);
-  box-shadow: 0 4px 20px rgba(229, 51, 138, 0.35);
+  box-shadow: 0 4px 16px color-mix(in oklab, var(--accent) 35%, transparent);
 }
 
 .login-brand-title {
@@ -256,16 +240,7 @@ onMounted(async () => {
   font-weight: 700;
   letter-spacing: -0.025em;
   line-height: 1.1;
-  background: linear-gradient(135deg, #B82E8E, #3A8CCF);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-.dark .login-brand-title {
-  background: linear-gradient(135deg, #E5338A, #5BB8E8);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--accent-ink);
 }
 
 .login-brand-subtitle {
