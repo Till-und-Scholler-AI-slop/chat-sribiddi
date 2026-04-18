@@ -76,6 +76,15 @@ const localeItems = computed(() =>
   }))
 )
 
+type SettingsTab = 'keys' | 'instructions' | 'interface' | 'account'
+const activeTab = ref<SettingsTab>('keys')
+const tabItems = computed(() => [
+  { label: t('settings.tabs.keys'), value: 'keys', icon: 'i-heroicons-key' },
+  { label: t('settings.tabs.instructions'), value: 'instructions', icon: 'i-heroicons-document-text' },
+  { label: t('settings.tabs.interface'), value: 'interface', icon: 'i-heroicons-paint-brush' },
+  { label: t('settings.tabs.account'), value: 'account', icon: 'i-heroicons-user-circle' }
+])
+
 const handleLocaleChange = async (next: string) => {
   if (!next || next === locale.value) return
   await setLocale(next as 'de' | 'en')
@@ -369,8 +378,19 @@ async function handleDeleteAccount() {
           <div class="skeleton-shimmer h-14"/>
         </div>
 
-        <div v-else class="space-y-8">
-          <UCard class="card-elevated">
+        <div v-else>
+          <UTabs
+            v-model="activeTab"
+            :items="tabItems"
+            :content="false"
+            color="primary"
+            variant="link"
+            class="w-full"
+          />
+
+          <div class="space-y-8 mt-8">
+            <template v-if="activeTab === 'keys'">
+              <UCard class="card-elevated">
             <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
               <div class="space-y-1">
                 <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.modelKeysHeading') }}</h2>
@@ -552,7 +572,9 @@ async function handleDeleteAccount() {
               </div>
             </UCard>
           </UCard>
+            </template>
 
+            <template v-if="activeTab === 'interface'">
           <UCard class="card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
@@ -590,7 +612,9 @@ async function handleDeleteAccount() {
               />
             </div>
           </UCard>
+            </template>
 
+            <template v-if="activeTab === 'instructions'">
           <UCard class="card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
@@ -624,7 +648,9 @@ async function handleDeleteAccount() {
               </div>
             </div>
           </UCard>
+            </template>
 
+            <template v-if="activeTab === 'account'">
           <UCard class="border border-red-500/30 card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
@@ -643,6 +669,9 @@ async function handleDeleteAccount() {
               />
             </div>
           </UCard>
+            </template>
+
+          </div>
 
           <UModal v-model:open="showDeleteAccountModal" :title="t('settings.deleteAccountModalTitle')" :description="t('settings.deleteAccountModalDescription')">
             <template #body>
