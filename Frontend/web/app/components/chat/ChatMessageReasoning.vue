@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { t } = useI18n()
 interface Props {
   text: string
   expanded: boolean
@@ -14,7 +15,7 @@ defineEmits<{ toggle: [] }>()
       @click="$emit('toggle')"
     >
       <UIcon name="i-heroicons-light-bulb" class="size-3.5 text-amber-500/70" />
-      <span class="font-medium">Gedankengang</span>
+      <span class="font-medium">{{ t('chat.thoughts') }}</span>
       <UIcon
         :name="expanded ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
         class="size-3.5 ml-auto transition-transform duration-200"
