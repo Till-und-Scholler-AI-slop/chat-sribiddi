@@ -525,15 +525,25 @@ const submitEditMessage = async () => {
           </div>
 
         <div v-else class="space-y-4 flex-1 min-h-0 flex flex-col">
-          <div class="flex items-center justify-end gap-2">
-            <UBadge
-              v-if="selectedModel"
-              color="primary"
-              variant="soft"
-              :label="selectedModel.label"
-              :ui="{ rounded: 'rounded-full' }"
-            />
-          </div>
+          <header class="chat-page-header">
+            <div class="chat-page-header__titles">
+              <h1 class="chat-page-header__title">
+                {{ activeConversation.session.title || 'Neuer Chat' }}
+              </h1>
+              <span v-if="selectedModel" class="chat-page-header__subtitle">
+                {{ providerLabel(selectedModel.provider) }} · {{ selectedModel.label }}
+              </span>
+            </div>
+            <div class="chat-page-header__meta">
+              <UBadge
+                v-if="selectedModel"
+                color="primary"
+                variant="soft"
+                :label="selectedModel.label"
+                :ui="{ rounded: 'rounded-full' }"
+              />
+            </div>
+          </header>
 
           <div class="flex-1 min-h-0">
             <UCard class="h-full card-elevated" :ui="{ body: 'h-full overflow-hidden' }">
@@ -641,34 +651,13 @@ const submitEditMessage = async () => {
       <div class="relative glass-surface-light border-t border-gray-200/60 dark:border-white/[0.06]">
 
         <UContainer class="pb-4 sm:pb-6 space-y-2">
-          <div class="flex items-center gap-2 flex-wrap">
-            <input
-              ref="fileInput"
-              type="file"
-              class="hidden"
-              multiple
-              @change="handleFiles"
-            >
-            <UButton
-              size="xs"
-              variant="ghost"
-              color="neutral"
-              icon="i-heroicons-paper-clip"
-              :label="t('chat.addAttachments')"
-              class="btn-interactive"
-              @click="fileInput?.click()"
-            />
-            <UButton
-              v-if="attachments.length"
-              size="xs"
-              variant="ghost"
-              color="neutral"
-              icon="i-heroicons-x-mark"
-              :label="t('chat.clearAttachments')"
-              class="btn-interactive"
-              @click="clearAttachments"
-            />
-          </div>
+          <input
+            ref="fileInput"
+            type="file"
+            class="hidden"
+            multiple
+            @change="handleFiles"
+          >
 
           <div v-if="attachments.length" class="flex flex-wrap gap-2">
             <div
@@ -691,6 +680,27 @@ const submitEditMessage = async () => {
 
           <UChatPrompt v-model="input" :error="promptError" @submit="handleSubmit">
             <template #header>
+              <UTooltip text="Anhänge hinzufügen">
+                <UButton
+                  icon="i-heroicons-paper-clip"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Anhänge hinzufügen"
+                  class="btn-interactive"
+                  @click="fileInput?.click()"
+                />
+              </UTooltip>
+              <UButton
+                v-if="attachments.length"
+                icon="i-heroicons-x-mark"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Anhänge entfernen"
+                class="btn-interactive"
+                @click="clearAttachments"
+              />
               <USelectMenu
                 v-model="selectedModel"
                 :items="sortedModels"
@@ -727,13 +737,16 @@ const submitEditMessage = async () => {
                   </div>
                 </template>
               </USelectMenu>
-              <UTooltip :text="webSearchEnabled ? t('chat.webSearchActive') : t('chat.webSearchInactive')">
+              <UTooltip :text="webSearchEnabled ? t('chat.webSearchDisable') : t('chat.webSearchEnable')">
                 <UButton
                   :icon="webSearchEnabled ? 'i-heroicons-globe-alt-solid' : 'i-heroicons-globe-alt'"
                   :color="webSearchEnabled ? 'primary' : 'neutral'"
-                  :variant="webSearchEnabled ? 'soft' : 'ghost'"
-                  size="sm"
+                  :variant="webSearchEnabled ? 'soft' : 'outline'"
+                  size="md"
+                  label="Web"
+                  :aria-pressed="webSearchEnabled"
                   :aria-label="webSearchEnabled ? t('chat.webSearchDisable') : t('chat.webSearchEnable')"
+                  class="btn-interactive web-toggle"
                   @click="webSearchEnabled = !webSearchEnabled"
                 />
               </UTooltip>
@@ -813,6 +826,49 @@ const submitEditMessage = async () => {
 </template>
 
 <style scoped>
+.chat-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.875rem;
+  border: 1px solid var(--hair);
+  background: var(--paper-2);
+}
+.chat-page-header__titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.chat-page-header__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-page-header__subtitle {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-family: var(--font-mono, monospace);
+  margin-top: 0.125rem;
+}
+.chat-page-header__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Larger Web toggle inside the prompt header */
+.web-toggle {
+  font-weight: 500;
+}
+
 .drag-overlay-enter-active,
 .drag-overlay-leave-active {
   transition: opacity 0.2s ease;
