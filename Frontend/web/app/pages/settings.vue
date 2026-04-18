@@ -90,6 +90,29 @@ const handleLocaleChange = async (next: string) => {
   await setLocale(next as 'de' | 'en')
 }
 
+// ── Color mode (light / dark / system) ─────────────────────────────────
+const colorMode = useColorMode()
+
+type ColorModePreference = 'light' | 'dark' | 'system'
+
+const colorModePreference = computed<ColorModePreference>({
+  get: () => (colorMode.preference as ColorModePreference) || 'system',
+  set: (value: ColorModePreference) => {
+    colorMode.preference = value
+  }
+})
+
+const colorModeItems = computed(() => [
+  { label: t('settings.colorModeLight'), value: 'light' as const },
+  { label: t('settings.colorModeDark'), value: 'dark' as const },
+  { label: t('settings.colorModeSystem'), value: 'system' as const }
+])
+
+const handleColorModeChange = (next: ColorModePreference) => {
+  if (!next) return
+  colorModePreference.value = next
+}
+
 const loadingStatus = ref(true)
 const status = ref<KeyProviderStatus | null>(null)
 
@@ -575,6 +598,27 @@ async function handleDeleteAccount() {
             </template>
 
             <template v-if="activeTab === 'interface'">
+          <UCard class="card-elevated">
+            <div class="space-y-4">
+              <div class="space-y-1">
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.colorModeHeading') }}</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  {{ t('settings.colorModeDescription') }}
+                </p>
+              </div>
+              <USelect
+                :model-value="colorModePreference"
+                :items="colorModeItems"
+                value-key="value"
+                label-key="label"
+                icon="i-heroicons-swatch"
+                class="max-w-xs"
+                :aria-label="t('settings.colorModeAria')"
+                @update:model-value="handleColorModeChange"
+              />
+            </div>
+          </UCard>
+
           <UCard class="card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">

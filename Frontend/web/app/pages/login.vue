@@ -355,7 +355,7 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.5);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(58, 140, 207, 0.15);
+  border: 1px solid var(--hair);
 }
 .dark .login-feature {
   color: var(--color-gray-300);
