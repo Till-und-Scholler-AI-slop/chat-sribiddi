@@ -171,15 +171,6 @@ const statusByProvider = (provider: Provider) => {
             : status.value.openrouter
 }
 
-const statusLabel = (provider: Provider) => {
-  if (loadingStatus.value) {
-    return t('settings.statusLoading', { provider: providerDisplay(provider) })
-  }
-  return statusByProvider(provider)
-      ? t('settings.statusKeySet', { provider: providerDisplay(provider) })
-      : t('settings.statusKeyMissing', { provider: providerDisplay(provider) })
-}
-
 const keyPresent = (provider: Provider) => form[provider].trim().length > 0
 
 const isProviderBusy = (provider: Provider) => {
@@ -414,36 +405,27 @@ async function handleDeleteAccount() {
           <div class="space-y-8 mt-8">
             <template v-if="activeTab === 'keys'">
               <UCard class="card-elevated">
-            <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+            <div class="flex items-start justify-between gap-4 mb-8 flex-wrap">
               <div class="space-y-1">
                 <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.modelKeysHeading') }}</h2>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
+                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-xl">
                   {{ t('settings.modelKeysDescription') }}
                 </p>
               </div>
-              <div class="flex items-center gap-2 flex-wrap">
-                <UButton
-                    to="/models"
-                    color="neutral"
-                    variant="outline"
-                    size="sm"
-                    icon="i-heroicons-cpu-chip"
-                    :label="t('settings.browseModels')"
-                />
-                <UBadge
-                    v-for="item in providerCards"
-                    :key="item.provider"
-                    color="primary"
-                    variant="soft"
-                    :label="statusLabel(item.provider)"
-                />
-              </div>
+              <UButton
+                  to="/models"
+                  color="neutral"
+                  variant="outline"
+                  size="sm"
+                  icon="i-heroicons-cpu-chip"
+                  :label="t('settings.browseModels')"
+              />
             </div>
 
-            <div class="grid grid-cols-1 gap-6 xl:grid-cols-2 stagger-children">
+            <div class="grid grid-cols-1 gap-6 stagger-children">
               <UCard v-for="item in providerCards" :key="item.provider" class="flex flex-col card-elevated">
                 <div class="flex flex-col gap-5 h-full">
-                  <div class="flex items-center justify-between gap-3">
+                  <div class="flex items-center justify-between gap-3 flex-wrap">
                     <div class="flex items-center gap-2">
                       <span class="status-dot" :class="statusByProvider(item.provider) ? 'status-dot-active' : 'status-dot-inactive'" />
                       <div class="text-base font-semibold">{{ t(item.titleKey) }}</div>
@@ -466,12 +448,13 @@ async function handleDeleteAccount() {
                         :placeholder="item.placeholder"
                         icon="i-heroicons-lock-closed"
                         autocomplete="off"
+                        class="w-full"
                     />
                   </UFormGroup>
 
                   <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="flex items-center gap-3">
+                    <div class="flex items-center justify-between gap-3 flex-wrap">
+                      <div class="flex items-center gap-3 flex-wrap">
                         <UButton
                             type="button"
                             variant="ghost"
@@ -513,10 +496,10 @@ async function handleDeleteAccount() {
 
 
           <UCard class="card-elevated">
-            <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+            <div class="flex items-start justify-between gap-4 mb-8 flex-wrap">
               <div class="space-y-1">
                 <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.webSearchHeading') }}</h2>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
+                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-xl">
                   {{ t('settings.webSearchDescription') }}
                 </p>
               </div>
@@ -527,73 +510,72 @@ async function handleDeleteAccount() {
               />
             </div>
 
-            <UCard class="flex flex-col card-elevated">
-              <div class="flex flex-col gap-5 h-full">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="flex items-center gap-2">
-                    <span class="status-dot" :class="braveSearchStatus ? 'status-dot-active' : 'status-dot-inactive'" />
-                    <div class="text-base font-semibold">{{ t('settings.braveTitle') }}</div>
-                  </div>
-                  <UBadge
-                      variant="soft"
-                      :color="braveSearchStatus ? 'primary' : 'neutral'"
-                      :label="braveSearchStatus ? t('settings.stored') : t('settings.notStored')"
-                  />
+            <div class="flex flex-col gap-5">
+              <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div class="flex items-center gap-2">
+                  <span class="status-dot" :class="braveSearchStatus ? 'status-dot-active' : 'status-dot-inactive'" />
+                  <div class="text-base font-semibold">{{ t('settings.braveTitle') }}</div>
                 </div>
+                <UBadge
+                    variant="soft"
+                    :color="braveSearchStatus ? 'primary' : 'neutral'"
+                    :label="braveSearchStatus ? t('settings.stored') : t('settings.notStored')"
+                />
+              </div>
 
-                <UFormGroup
-                    :label="t('settings.braveLabel')"
-                    :description="t('settings.braveDescription')"
-                    name="brave_search"
-                >
-                  <UInput
-                      v-model="braveSearchKey"
-                      :type="braveSearchReveal ? 'text' : 'password'"
-                      placeholder="BSA..."
-                      icon="i-heroicons-lock-closed"
-                      autocomplete="off"
-                  />
-                </UFormGroup>
+              <UFormGroup
+                  :label="t('settings.braveLabel')"
+                  :description="t('settings.braveDescription')"
+                  name="brave_search"
+              >
+                <UInput
+                    v-model="braveSearchKey"
+                    :type="braveSearchReveal ? 'text' : 'password'"
+                    placeholder="BSA..."
+                    icon="i-heroicons-lock-closed"
+                    autocomplete="off"
+                    class="w-full"
+                />
+              </UFormGroup>
 
-                <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
-                  <div class="flex items-center justify-between gap-3">
-                    <div class="flex items-center gap-3">
-                      <UButton
-                          type="button"
-                          variant="ghost"
-                          color="neutral"
-                          size="sm"
-                          :icon="braveSearchReveal ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
-                          :label="braveSearchReveal ? t('common.hide') : t('common.show')"
-                          @click="braveSearchReveal = !braveSearchReveal"
-                      />
-                      <UButton
-                          type="button"
-                          color="primary"
-                          size="sm"
-                          icon="i-heroicons-check-circle"
-                          :label="t('settings.saveKey')"
-                          class="btn-interactive"
-                          :loading="savingBraveSearch"
-                          :disabled="!braveSearchKey.trim() || savingBraveSearch || deletingBraveSearch"
-                          @click="handleSaveBraveSearch"
-                      />
-                    </div>
+              <div class="pt-4 border-t border-gray-200 dark:border-gray-800">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                  <div class="flex items-center gap-3 flex-wrap">
                     <UButton
                         type="button"
-                        variant="outline"
-                        color="error"
+                        variant="ghost"
+                        color="neutral"
                         size="sm"
-                        icon="i-heroicons-trash"
-                        :label="t('common.remove')"
-                        :loading="deletingBraveSearch"
-                        :disabled="savingBraveSearch || deletingBraveSearch"
-                        @click="handleDeleteBraveSearch"
+                        :icon="braveSearchReveal ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
+                        :label="braveSearchReveal ? t('common.hide') : t('common.show')"
+                        @click="braveSearchReveal = !braveSearchReveal"
+                    />
+                    <UButton
+                        type="button"
+                        color="primary"
+                        size="sm"
+                        icon="i-heroicons-check-circle"
+                        :label="t('settings.saveKey')"
+                        class="btn-interactive"
+                        :loading="savingBraveSearch"
+                        :disabled="!braveSearchKey.trim() || savingBraveSearch || deletingBraveSearch"
+                        @click="handleSaveBraveSearch"
                     />
                   </div>
+                  <UButton
+                      type="button"
+                      variant="outline"
+                      color="error"
+                      size="sm"
+                      icon="i-heroicons-trash"
+                      :label="t('common.remove')"
+                      :loading="deletingBraveSearch"
+                      :disabled="savingBraveSearch || deletingBraveSearch"
+                      @click="handleDeleteBraveSearch"
+                  />
                 </div>
               </div>
-            </UCard>
+            </div>
           </UCard>
             </template>
 
@@ -660,24 +642,26 @@ async function handleDeleteAccount() {
 
             <template v-if="activeTab === 'instructions'">
           <UCard class="card-elevated">
-            <div class="space-y-4">
+            <div class="space-y-6">
               <div class="space-y-1">
                 <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.customInstructionsHeading') }}</h2>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
+                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-2xl">
                   {{ t('settings.customInstructionsDescription') }}
                 </p>
               </div>
-              <div v-if="loadingInstructions" class="skeleton-shimmer h-28" />
-              <div v-else class="space-y-3">
+              <div v-if="loadingInstructions" class="skeleton-shimmer h-64" />
+              <div v-else class="space-y-4">
                 <UTextarea
                     v-model="customInstructions"
                     :placeholder="t('settings.customInstructionsPlaceholder')"
-                    :rows="5"
+                    :rows="14"
                     :maxlength="4000"
                     autoresize
+                    class="w-full"
+                    :ui="{ base: 'w-full min-h-[20rem] resize-y leading-relaxed' }"
                 />
-                <div class="flex items-center justify-between gap-3">
-                  <span class="text-xs text-gray-400">{{ customInstructions.length }}&thinsp;/&thinsp;4000</span>
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                  <span class="text-xs text-gray-400 tabular-nums">{{ customInstructions.length }}&thinsp;/&thinsp;4000</span>
                   <UButton
                       type="button"
                       color="primary"
