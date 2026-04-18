@@ -10,6 +10,7 @@ defineEmits<{ toggle: [] }>()
 <template>
   <div class="reasoning-block">
     <button
+      type="button"
       class="reasoning-trigger"
       @click="$emit('toggle')"
     >

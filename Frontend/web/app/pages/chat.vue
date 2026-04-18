@@ -734,7 +734,7 @@ const submitEditMessage = async () => {
                   </div>
                 </template>
               </USelectMenu>
-              <UTooltip :text="webSearchEnabled ? 'Web-Suche aktiv' : 'Web-Suche aktivieren'">
+              <UTooltip :text="webSearchEnabled ? 'Web-Suche deaktivieren' : 'Web-Suche aktivieren'">
                 <UButton
                   :icon="webSearchEnabled ? 'i-heroicons-globe-alt-solid' : 'i-heroicons-globe-alt'"
                   :color="webSearchEnabled ? 'primary' : 'neutral'"
