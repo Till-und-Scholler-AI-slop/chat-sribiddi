@@ -6,9 +6,13 @@ import { normalizeEntitlements, useEntitlements, usePlan } from '../useEntitleme
  * Minimal Nuxt auto-import stubs so the composable can be invoked in a plain
  * Vitest (Node) environment. The real `useState` is SSR-safe and keyed; for
  * tests we back it with a fresh `ref` per key so each test gets an isolated
- * store.
+ * store. A fresh `useNuxtApp()` container is provided so the SSR-safe
+ * per-request in-flight holder is exercised.
  */
-function installNuxtStubs(requestJsonMock: ReturnType<typeof vi.fn>) {
+function installNuxtStubs(
+  requestJsonMock: ReturnType<typeof vi.fn>,
+  nuxtApp: Record<string, unknown> = {}
+) {
   const stateStore = new Map<string, ReturnType<typeof ref>>()
 
   vi.stubGlobal('useState', (key: string, init: () => unknown) => {
@@ -19,6 +23,7 @@ function installNuxtStubs(requestJsonMock: ReturnType<typeof vi.fn>) {
   })
   vi.stubGlobal('computed', computed)
   vi.stubGlobal('useChatApi', () => ({ requestJson: requestJsonMock }))
+  vi.stubGlobal('useNuxtApp', () => nuxtApp)
 }
 
 describe('normalizeEntitlements', () => {
@@ -92,6 +97,25 @@ describe('normalizeEntitlements', () => {
       allowedModels: ['openai/gpt-4o-mini', 'google/gemini-2.0-flash']
     })
     expect(normalized.allowedModels).toEqual(['openai/gpt-4o-mini', 'google/gemini-2.0-flash'])
+  })
+
+  it('filters non-string entries out of allowedModels', () => {
+    const normalized = normalizeEntitlements({
+      plan: 'FREE',
+      // Backend misbehaving — mixed array must not poison the runtime contract.
+      allowedModels: ['openai/gpt-4o-mini', 42, null, { id: 'x' }, 'google/gemini-2.0-flash'] as unknown as string[]
+    })
+    expect(normalized.allowedModels).toEqual(['openai/gpt-4o-mini', 'google/gemini-2.0-flash'])
+  })
+
+  it('treats empty / all-invalid allowedModels as "no whitelist"', () => {
+    expect(normalizeEntitlements({ plan: 'FREE', allowedModels: [] }).allowedModels).toBeNull()
+    expect(
+      normalizeEntitlements({
+        plan: 'FREE',
+        allowedModels: [1, 2] as unknown as string[]
+      }).allowedModels
+    ).toBeNull()
   })
 })
 
@@ -204,7 +228,7 @@ describe('useEntitlements', () => {
     expect(error.value).toBeNull()
   })
 
-  it('shares state across useEntitlements() calls via useState("entitlements")', async () => {
+  it('shares state across useEntitlements() calls via useState("billing-entitlements")', async () => {
     requestJson.mockResolvedValueOnce({ plan: 'PREMIUM' })
 
     const a = useEntitlements()
@@ -220,7 +244,7 @@ describe('useEntitlements', () => {
 
   it('shares the in-flight request across concurrent useEntitlements() handles', async () => {
     // Delay the resolution so both loads are truly concurrent and rely on the
-    // module-level in-flight promise (not the `loaded` cache).
+    // per-request in-flight promise (not the `loaded` cache).
     let resolveFetch!: (value: unknown) => void
     requestJson.mockReturnValueOnce(
       new Promise((resolve) => {
@@ -257,6 +281,51 @@ describe('useEntitlements', () => {
     await load()
     expect(requestJson).toHaveBeenCalledTimes(2)
     expect(plan.value).toBe('FREE')
+  })
+
+  it('returns a non-mutable default when no data has been loaded', () => {
+    const { entitlements, caps } = useEntitlements()
+
+    // The default snapshot must be safe to read but not leak mutations across
+    // callers. Writing to the frozen fallback throws in strict mode (ES modules
+    // are always strict); writing to `caps.value` — which is a fresh object —
+    // must not persist into the next reader's view.
+    expect(() => {
+      ;(entitlements.value as { plan: string }).plan = 'MAX'
+    }).toThrow()
+
+    ;(caps.value as Record<string, unknown>).injected = true
+    const { caps: caps2 } = useEntitlements()
+    expect(caps2.value).toEqual({})
+  })
+
+  it('scopes the in-flight request per useNuxtApp() context (SSR isolation)', async () => {
+    // Simulate SSR request A — load starts but hasn't resolved yet.
+    let resolveA!: (value: unknown) => void
+    const requestJsonA = vi.fn().mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveA = resolve
+      })
+    )
+    installNuxtStubs(requestJsonA, { tag: 'request-A' })
+    const a = useEntitlements()
+    const pa = a.load()
+
+    // Simulate SSR request B running in parallel with its own Nuxt context.
+    // Its load() must not receive request A's promise (which would leak A's
+    // entitlements to B's user).
+    const requestJsonB = vi.fn().mockResolvedValueOnce({ plan: 'MAX' })
+    installNuxtStubs(requestJsonB, { tag: 'request-B' })
+    const b = useEntitlements()
+    await b.load()
+    expect(requestJsonB).toHaveBeenCalledTimes(1)
+    expect(b.plan.value).toBe('MAX')
+
+    // Now resolve request A — it must still fetch independently.
+    installNuxtStubs(requestJsonA, { tag: 'request-A' })
+    resolveA({ plan: 'FREE' })
+    await pa
+    expect(requestJsonA).toHaveBeenCalledTimes(1)
   })
 })
 

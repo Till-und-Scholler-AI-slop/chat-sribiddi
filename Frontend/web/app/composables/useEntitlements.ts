@@ -42,17 +42,19 @@ export interface Entitlements {
   caps: EntitlementCaps
 }
 
-/** Default entitlements used before {@code /billing/me} has loaded. */
-const DEFAULT_ENTITLEMENTS: Entitlements = {
+/** Default entitlements used before {@code /billing/me} has loaded. Frozen so
+ * consumers that receive this fallback through {@code entitlements.value} cannot
+ * mutate the shared default (which would leak across all callers). */
+const DEFAULT_ENTITLEMENTS: Entitlements = Object.freeze({
   plan: 'FREE',
   showAds: true,
   allowedModels: null,
-  caps: {}
-}
+  caps: Object.freeze({}) as EntitlementCaps
+}) as Entitlements
 
 type RawEntitlementsResponse = Partial<Entitlements & EntitlementCaps> & {
   caps?: Partial<EntitlementCaps>
-  allowedModels?: string[] | null
+  allowedModels?: unknown
 }
 
 function normalizePlan(value: unknown): Plan {
@@ -75,7 +77,7 @@ function normalizePlan(value: unknown): Plan {
  * object wins over the flat top-level field.
  */
 export function normalizeEntitlements(raw: RawEntitlementsResponse | null | undefined): Entitlements {
-  if (!raw) return { ...DEFAULT_ENTITLEMENTS }
+  if (!raw) return { ...DEFAULT_ENTITLEMENTS, caps: {} }
 
   const plan = normalizePlan(raw.plan)
 
@@ -103,7 +105,13 @@ export function normalizeEntitlements(raw: RawEntitlementsResponse | null | unde
   // backend explicitly overrides it.
   const showAds = typeof raw.showAds === 'boolean' ? raw.showAds : plan === 'FREE'
 
-  const allowedModels = Array.isArray(raw.allowedModels) ? [...raw.allowedModels] : null
+  // Validate allowed-models entries are strings and treat empty lists as "no
+  // whitelist" (same semantics as a missing field) so the runtime contract
+  // (`string[] | null`) is preserved even if the backend returns mixed types.
+  const filteredModels = Array.isArray(raw.allowedModels)
+    ? raw.allowedModels.filter((model): model is string => typeof model === 'string')
+    : null
+  const allowedModels = filteredModels && filteredModels.length > 0 ? filteredModels : null
 
   return { plan, showAds, allowedModels, caps }
 }
@@ -115,17 +123,38 @@ type EntitlementsState = {
   loaded: boolean
 }
 
-/**
- * Module-scoped so concurrent callers share the same in-flight request across
- * separate {@code useEntitlements()} invocations. {@code useState} cannot hold
- * a Promise safely (it would be serialised during SSR payload transfer), so
- * the promise lives here rather than in the reactive state.
- */
-let inFlight: Promise<Entitlements | null> | null = null
+/** Holder object so we can mutate a shared `current` field without losing the
+ * reference. Stored on the per-request `useNuxtApp()` context on SSR so the
+ * in-flight promise is never shared between concurrent requests (preventing
+ * one user's entitlements from being returned to another). Falls back to a
+ * module-level holder on the client (single renderer) and in unit tests. */
+type InFlightHolder = { current: Promise<Entitlements | null> | null }
+
+const INFLIGHT_KEY = '__billingEntitlementsInFlight' as const
+const moduleInFlight: InFlightHolder = { current: null }
+
+function getInFlightHolder(): InFlightHolder {
+  // `useNuxtApp` is only available inside a Nuxt runtime. Under SSR it is a
+  // per-request instance, so attaching the promise to it isolates concurrent
+  // requests. Guarded so the composable still works in plain Vitest.
+  const getNuxtApp = (globalThis as unknown as { useNuxtApp?: () => Record<string, unknown> }).useNuxtApp
+  if (typeof getNuxtApp !== 'function') return moduleInFlight
+  try {
+    const app = getNuxtApp() as Record<string, InFlightHolder | undefined>
+    if (!app[INFLIGHT_KEY]) {
+      app[INFLIGHT_KEY] = { current: null }
+    }
+    return app[INFLIGHT_KEY]!
+  } catch {
+    return moduleInFlight
+  }
+}
 
 /**
  * Loads {@code GET /billing/me} once per session and exposes the resulting
- * {@link Entitlements} as SSR-safe reactive state via {@code useState('entitlements', …)}.
+ * {@link Entitlements} as SSR-safe reactive state via
+ * {@code useState('billing-entitlements', …)} (namespaced to match repo
+ * conventions like {@code chat-*} / {@code auth-*}).
  *
  * Uses {@code useChatApi().requestJson()} per repo convention — the CSRF header
  * is attached automatically for mutating methods and the backend base URL is
@@ -133,10 +162,12 @@ let inFlight: Promise<Entitlements | null> | null = null
  *
  * The fetch is single-flight: concurrent callers share the same promise, and
  * once the response has been received it is reused for the rest of the session
- * (call {@link reset} or {@link load} with {@code force=true} to refetch).
+ * (call {@link reset} or {@link load} with {@code force=true} to refetch). On
+ * SSR the in-flight promise is scoped to {@code useNuxtApp()} to avoid
+ * cross-request data leaks.
  */
 export function useEntitlements() {
-  const state = useState<EntitlementsState>('entitlements', () => ({
+  const state = useState<EntitlementsState>('billing-entitlements', () => ({
     data: null,
     loading: false,
     error: null,
@@ -146,12 +177,14 @@ export function useEntitlements() {
   const load = async (options: { force?: boolean } = {}): Promise<Entitlements | null> => {
     const { force = false } = options
     if (!force && state.value.loaded) return state.value.data
-    if (inFlight) return inFlight
+
+    const holder = getInFlightHolder()
+    if (holder.current) return holder.current
 
     state.value = { ...state.value, loading: true, error: null }
 
     const { requestJson } = useChatApi()
-    inFlight = (async () => {
+    holder.current = (async () => {
       try {
         const raw = await requestJson<RawEntitlementsResponse | null>('/billing/me', { method: 'GET' })
         const normalized = normalizeEntitlements(raw)
@@ -162,11 +195,11 @@ export function useEntitlements() {
         state.value = { data: state.value.data, loading: false, error: message, loaded: false }
         return null
       } finally {
-        inFlight = null
+        holder.current = null
       }
     })()
 
-    return inFlight
+    return holder.current
   }
 
   const ensureLoaded = async (): Promise<Entitlements | null> => {
@@ -176,14 +209,14 @@ export function useEntitlements() {
 
   const reset = () => {
     state.value = { data: null, loading: false, error: null, loaded: false }
-    inFlight = null
+    getInFlightHolder().current = null
   }
 
   const entitlements = computed<Entitlements>(() => state.value.data ?? DEFAULT_ENTITLEMENTS)
   const plan = computed<Plan>(() => entitlements.value.plan)
   const showAds = computed<boolean>(() => entitlements.value.showAds)
   const allowedModels = computed<string[] | null>(() => entitlements.value.allowedModels)
-  const caps = computed<EntitlementCaps>(() => entitlements.value.caps)
+  const caps = computed<EntitlementCaps>(() => state.value.data?.caps ?? {})
   const loading = computed<boolean>(() => state.value.loading)
   const error = computed<string | null>(() => state.value.error)
   const loaded = computed<boolean>(() => state.value.loaded)
