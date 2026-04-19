@@ -1,5 +1,6 @@
 package com.rft.chat_sribiddi.config;
 
+import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.service.ChatService;
 import java.net.http.HttpTimeoutException;
@@ -24,6 +25,22 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(ChatNotFoundException.class)
   public ResponseEntity<Map<String, String>> handleChatNotFound(ChatNotFoundException ex) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", ex.getMessage()));
+  }
+
+  @ExceptionHandler(PlanRestrictionException.class)
+  public ResponseEntity<Map<String, String>> handlePlanRestriction(PlanRestrictionException ex) {
+    HttpStatus status =
+        switch (ex.getReason()) {
+          case MODEL_NOT_ALLOWED, DAILY_CAP_EXCEEDED -> HttpStatus.PAYMENT_REQUIRED;
+          case TOOL_NOT_ALLOWED -> HttpStatus.FORBIDDEN;
+        };
+    Map<String, String> body = new HashMap<>();
+    body.put("message", ex.getMessage());
+    body.put("reason", ex.getReason().name());
+    if (ex.getPlan() != null) {
+      body.put("plan", ex.getPlan().name());
+    }
+    return ResponseEntity.status(status).body(body);
   }
 
   @ExceptionHandler(DataIntegrityViolationException.class)
