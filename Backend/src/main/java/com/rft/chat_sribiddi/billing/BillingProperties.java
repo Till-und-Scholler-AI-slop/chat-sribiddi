@@ -1,0 +1,100 @@
+package com.rft.chat_sribiddi.billing;
+
+import com.rft.chat_sribiddi.auth.Plan;
+import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+import lombok.Getter;
+import lombok.Setter;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
+
+/**
+ * Per-tier billing/entitlements configuration. Values are sourced from {@code application.yaml}
+ * under {@code app.billing.tiers.<plan>.*} so that plan-gating limits are never hardcoded in
+ * service classes (repo convention).
+ */
+@Getter
+@Setter
+@Component
+@ConfigurationProperties(prefix = "app.billing")
+public class BillingProperties {
+
+  /**
+   * Per-plan tier configuration. Keys match {@link Plan} (FREE, PREMIUM, MAX), matched
+   * case-insensitively by Spring Boot.
+   */
+  private Map<Plan, TierConfig> tiers = new EnumMap<>(Plan.class);
+
+  /** Returns the configuration for a plan, falling back to an empty config if missing. */
+  public TierConfig tier(Plan plan) {
+    TierConfig config = tiers.get(plan);
+    return config != null ? config : new TierConfig();
+  }
+
+  @Getter
+  @Setter
+  public static class TierConfig {
+    /**
+     * Allowed model IDs. A wildcard {@code "*"} entry means all models are allowed; an empty
+     * list means no models are allowed.
+     */
+    private Set<String> models = new LinkedHashSet<>();
+
+    /** Maximum number of media attachments per message. */
+    private int maxAttachments = 0;
+
+    /** Maximum size of a single media attachment in bytes. */
+    private long maxAttachmentBytes = 0L;
+
+    /** Maximum total size of all media attachments on a single request in bytes. */
+    private long maxTotalAttachmentBytes = 0L;
+
+    /** Maximum number of prior messages included as chat context. */
+    private int contextMessageLimit = 0;
+
+    /** Set of allowed tool identifiers (e.g. {@code brave-search}). */
+    private Set<String> tools = new LinkedHashSet<>();
+
+    /** Maximum number of managed-mode calls allowed per user per day. */
+    private long dailyCap = 0L;
+
+    /** Maximum number of parallel streams allowed for a user on this tier. */
+    private int parallelStreams = 1;
+
+    public boolean allowsAllModels() {
+      return models != null && models.contains("*");
+    }
+
+    public boolean allowsModel(String modelId) {
+      if (modelId == null || modelId.isBlank()) {
+        return false;
+      }
+      if (allowsAllModels()) {
+        return true;
+      }
+      return models != null && models.contains(modelId);
+    }
+
+    public boolean allowsTool(String toolId) {
+      if (toolId == null || toolId.isBlank() || tools == null) {
+        return false;
+      }
+      if (tools.contains("*")) {
+        return true;
+      }
+      return tools.contains(toolId);
+    }
+
+    /** Defensive copy to avoid leaking mutable internal state. */
+    public Set<String> modelsView() {
+      return models == null ? Set.of() : new LinkedHashSet<>(models);
+    }
+
+    public Set<String> toolsView() {
+      return tools == null ? Set.of() : new HashSet<>(tools);
+    }
+  }
+}

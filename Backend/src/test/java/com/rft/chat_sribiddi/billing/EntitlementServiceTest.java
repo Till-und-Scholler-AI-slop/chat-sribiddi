@@ -1,0 +1,227 @@
+package com.rft.chat_sribiddi.billing;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+import com.rft.chat_sribiddi.auth.Plan;
+import com.rft.chat_sribiddi.auth.User;
+import com.rft.chat_sribiddi.auth.UserRepository;
+import com.rft.chat_sribiddi.billing.BillingProperties.TierConfig;
+import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.EnumMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class EntitlementServiceTest {
+
+  private static final String USER_ID = "provider-user-1";
+  private static final long INTERNAL_ID = 42L;
+  private static final LocalDate TODAY = LocalDate.of(2026, 4, 19);
+
+  @Mock private UserRepository userRepository;
+  @Mock private DailyQuotaCounterRepository dailyQuotaCounterRepository;
+
+  private BillingProperties billingProperties;
+  private EntitlementService service;
+
+  @BeforeEach
+  void setUp() {
+    billingProperties = new BillingProperties();
+    Map<Plan, TierConfig> tiers = new EnumMap<>(Plan.class);
+    tiers.put(Plan.FREE, tier(Set.of("gpt-4.1-nano-2025-04-14"), Set.of(), 2, 10L));
+    tiers.put(
+        Plan.PREMIUM,
+        tier(Set.of("*"), Set.of("brave-search"), 5, 100L));
+    tiers.put(Plan.MAX, tier(Set.of("*"), Set.of("*"), 10, 0L));
+    billingProperties.setTiers(tiers);
+
+    Clock fixed = Clock.fixed(Instant.parse("2026-04-19T10:15:30Z"), ZoneId.of("UTC"));
+    service =
+        new EntitlementService(billingProperties, userRepository, dailyQuotaCounterRepository, fixed);
+  }
+
+  private TierConfig tier(Set<String> models, Set<String> tools, int maxAttachments, long dailyCap) {
+    TierConfig t = new TierConfig();
+    t.setModels(new LinkedHashSet<>(models));
+    t.setTools(new LinkedHashSet<>(tools));
+    t.setMaxAttachments(maxAttachments);
+    t.setMaxAttachmentBytes(1_000L);
+    t.setMaxTotalAttachmentBytes(2_000L);
+    t.setContextMessageLimit(15);
+    t.setDailyCap(dailyCap);
+    t.setParallelStreams(1);
+    return t;
+  }
+
+  private User userWithPlan(Plan plan) {
+    User u = new User();
+    u.setId(INTERNAL_ID);
+    u.setProviderId(USER_ID);
+    u.setPlan(plan);
+    return u;
+  }
+
+  // -------- get() --------
+
+  @Test
+  void get_returnsFreeTierEntitlementsForFreeUser() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+
+    Entitlements entitlements = service.get(USER_ID);
+
+    assertThat(entitlements.plan()).isEqualTo(Plan.FREE);
+    assertThat(entitlements.allModelsAllowed()).isFalse();
+    assertThat(entitlements.allowedModels()).containsExactly("gpt-4.1-nano-2025-04-14");
+    assertThat(entitlements.maxAttachments()).isEqualTo(2);
+    assertThat(entitlements.dailyCap()).isEqualTo(10L);
+    assertThat(entitlements.allowedTools()).isEmpty();
+  }
+
+  @Test
+  void get_returnsPremiumTierWithWildcardModels() {
+    when(userRepository.findByProviderId(USER_ID))
+        .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+
+    Entitlements entitlements = service.get(USER_ID);
+
+    assertThat(entitlements.plan()).isEqualTo(Plan.PREMIUM);
+    assertThat(entitlements.allModelsAllowed()).isTrue();
+    assertThat(entitlements.allowsModel("any-new-model")).isTrue();
+    assertThat(entitlements.allowsTool("brave-search")).isTrue();
+    assertThat(entitlements.allowsTool("other-tool")).isFalse();
+  }
+
+  @Test
+  void get_returnsMaxTierWithAllTools() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.MAX)));
+
+    Entitlements entitlements = service.get(USER_ID);
+
+    assertThat(entitlements.plan()).isEqualTo(Plan.MAX);
+    assertThat(entitlements.allowsTool("brave-search")).isTrue();
+    assertThat(entitlements.allowsTool("anything")).isTrue();
+    assertThat(entitlements.dailyCap()).isZero();
+  }
+
+  @Test
+  void get_fallsBackToFreeTierWhenUserMissing() {
+    when(userRepository.findByProviderId("unknown")).thenReturn(Optional.empty());
+
+    Entitlements entitlements = service.get("unknown");
+
+    assertThat(entitlements.plan()).isEqualTo(Plan.FREE);
+    assertThat(entitlements.allowedModels()).containsExactly("gpt-4.1-nano-2025-04-14");
+  }
+
+  // -------- assertCanUseModel --------
+
+  @Test
+  void assertCanUseModel_allowsConfiguredModelForFree() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+
+    service.assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-4.1-nano-2025-04-14");
+  }
+
+  @Test
+  void assertCanUseModel_rejectsPremiumModelForFree() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+
+    assertThatThrownBy(() -> service.assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-5.2"))
+        .isInstanceOf(PlanRestrictionException.class)
+        .satisfies(
+            ex -> {
+              PlanRestrictionException pre = (PlanRestrictionException) ex;
+              assertThat(pre.getReason())
+                  .isEqualTo(PlanRestrictionException.Reason.MODEL_NOT_ALLOWED);
+              assertThat(pre.getPlan()).isEqualTo(Plan.FREE);
+            });
+  }
+
+  @Test
+  void assertCanUseModel_allowsAnyModelForPremium() {
+    when(userRepository.findByProviderId(USER_ID))
+        .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+
+    service.assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-5.2");
+  }
+
+  @Test
+  void assertCanUseModel_rejectsBlankModelId() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.MAX)));
+
+    assertThatThrownBy(() -> service.assertCanUseModel(USER_ID, Provider.OPENAI, " "))
+        .isInstanceOf(PlanRestrictionException.class);
+  }
+
+  // -------- assertWithinDailyCap --------
+
+  @Test
+  void assertWithinDailyCap_allowsWhenUnderCapForFree() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    when(dailyQuotaCounterRepository.getCount(INTERNAL_ID, TODAY)).thenReturn(5L);
+
+    service.assertWithinDailyCap(USER_ID);
+  }
+
+  @Test
+  void assertWithinDailyCap_rejectsWhenAtCapForFree() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    when(dailyQuotaCounterRepository.getCount(INTERNAL_ID, TODAY)).thenReturn(10L);
+
+    assertThatThrownBy(() -> service.assertWithinDailyCap(USER_ID))
+        .isInstanceOf(PlanRestrictionException.class)
+        .satisfies(
+            ex ->
+                assertThat(((PlanRestrictionException) ex).getReason())
+                    .isEqualTo(PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED));
+  }
+
+  @Test
+  void assertWithinDailyCap_noOpWhenCapIsZero() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.MAX)));
+
+    service.assertWithinDailyCap(USER_ID);
+
+    verifyNoInteractions(dailyQuotaCounterRepository);
+  }
+
+  // -------- incrementCounter --------
+
+  @Test
+  void incrementCounter_callsRepositoryWithTodayAndInternalId() {
+    when(userRepository.findByProviderId(USER_ID))
+        .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+
+    service.incrementCounter(USER_ID);
+
+    verify(dailyQuotaCounterRepository).incrementCounter(eq(INTERNAL_ID), eq(TODAY));
+  }
+
+  @Test
+  void incrementCounter_skipsWhenUserMissing() {
+    when(userRepository.findByProviderId("unknown")).thenReturn(Optional.empty());
+
+    service.incrementCounter("unknown");
+
+    verify(dailyQuotaCounterRepository, never()).incrementCounter(anyLong(), any());
+  }
+}
