@@ -1,7 +1,9 @@
 package com.rft.chat_sribiddi.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import java.time.Duration;
 import org.springframework.ai.openai.OpenAiChatOptions;
@@ -69,5 +71,38 @@ class DefaultProviderClientFactoryTest {
     var options = customFactory.buildGoogleHttpOptions();
 
     assertThat(options.timeout()).contains(123_000);
+  }
+
+  @Test
+  void getClient_sameKey_differentBillingModes_returnSeparateHolders() {
+    ChatService.ClientHolder byok =
+        factory.getClient(Provider.GOOGLE, "shared-key", BillingMode.BYOK);
+    ChatService.ClientHolder managed =
+        factory.getClient(Provider.GOOGLE, "shared-key", BillingMode.MANAGED);
+
+    assertThat(managed).isNotSameAs(byok);
+    assertThat(managed.client()).isNotSameAs(byok.client());
+
+    // Subsequent calls with the same mode+key must still hit the cached entry.
+    ChatService.ClientHolder byokAgain =
+        factory.getClient(Provider.GOOGLE, "shared-key", BillingMode.BYOK);
+    assertThat(byokAgain).isSameAs(byok);
+  }
+
+  @Test
+  void getClient_twoArgOverload_defaultsToByokCachePartition() {
+    // The legacy 2-arg call site must land in the same cache entry as an explicit BYOK call
+    // to guarantee the existing BYOK path is behaviourally unchanged.
+    ChatService.ClientHolder legacy = factory.getClient(Provider.GOOGLE, "byok-key");
+    ChatService.ClientHolder explicit =
+        factory.getClient(Provider.GOOGLE, "byok-key", BillingMode.BYOK);
+
+    assertThat(explicit).isSameAs(legacy);
+  }
+
+  @Test
+  void getClient_nullBillingMode_throws() {
+    assertThatThrownBy(() -> factory.getClient(Provider.OPENAI, "key", null))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 }

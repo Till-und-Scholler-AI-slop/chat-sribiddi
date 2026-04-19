@@ -194,6 +194,14 @@ app:
     # Per-tier entitlements. Values are consumed by BillingProperties / EntitlementService.
     # Model access is NOT gated via hardcoded ID whitelists — it uses the price threshold
     # defined under `model-access` below (see MONETIZATION_PLAN.md).
+    managed-keys:
+      # Server-side API keys used by BillingModeResolver when a request is resolved to
+      # managed billing mode. Defaults read the conventional env vars — a blank value disables
+      # managed mode for that provider.
+      openai: ${OPENAI_API_KEY:}
+      google: ${GOOGLE_API_KEY:}
+      claude: ${CLAUDE_API_KEY:}
+      openrouter: ${OPENROUTER_API_KEY:}
     model-access:
       # Free tier allows only models whose prompt/completion prices are at or below these
       # thresholds, expressed in USD per 1,000,000 tokens. Defaults (0/0) match OpenRouter's
