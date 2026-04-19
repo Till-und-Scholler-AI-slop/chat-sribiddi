@@ -2,6 +2,7 @@ package com.rft.chat_sribiddi.chat.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.chat.dto.MessageResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
@@ -24,6 +25,8 @@ import com.rft.chat_sribiddi.chat.toolcall.LoggedCurrentDateTimeTool;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedPythonInterpreterTool;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedUrlFetcherTool;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
+import com.rft.chat_sribiddi.billing.EntitlementService;
+import com.rft.chat_sribiddi.billing.UsageEventService;
 import com.rft.chat_sribiddi.tools.CalculatorTool;
 import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
 import com.rft.chat_sribiddi.tools.UrlFetcherTool;
@@ -106,6 +109,8 @@ public class ChatService {
   private final UrlFetcherTool urlFetcherTool;
   private final PythonInterpreterTool pythonInterpreterTool;
   private final com.rft.chat_sribiddi.tools.CurrentDateTimeTool currentDateTimeTool;
+  private final EntitlementService entitlementService;
+  private final UsageEventService usageEventService;
 
   @Transactional
   public void deleteChat(UUID chatId, String userId) {
@@ -200,6 +205,7 @@ public class ChatService {
             .findByChatIdAndUserId(chatId, userId)
             .orElseThrow(() -> new ChatNotFoundException(chatId));
 
+    BillingMode billingMode = assertEntitlementsForCall(userId, requestDTO);
     MessagePreparation prep = prepareUserMessage(chatId, chat, userId, requestDTO);
     if (log.isTraceEnabled()) {
       log.trace("Prompt messages: {}", prep.promptMessages());
@@ -209,6 +215,7 @@ public class ChatService {
 
     ChatResponse chatResponse;
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
+    boolean providerCallSucceeded = false;
     try (ClientHolder clientHolder =
         providerClientFactory.getClient(requestDTO.provider(), resolvedKey)) {
       var options =
@@ -218,6 +225,7 @@ public class ChatService {
       var promptSpec = client.prompt().options(options).messages(prep.promptMessages());
       wireTools(userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
       chatResponse = promptSpec.call().chatResponse();
+      providerCallSucceeded = true;
     }
 
     if (log.isTraceEnabled()) {
@@ -257,6 +265,16 @@ public class ChatService {
     assistantMessage.setTotalTokens(totalTokens);
     saveMessageOrThrowIfChatMissing(assistantMessage);
     persistToolCallLogs(assistantMessage, toolExecutionCollector, assistantResponse);
+    recordUsageAndMaybeIncrementCounter(
+        userId,
+        requestDTO.provider(),
+        requestDTO.modelId(),
+        promptTokens,
+        generationTokens,
+        totalTokens,
+        assistantMessage.getId(),
+        billingMode,
+        providerCallSucceeded);
 
     log.debug("Message persisted successfully");
 
@@ -273,10 +291,11 @@ public class ChatService {
             .findByChatIdAndUserId(chatId, userId)
             .orElseThrow(() -> new ChatNotFoundException(chatId));
 
+    BillingMode billingMode = assertEntitlementsForCall(userId, requestDTO);
     MessagePreparation prep = prepareUserMessage(chatId, chat, userId, requestDTO);
 
     return createAndSubscribeStream(
-        userId, requestDTO, prep.promptMessages(), chatId, prep.updatedTitle());
+        userId, requestDTO, prep.promptMessages(), chatId, prep.updatedTitle(), billingMode);
   }
 
   /**
@@ -317,7 +336,8 @@ public class ChatService {
         buildPromptMessages(chatId, validatedMedia, messageId, customInstructions,
             requestDTO.provider(), requestDTO.modelId());
 
-    return createAndSubscribeStream(userId, requestDTO, promptMessages, chatId, null);
+    BillingMode billingMode = assertEntitlementsForCall(userId, requestDTO);
+    return createAndSubscribeStream(userId, requestDTO, promptMessages, chatId, null, billingMode);
   }
 
   private record MessagePreparation(
@@ -358,7 +378,7 @@ public class ChatService {
 
   private SseEmitter createAndSubscribeStream(
       String userId, RequestDTO requestDTO, List<Message> promptMessages,
-      UUID chatId, String updatedTitle) {
+      UUID chatId, String updatedTitle, BillingMode billingMode) {
     String resolvedKey = resolveApiKey(userId, requestDTO);
     SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
     ClientHolder clientHolder =
@@ -377,6 +397,10 @@ public class ChatService {
         promptSpec,
         emitter,
         clientHolder,
+        userId,
+        requestDTO.provider(),
+        requestDTO.modelId(),
+        billingMode,
         chatId,
         assistantContext,
         updatedTitle,
@@ -392,6 +416,10 @@ public class ChatService {
       ChatClient.ChatClientRequestSpec promptSpec,
       SseEmitter emitter,
       ClientHolder clientHolder,
+      String userId,
+      Provider provider,
+      String modelId,
+      BillingMode billingMode,
       UUID chatId,
       String assistantContext,
       String updatedTitle,
@@ -405,8 +433,22 @@ public class ChatService {
         .chatResponse()
         .subscribe(
             chunk -> handleStreamChunk(chunk, fullText, lastUsage, emitter),
-            error -> handleStreamError(chatId, error, emitter, clientHolder),
+            error ->
+                handleStreamError(
+                    userId,
+                    provider,
+                    modelId,
+                    billingMode,
+                    chatId,
+                    error,
+                    lastUsage,
+                    emitter,
+                    clientHolder),
             () -> handleStreamCompletion(
+                userId,
+                provider,
+                modelId,
+                billingMode,
                 fullText,
                 lastUsage,
                 chatId,
@@ -467,8 +509,17 @@ public class ChatService {
   }
 
   private void handleStreamError(
-      UUID chatId, Throwable error, SseEmitter emitter, ClientHolder clientHolder) {
+      String userId,
+      Provider provider,
+      String modelId,
+      BillingMode billingMode,
+      UUID chatId,
+      Throwable error,
+      AtomicReference<Usage> lastUsage,
+      SseEmitter emitter,
+      ClientHolder clientHolder) {
     logStreamingError(chatId, error);
+    TokenUsage tokenUsage = toTokenUsage(lastUsage.get());
       try (clientHolder) {
           emitter.send(
                   SseEmitter.event()
@@ -482,11 +533,26 @@ public class ChatService {
       } catch (IOException e) {
           log.warn("Failed to send SSE error event", e);
       } finally {
+          boolean providerCallSucceeded = !isProviderError(error);
+          recordUsageAndMaybeIncrementCounter(
+              userId,
+              provider,
+              modelId,
+              tokenUsage.promptTokens(),
+              tokenUsage.generationTokens(),
+              tokenUsage.totalTokens(),
+              null,
+              billingMode,
+              providerCallSucceeded);
           emitter.complete();
       }
   }
 
   private void handleStreamCompletion(
+      String userId,
+      Provider provider,
+      String modelId,
+      BillingMode billingMode,
       StringBuilder fullText, AtomicReference<Usage> lastUsage,
       UUID chatId, String assistantContext, String updatedTitle,
       ToolExecutionCollector toolExecutionCollector,
@@ -526,21 +592,92 @@ public class ChatService {
                   SseEmitter.event()
                           .name("done")
                           .data(
-                                   new StreamEventDTO(
-                                           "done",
-                                           null,
+           new StreamEventDTO(
+                                            "done",
+                                            null,
                                            promptTokens,
                                            generationTokens,
                                            totalTokens,
                                            updatedTitle,
                                            assistantMessage.getId(),
                                            !toolExecutionCollector.isEmpty()),
-                                   MediaType.APPLICATION_JSON));
-          emitter.complete();
-      } catch (IOException e) {
-          log.warn("Failed to send SSE done event", e);
-          emitter.complete();
+                                    MediaType.APPLICATION_JSON));
+           emitter.complete();
+       } catch (IOException e) {
+           log.warn("Failed to send SSE done event", e);
+           emitter.complete();
+       } finally {
+           TokenUsage tokenUsage = toTokenUsage(lastUsage.get());
+           recordUsageAndMaybeIncrementCounter(
+               userId,
+               provider,
+               modelId,
+               tokenUsage.promptTokens(),
+               tokenUsage.generationTokens(),
+               tokenUsage.totalTokens(),
+               null,
+               billingMode,
+               true);
+       }
+  }
+
+  private BillingMode assertEntitlementsForCall(String userId, RequestDTO requestDTO) {
+    BillingMode billingMode =
+        entitlementService.assertCanUseModel(userId, requestDTO.provider(), requestDTO.modelId());
+    if (billingMode == BillingMode.MANAGED) {
+      entitlementService.assertWithinDailyCap(userId);
+    }
+    return billingMode;
+  }
+
+  private void recordUsageAndMaybeIncrementCounter(
+      String userId,
+      Provider provider,
+      String modelId,
+      Long promptTokens,
+      Long generationTokens,
+      Long totalTokens,
+      Long messageId,
+      BillingMode billingMode,
+      boolean providerCallSucceeded) {
+    try {
+      usageEventService.record(
+          userId,
+          provider,
+          modelId,
+          promptTokens,
+          generationTokens,
+          totalTokens,
+          messageId,
+          billingMode);
+    } catch (Exception ex) {
+      log.warn("Failed to record usage event for user {}", userId, ex);
+    }
+    if (billingMode == BillingMode.MANAGED && providerCallSucceeded) {
+      try {
+        entitlementService.incrementCounter(userId);
+      } catch (Exception ex) {
+        log.warn("Failed to increment managed usage counter for user {}", userId, ex);
       }
+    }
+  }
+
+  private boolean isProviderError(Throwable error) {
+    return error instanceof WebClientResponseException || error instanceof RestClientResponseException;
+  }
+
+  private TokenUsage toTokenUsage(Usage usage) {
+    if (usage == null) {
+      return TokenUsage.EMPTY;
+    }
+    return new TokenUsage(
+        safeLong(usage.getPromptTokens()),
+        safeLong(usage.getCompletionTokens()),
+        safeLong(usage.getTotalTokens()));
+  }
+
+  private record TokenUsage(Long promptTokens, Long generationTokens, Long totalTokens) {
+    private static final TokenUsage EMPTY = new TokenUsage(null, null, null);
   }
 
   /**

@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import com.rft.chat_sribiddi.auth.BillingMode;
+import com.rft.chat_sribiddi.billing.EntitlementService;
+import com.rft.chat_sribiddi.billing.UsageEventService;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
@@ -44,6 +47,8 @@ import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
 class ChatServiceTest {
@@ -55,6 +60,8 @@ class ChatServiceTest {
   @Mock private ApiKeyService apiKeyService;
   @Mock private ProviderClientFactory providerClientFactory;
   @Mock private com.rft.chat_sribiddi.auth.UserSettingsService userSettingsService;
+  @Mock private EntitlementService entitlementService;
+  @Mock private UsageEventService usageEventService;
   @Mock private HttpClient webSearchHttpClient;
   @Mock private ToolRegistry toolRegistry;
   @Mock private CalculatorTool calculatorTool;
@@ -75,7 +82,7 @@ class ChatServiceTest {
         apiKeyService, providerClientFactory, chatProperties, userSettingsService,
         new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
         toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
-        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), entitlementService, usageEventService);
   }
 
   @BeforeEach
@@ -85,6 +92,9 @@ class ChatServiceTest {
     userId = "user-123";
 
     lenient().when(userSettingsService.getCustomInstructions(any())).thenReturn(java.util.Optional.empty());
+    lenient()
+        .when(entitlementService.assertCanUseModel(anyString(), any(), anyString()))
+        .thenReturn(BillingMode.BYOK);
     lenient().when(chatToolRepository.findByChatId(any())).thenReturn(List.of());
     lenient().when(toolRegistry.getAll()).thenReturn(List.of());
 
@@ -138,6 +148,50 @@ class ChatServiceTest {
     assertThat(savedMessages.getAllValues())
         .extracting(MessageEntity::getRole)
         .containsExactly(Role.USER, Role.ASSISTANT);
+  }
+
+  @Test
+  void sendMessage_freeUserWithPremiumModel_failsPreFlightWith402Or403() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(entitlementService.assertCanUseModel(userId, RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11"))
+        .thenThrow(new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED, "Premium model"));
+
+    assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
+        .isInstanceOfSatisfying(
+            ResponseStatusException.class,
+            ex -> assertThat(ex.getStatusCode().value()).isIn(402, 403));
+
+    verify(entitlementService, never()).assertWithinDailyCap(anyString());
+    verifyNoInteractions(providerClientFactory);
+  }
+
+  @Test
+  void sendMessage_freeUserOverDailyCap_returns429() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-4.1-mini", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(entitlementService.assertCanUseModel(userId, RequestDTO.Provider.OPENAI, "gpt-4.1-mini"))
+        .thenReturn(BillingMode.MANAGED);
+    doThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Daily cap exceeded"))
+        .when(entitlementService)
+        .assertWithinDailyCap(userId);
+
+    assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
+        .isInstanceOfSatisfying(
+            ResponseStatusException.class,
+            ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
+
+    verifyNoInteractions(providerClientFactory);
   }
 
   @Test
