@@ -192,19 +192,16 @@ app:
     request-timeout: ${WEB_SEARCH_REQUEST_TIMEOUT:10s}
   billing:
     # Per-tier entitlements. Values are consumed by BillingProperties / EntitlementService.
-    # Use "*" in `models` or `tools` to mean "allow all". Empty list means nothing allowed.
+    # Model access is NOT gated via hardcoded ID whitelists — it uses the price threshold
+    # defined under `model-access` below (see MONETIZATION_PLAN.md).
+    model-access:
+      # Free tier allows only models whose prompt/completion prices are at or below these
+      # thresholds, expressed in USD per 1,000,000 tokens. Defaults (0/0) match OpenRouter's
+      # :free-suffix convention: only truly free models on Free; everything else requires Premium.
+      free-max-input-usd-per-million: ${BILLING_FREE_MAX_INPUT_USD_PER_MILLION:0.0}
+      free-max-output-usd-per-million: ${BILLING_FREE_MAX_OUTPUT_USD_PER_MILLION:0.0}
     tiers:
       free:
-        models:
-          - gpt-4.1-mini-2025-04-14
-          - gpt-4.1-nano-2025-04-14
-          - gemini-2.0-flash
-          - gemini-2.0-flash-lite
-          - gemini-2.5-flash-preview-05-20
-          - gemma-3-27b-it
-          - gemma-3-12b-it
-          - gemma-3-4b-it
-          - claude-3-5-haiku-20241022
         max-attachments: 2
         max-attachment-bytes: 2097152        # 2 MB
         max-total-attachment-bytes: 4194304  # 4 MB
@@ -213,8 +210,6 @@ app:
         daily-cap: 50
         parallel-streams: 1
       premium:
-        models:
-          - "*"
         max-attachments: 5
         max-attachment-bytes: 5242880        # 5 MB
         max-total-attachment-bytes: 20971520 # 20 MB
@@ -224,8 +219,6 @@ app:
         daily-cap: 500
         parallel-streams: 2
       max:
-        models:
-          - "*"
         max-attachments: 10
         max-attachment-bytes: 10485760       # 10 MB
         max-total-attachment-bytes: 52428800 # 50 MB

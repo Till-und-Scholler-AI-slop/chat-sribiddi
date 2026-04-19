@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
+import com.rft.chat_sribiddi.billing.BillingProperties.ModelAccess;
 import com.rft.chat_sribiddi.billing.BillingProperties.TierConfig;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import java.time.Clock;
@@ -39,6 +40,7 @@ class EntitlementServiceTest {
 
   @Mock private UserRepository userRepository;
   @Mock private DailyQuotaCounterRepository dailyQuotaCounterRepository;
+  @Mock private ModelPricingLookup modelPricingLookup;
 
   private BillingProperties billingProperties;
   private EntitlementService service;
@@ -47,21 +49,25 @@ class EntitlementServiceTest {
   void setUp() {
     billingProperties = new BillingProperties();
     Map<Plan, TierConfig> tiers = new EnumMap<>(Plan.class);
-    tiers.put(Plan.FREE, tier(Set.of("gpt-4.1-nano-2025-04-14"), Set.of(), 2, 10L));
-    tiers.put(
-        Plan.PREMIUM,
-        tier(Set.of("*"), Set.of("brave-search"), 5, 100L));
-    tiers.put(Plan.MAX, tier(Set.of("*"), Set.of("*"), 10, 0L));
+    tiers.put(Plan.FREE, tier(Set.of(), 2, 10L));
+    tiers.put(Plan.PREMIUM, tier(Set.of("brave-search"), 5, 100L));
+    tiers.put(Plan.MAX, tier(Set.of("*"), 10, 0L));
     billingProperties.setTiers(tiers);
+
+    ModelAccess access = new ModelAccess();
+    access.setFreeMaxInputUsdPerMillion(0.0);
+    access.setFreeMaxOutputUsdPerMillion(0.0);
+    billingProperties.setModelAccess(access);
 
     Clock fixed = Clock.fixed(Instant.parse("2026-04-19T10:15:30Z"), ZoneId.of("UTC"));
     service =
-        new EntitlementService(billingProperties, userRepository, dailyQuotaCounterRepository, fixed);
+        new EntitlementService(
+            billingProperties, userRepository, dailyQuotaCounterRepository, modelPricingLookup,
+            fixed);
   }
 
-  private TierConfig tier(Set<String> models, Set<String> tools, int maxAttachments, long dailyCap) {
+  private TierConfig tier(Set<String> tools, int maxAttachments, long dailyCap) {
     TierConfig t = new TierConfig();
-    t.setModels(new LinkedHashSet<>(models));
     t.setTools(new LinkedHashSet<>(tools));
     t.setMaxAttachments(maxAttachments);
     t.setMaxAttachmentBytes(1_000L);
@@ -90,14 +96,15 @@ class EntitlementServiceTest {
 
     assertThat(entitlements.plan()).isEqualTo(Plan.FREE);
     assertThat(entitlements.allModelsAllowed()).isFalse();
-    assertThat(entitlements.allowedModels()).containsExactly("gpt-4.1-nano-2025-04-14");
+    assertThat(entitlements.maxModelInputUsdPerMillion()).isEqualTo(0.0);
+    assertThat(entitlements.maxModelOutputUsdPerMillion()).isEqualTo(0.0);
     assertThat(entitlements.maxAttachments()).isEqualTo(2);
     assertThat(entitlements.dailyCap()).isEqualTo(10L);
     assertThat(entitlements.allowedTools()).isEmpty();
   }
 
   @Test
-  void get_returnsPremiumTierWithWildcardModels() {
+  void get_returnsPremiumTierWithNoPriceCap() {
     when(userRepository.findByProviderId(USER_ID))
         .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
 
@@ -105,7 +112,8 @@ class EntitlementServiceTest {
 
     assertThat(entitlements.plan()).isEqualTo(Plan.PREMIUM);
     assertThat(entitlements.allModelsAllowed()).isTrue();
-    assertThat(entitlements.allowsModel("any-new-model")).isTrue();
+    assertThat(entitlements.maxModelInputUsdPerMillion()).isNull();
+    assertThat(entitlements.maxModelOutputUsdPerMillion()).isNull();
     assertThat(entitlements.allowsTool("brave-search")).isTrue();
     assertThat(entitlements.allowsTool("other-tool")).isFalse();
   }
@@ -117,6 +125,7 @@ class EntitlementServiceTest {
     Entitlements entitlements = service.get(USER_ID);
 
     assertThat(entitlements.plan()).isEqualTo(Plan.MAX);
+    assertThat(entitlements.allModelsAllowed()).isTrue();
     assertThat(entitlements.allowsTool("brave-search")).isTrue();
     assertThat(entitlements.allowsTool("anything")).isTrue();
     assertThat(entitlements.dailyCap()).isZero();
@@ -129,21 +138,25 @@ class EntitlementServiceTest {
     Entitlements entitlements = service.get("unknown");
 
     assertThat(entitlements.plan()).isEqualTo(Plan.FREE);
-    assertThat(entitlements.allowedModels()).containsExactly("gpt-4.1-nano-2025-04-14");
+    assertThat(entitlements.allModelsAllowed()).isFalse();
   }
 
   // -------- assertCanUseModel --------
 
   @Test
-  void assertCanUseModel_allowsConfiguredModelForFree() {
+  void assertCanUseModel_allowsZeroCostModelForFree() {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "meta-llama/llama-3.1-8b-instruct:free"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.0, 0.0)));
 
-    service.assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-4.1-nano-2025-04-14");
+    service.assertCanUseModel(USER_ID, Provider.OPENROUTER, "meta-llama/llama-3.1-8b-instruct:free");
   }
 
   @Test
-  void assertCanUseModel_rejectsPremiumModelForFree() {
+  void assertCanUseModel_rejectsPaidModelForFree() {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    when(modelPricingLookup.find(Provider.OPENAI, "gpt-5.2"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(2.5, 10.0)));
 
     assertThatThrownBy(() -> service.assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-5.2"))
         .isInstanceOf(PlanRestrictionException.class)
@@ -157,11 +170,37 @@ class EntitlementServiceTest {
   }
 
   @Test
-  void assertCanUseModel_allowsAnyModelForPremium() {
+  void assertCanUseModel_rejectsUnknownPricingForFree() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "some/unknown-model"))
+        .thenReturn(Optional.empty());
+
+    assertThatThrownBy(
+            () -> service.assertCanUseModel(USER_ID, Provider.OPENROUTER, "some/unknown-model"))
+        .isInstanceOf(PlanRestrictionException.class)
+        .satisfies(
+            ex ->
+                assertThat(((PlanRestrictionException) ex).getReason())
+                    .isEqualTo(PlanRestrictionException.Reason.MODEL_NOT_ALLOWED));
+  }
+
+  @Test
+  void assertCanUseModel_allowsAnyModelForPremiumWithoutPricingLookup() {
     when(userRepository.findByProviderId(USER_ID))
         .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
 
     service.assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-5.2");
+
+    verifyNoInteractions(modelPricingLookup);
+  }
+
+  @Test
+  void assertCanUseModel_allowsAnyModelForMax() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.MAX)));
+
+    service.assertCanUseModel(USER_ID, Provider.OPENAI, "any-future-model");
+
+    verifyNoInteractions(modelPricingLookup);
   }
 
   @Test
@@ -225,3 +264,4 @@ class EntitlementServiceTest {
     verify(dailyQuotaCounterRepository, never()).incrementCounter(anyLong(), any());
   }
 }
+

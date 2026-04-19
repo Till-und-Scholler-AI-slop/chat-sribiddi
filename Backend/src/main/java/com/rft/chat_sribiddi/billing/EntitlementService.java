@@ -3,6 +3,7 @@ package com.rft.chat_sribiddi.billing;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
+import com.rft.chat_sribiddi.billing.BillingProperties.ModelAccess;
 import com.rft.chat_sribiddi.billing.BillingProperties.TierConfig;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import java.time.Clock;
@@ -15,11 +16,13 @@ import org.springframework.stereotype.Service;
 
 /**
  * Central plan-gating and quota service. Resolves a user's current {@link Plan} and returns their
- * effective {@link Entitlements}, and enforces per-request plan restrictions (allowed models,
- * tools, daily-cap).
+ * effective {@link Entitlements}, and enforces per-request plan restrictions (price-gated model
+ * access, tools, daily-cap).
  *
- * <p>Configuration is sourced from {@link BillingProperties} ({@code app.billing.tiers.<plan>.*})
- * — no limits are hardcoded here.
+ * <p>Configuration is sourced from {@link BillingProperties} ({@code app.billing.*}) — no limits
+ * are hardcoded here. Model access is not whitelisted by ID; instead the Free tier applies the
+ * price thresholds configured under {@code app.billing.model-access.*} (default: only truly-free
+ * models, matching OpenRouter's {@code :free} convention).
  *
  * <p>The {@code userId} parameter is the OAuth provider id (see {@link
  * com.rft.chat_sribiddi.auth.RequestUserResolver}), matching the convention used by the rest of
@@ -32,16 +35,19 @@ public class EntitlementService {
   private final BillingProperties billingProperties;
   private final UserRepository userRepository;
   private final DailyQuotaCounterRepository dailyQuotaCounterRepository;
+  private final ModelPricingLookup modelPricingLookup;
   private final Clock clock;
 
   public EntitlementService(
       BillingProperties billingProperties,
       UserRepository userRepository,
-      DailyQuotaCounterRepository dailyQuotaCounterRepository) {
+      DailyQuotaCounterRepository dailyQuotaCounterRepository,
+      ModelPricingLookup modelPricingLookup) {
     this(
         billingProperties,
         userRepository,
         dailyQuotaCounterRepository,
+        modelPricingLookup,
         Clock.system(ZoneId.of("UTC")));
   }
 
@@ -49,10 +55,12 @@ public class EntitlementService {
       BillingProperties billingProperties,
       UserRepository userRepository,
       DailyQuotaCounterRepository dailyQuotaCounterRepository,
+      ModelPricingLookup modelPricingLookup,
       Clock clock) {
     this.billingProperties = billingProperties;
     this.userRepository = userRepository;
     this.dailyQuotaCounterRepository = dailyQuotaCounterRepository;
+    this.modelPricingLookup = modelPricingLookup;
     this.clock = clock;
   }
 
@@ -66,40 +74,74 @@ public class EntitlementService {
       plan = Plan.FREE;
     }
     TierConfig tier = billingProperties.tier(plan);
+    ModelAccess access = billingProperties.getModelAccess();
+    Double maxInput = plan == Plan.FREE ? access.getFreeMaxInputUsdPerMillion() : null;
+    Double maxOutput = plan == Plan.FREE ? access.getFreeMaxOutputUsdPerMillion() : null;
     return new Entitlements(
         plan,
-        tier.modelsView(),
-        tier.allowsAllModels(),
         tier.getMaxAttachments(),
         tier.getMaxAttachmentBytes(),
         tier.getMaxTotalAttachmentBytes(),
         tier.getContextMessageLimit(),
         tier.toolsView(),
         tier.getDailyCap(),
-        tier.getParallelStreams());
+        tier.getParallelStreams(),
+        maxInput,
+        maxOutput);
   }
 
   /**
-   * Verifies that the user's plan allows the given model.
+   * Verifies that the user's plan allows the given model. Premium/Max plans have no price cap.
+   * Free users are restricted to models whose prompt and completion prices are at or below the
+   * configured thresholds ({@code app.billing.model-access.free-max-{input,output}-usd-per-million}).
    *
    * @throws PlanRestrictionException with reason {@link
-   *     PlanRestrictionException.Reason#MODEL_NOT_ALLOWED} if the model is not permitted.
+   *     PlanRestrictionException.Reason#MODEL_NOT_ALLOWED} if the model is not permitted or its
+   *     price cannot be determined on the Free tier.
    */
   public void assertCanUseModel(String userId, Provider provider, String modelId) {
     Objects.requireNonNull(provider, "provider must not be null");
+    Entitlements entitlements = get(userId);
     if (modelId == null || modelId.isBlank()) {
       throw new PlanRestrictionException(
           PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
-          get(userId).plan(),
+          entitlements.plan(),
           "Model id must not be blank");
     }
-    Entitlements entitlements = get(userId);
-    if (!entitlements.allowsModel(modelId)) {
+    if (entitlements.allModelsAllowed()) {
+      return;
+    }
+    double maxInput =
+        entitlements.maxModelInputUsdPerMillion() != null
+            ? entitlements.maxModelInputUsdPerMillion()
+            : Double.POSITIVE_INFINITY;
+    double maxOutput =
+        entitlements.maxModelOutputUsdPerMillion() != null
+            ? entitlements.maxModelOutputUsdPerMillion()
+            : Double.POSITIVE_INFINITY;
+    Optional<ModelPricingLookup.Pricing> pricing = modelPricingLookup.find(provider, modelId);
+    if (pricing.isEmpty()) {
       throw new PlanRestrictionException(
           PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
           entitlements.plan(),
-          "Model '%s' (provider %s) is not available on plan %s"
+          "Model '%s' (provider %s) has no known pricing and is not available on plan %s"
               .formatted(modelId, provider, entitlements.plan()));
+    }
+    ModelPricingLookup.Pricing price = pricing.get();
+    if (price.inputUsdPerMillion() > maxInput || price.outputUsdPerMillion() > maxOutput) {
+      throw new PlanRestrictionException(
+          PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
+          entitlements.plan(),
+          ("Model '%s' (provider %s) exceeds plan %s price limits "
+                  + "(input %.4f/1M, output %.4f/1M USD; allowed %.4f/%.4f)")
+              .formatted(
+                  modelId,
+                  provider,
+                  entitlements.plan(),
+                  price.inputUsdPerMillion(),
+                  price.outputUsdPerMillion(),
+                  maxInput,
+                  maxOutput));
     }
   }
 

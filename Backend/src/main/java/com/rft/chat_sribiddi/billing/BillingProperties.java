@@ -13,8 +13,13 @@ import org.springframework.stereotype.Component;
 
 /**
  * Per-tier billing/entitlements configuration. Values are sourced from {@code application.yaml}
- * under {@code app.billing.tiers.<plan>.*} so that plan-gating limits are never hardcoded in
- * service classes (repo convention).
+ * under {@code app.billing.*} so that plan-gating limits are never hardcoded in service classes
+ * (repo convention).
+ *
+ * <p>Model access is <em>not</em> gated via hardcoded ID whitelists. Instead, the Free tier is
+ * restricted by price thresholds (see {@link ModelAccess}): only models whose prompt and
+ * completion prices are at or below the configured threshold are allowed on Free. Premium/Max
+ * have no price cap.
  */
 @Getter
 @Setter
@@ -28,6 +33,9 @@ public class BillingProperties {
    */
   private Map<Plan, TierConfig> tiers = new EnumMap<>(Plan.class);
 
+  /** Price-based model-access rules applied on top of per-tier limits. */
+  private ModelAccess modelAccess = new ModelAccess();
+
   /** Returns the configuration for a plan, falling back to an empty config if missing. */
   public TierConfig tier(Plan plan) {
     TierConfig config = tiers.get(plan);
@@ -37,12 +45,6 @@ public class BillingProperties {
   @Getter
   @Setter
   public static class TierConfig {
-    /**
-     * Allowed model IDs. A wildcard {@code "*"} entry means all models are allowed; an empty
-     * list means no models are allowed.
-     */
-    private Set<String> models = new LinkedHashSet<>();
-
     /** Maximum number of media attachments per message. */
     private int maxAttachments = 0;
 
@@ -64,20 +66,6 @@ public class BillingProperties {
     /** Maximum number of parallel streams allowed for a user on this tier. */
     private int parallelStreams = 1;
 
-    public boolean allowsAllModels() {
-      return models != null && models.contains("*");
-    }
-
-    public boolean allowsModel(String modelId) {
-      if (modelId == null || modelId.isBlank()) {
-        return false;
-      }
-      if (allowsAllModels()) {
-        return true;
-      }
-      return models != null && models.contains(modelId);
-    }
-
     public boolean allowsTool(String toolId) {
       if (toolId == null || toolId.isBlank() || tools == null) {
         return false;
@@ -88,13 +76,24 @@ public class BillingProperties {
       return tools.contains(toolId);
     }
 
-    /** Defensive copy to avoid leaking mutable internal state. */
-    public Set<String> modelsView() {
-      return models == null ? Set.of() : new LinkedHashSet<>(models);
-    }
-
     public Set<String> toolsView() {
       return tools == null ? Set.of() : new HashSet<>(tools);
     }
   }
+
+  /**
+   * Price-threshold configuration for model access. Expressed in USD per 1,000,000 tokens to
+   * match industry-standard pricing tables. The defaults (0.0 / 0.0) restrict Free to models that
+   * are truly free (matching OpenRouter's {@code :free} convention).
+   */
+  @Getter
+  @Setter
+  public static class ModelAccess {
+    /** Maximum prompt/input price in USD per 1M tokens allowed on the Free tier. */
+    private double freeMaxInputUsdPerMillion = 0.0;
+
+    /** Maximum completion/output price in USD per 1M tokens allowed on the Free tier. */
+    private double freeMaxOutputUsdPerMillion = 0.0;
+  }
 }
+
