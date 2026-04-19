@@ -220,6 +220,19 @@ public class EntitlementService {
     dailyQuotaCounterRepository.incrementCounter(internalId.get(), today());
   }
 
+  /**
+   * Resolves the effective {@link BillingMode} for the given user. Uses the user's
+   * {@code billingModePreference}; {@link BillingMode#AUTO} is treated as
+   * {@link BillingMode#BYOK} so that users who bring their own API key are never counted
+   * against managed-mode quotas. Unknown users default to {@link BillingMode#BYOK}.
+   */
+  public BillingMode resolveBillingMode(String userId) {
+    return resolveUser(userId)
+        .map(User::getBillingModePreference)
+        .map(mode -> mode == null || mode == BillingMode.AUTO ? BillingMode.BYOK : mode)
+        .orElse(BillingMode.BYOK);
+  }
+
   private Optional<User> resolveUser(String userId) {
     if (userId == null || userId.isBlank()) {
       return Optional.empty();

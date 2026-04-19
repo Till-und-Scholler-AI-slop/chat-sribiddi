@@ -5,6 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import com.rft.chat_sribiddi.auth.BillingMode;
+import com.rft.chat_sribiddi.auth.Plan;
+import com.rft.chat_sribiddi.billing.EntitlementService;
+import com.rft.chat_sribiddi.billing.PlanRestrictionException;
+import com.rft.chat_sribiddi.billing.UsageEventService;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
@@ -55,6 +60,8 @@ class ChatServiceTest {
   @Mock private ApiKeyService apiKeyService;
   @Mock private ProviderClientFactory providerClientFactory;
   @Mock private com.rft.chat_sribiddi.auth.UserSettingsService userSettingsService;
+  @Mock private EntitlementService entitlementService;
+  @Mock private UsageEventService usageEventService;
   @Mock private HttpClient webSearchHttpClient;
   @Mock private ToolRegistry toolRegistry;
   @Mock private CalculatorTool calculatorTool;
@@ -75,7 +82,7 @@ class ChatServiceTest {
         apiKeyService, providerClientFactory, chatProperties, userSettingsService,
         new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
         toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
-        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), entitlementService, usageEventService);
   }
 
   @BeforeEach
@@ -85,6 +92,9 @@ class ChatServiceTest {
     userId = "user-123";
 
     lenient().when(userSettingsService.getCustomInstructions(any())).thenReturn(java.util.Optional.empty());
+    lenient()
+        .when(entitlementService.resolveBillingMode(anyString()))
+        .thenReturn(BillingMode.BYOK);
     lenient().when(chatToolRepository.findByChatId(any())).thenReturn(List.of());
     lenient().when(toolRegistry.getAll()).thenReturn(List.of());
 
@@ -138,6 +148,68 @@ class ChatServiceTest {
     assertThat(savedMessages.getAllValues())
         .extracting(MessageEntity::getRole)
         .containsExactly(Role.USER, Role.ASSISTANT);
+  }
+
+  @Test
+  void sendMessage_freeUserWithPremiumModel_throwsPlanRestriction() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.BYOK);
+    doThrow(
+            new PlanRestrictionException(
+                PlanRestrictionException.Reason.MODEL_NOT_ALLOWED, Plan.FREE, "Premium model"))
+        .when(entitlementService)
+        .assertCanUseModel(
+            userId, RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", BillingMode.BYOK);
+
+    assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
+        .isInstanceOfSatisfying(
+            PlanRestrictionException.class,
+            ex ->
+                assertThat(ex.getReason())
+                    .isEqualTo(PlanRestrictionException.Reason.MODEL_NOT_ALLOWED));
+
+    verify(entitlementService, never()).assertWithinDailyCap(anyString());
+    verifyNoInteractions(providerClientFactory);
+    verifyNoInteractions(usageEventService);
+  }
+
+  @Test
+  void sendMessage_freeUserOverDailyCap_throwsPlanRestriction() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-4.1-mini", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+    doThrow(
+            new PlanRestrictionException(
+                PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED,
+                Plan.FREE,
+                "Daily cap exceeded"))
+        .when(entitlementService)
+        .assertWithinDailyCap(userId);
+
+    assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
+        .isInstanceOfSatisfying(
+            PlanRestrictionException.class,
+            ex ->
+                assertThat(ex.getReason())
+                    .isEqualTo(PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED));
+
+    verify(entitlementService)
+        .assertCanUseModel(
+            userId, RequestDTO.Provider.OPENAI, "gpt-4.1-mini", BillingMode.MANAGED);
+    verifyNoInteractions(providerClientFactory);
+    verifyNoInteractions(usageEventService);
+    verify(entitlementService, never()).incrementCounter(anyString());
   }
 
   @Test
