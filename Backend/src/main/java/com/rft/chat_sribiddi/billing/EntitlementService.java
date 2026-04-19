@@ -12,6 +12,8 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -70,10 +72,11 @@ public class EntitlementService {
    * default {@link Plan#FREE} tier is returned.
    */
   public Entitlements get(String userId) {
-    Plan plan = resolveUser(userId).map(User::getPlan).orElse(Plan.FREE);
-    if (plan == null) {
-      plan = Plan.FREE;
-    }
+    return entitlementsFor(resolveUser(userId).orElse(null));
+  }
+
+  private Entitlements entitlementsFor(User user) {
+    Plan plan = user != null && user.getPlan() != null ? user.getPlan() : Plan.FREE;
     TierConfig tier = billingProperties.tier(plan);
     ModelAccess access = billingProperties.getModelAccess();
     Double maxInput = plan == Plan.FREE ? access.getFreeMaxInputUsdPerMillion() : null;
@@ -129,11 +132,16 @@ public class EntitlementService {
     }
     if (billingMode == BillingMode.MANAGED
         && !billingProperties.getModelAccess().allowsManagedProvider(provider)) {
+      Set<Provider> allowed = billingProperties.getModelAccess().getManagedProviders();
+      String allowedList =
+          allowed == null || allowed.isEmpty()
+              ? "(none)"
+              : allowed.stream().map(Enum::name).collect(Collectors.joining(", "));
       throw new PlanRestrictionException(
           PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
           entitlements.plan(),
-          "Provider %s is not available in managed billing mode; use BYOK or choose an OpenRouter model"
-              .formatted(provider));
+          "Provider %s is not available in managed billing mode; use BYOK or choose a model from an allowed provider (%s)"
+              .formatted(provider, allowedList));
     }
     if (entitlements.allModelsAllowed()) {
       return;
@@ -180,17 +188,17 @@ public class EntitlementService {
    *     PlanRestrictionException.Reason#DAILY_CAP_EXCEEDED} when the user is over quota.
    */
   public void assertWithinDailyCap(String userId) {
-    Entitlements entitlements = get(userId);
+    Optional<User> user = resolveUser(userId);
+    Entitlements entitlements = entitlementsFor(user.orElse(null));
     long cap = entitlements.dailyCap();
     if (cap <= 0) {
       return;
     }
-    Optional<Long> internalId = resolveUser(userId).map(User::getId);
-    if (internalId.isEmpty()) {
+    if (user.isEmpty()) {
       // No internal user record — treat as a fresh Free user at zero usage.
       return;
     }
-    long current = dailyQuotaCounterRepository.getCount(internalId.get(), today());
+    long current = dailyQuotaCounterRepository.getCount(user.get().getId(), today());
     if (current >= cap) {
       throw new PlanRestrictionException(
           PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED,

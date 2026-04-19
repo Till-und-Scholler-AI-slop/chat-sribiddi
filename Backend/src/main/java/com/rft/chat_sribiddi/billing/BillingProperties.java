@@ -98,7 +98,8 @@ public class BillingProperties {
     /**
      * Providers allowed for managed-mode (platform-paid) calls. Defaults to OpenRouter only —
      * direct provider APIs (OpenAI/Google/Claude) are BYOK-only because our paid tiers route
-     * 100% through OpenRouter. Use {@code "*"} to allow any provider.
+     * 100% through OpenRouter. Configure explicit provider enum values to allow additional
+     * managed-mode providers.
      */
     private Set<com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider> managedProviders =
         new LinkedHashSet<>(
