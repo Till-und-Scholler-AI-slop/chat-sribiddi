@@ -324,6 +324,10 @@ public class ChatService {
     List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
     String userContext = buildMediaContext(validatedMedia);
 
+    // Run entitlement checks before mutating chat history so that a rejected request
+    // never leaves the database in a half-edited state.
+    BillingMode billingMode = assertEntitlementsForCall(userId, requestDTO);
+
     userMessage.setMessage(requestDTO.content());
     userMessage.setContext(userContext);
     messageRepository.save(userMessage);
@@ -336,7 +340,6 @@ public class ChatService {
         buildPromptMessages(chatId, validatedMedia, messageId, customInstructions,
             requestDTO.provider(), requestDTO.modelId());
 
-    BillingMode billingMode = assertEntitlementsForCall(userId, requestDTO);
     return createAndSubscribeStream(userId, requestDTO, promptMessages, chatId, null, billingMode);
   }
 
@@ -533,7 +536,8 @@ public class ChatService {
       } catch (IOException e) {
           log.warn("Failed to send SSE error event", e);
       } finally {
-          boolean providerCallSucceeded = !isProviderError(error);
+          // Stream did not complete normally — do not increment the managed-mode counter,
+          // regardless of whether the error originated from the provider or the client.
           recordUsageAndMaybeIncrementCounter(
               userId,
               provider,
@@ -543,7 +547,7 @@ public class ChatService {
               tokenUsage.totalTokens(),
               null,
               billingMode,
-              providerCallSucceeded);
+              false);
           emitter.complete();
       }
   }
@@ -557,6 +561,7 @@ public class ChatService {
       UUID chatId, String assistantContext, String updatedTitle,
       ToolExecutionCollector toolExecutionCollector,
       SseEmitter emitter, ClientHolder clientHolder) {
+      AtomicReference<Long> savedMessageId = new AtomicReference<>();
       try (clientHolder) {
           String assistantResponse = fullText.toString();
           Usage usage = lastUsage.get();
@@ -585,6 +590,7 @@ public class ChatService {
           if (!saveStreamedAssistantMessage(assistantMessage, chatId, emitter)) {
               return;
           }
+          savedMessageId.set(assistantMessage.getId());
 
           persistToolCallLogs(assistantMessage, toolExecutionCollector, assistantResponse);
 
@@ -615,15 +621,16 @@ public class ChatService {
                tokenUsage.promptTokens(),
                tokenUsage.generationTokens(),
                tokenUsage.totalTokens(),
-               null,
+               savedMessageId.get(),
                billingMode,
                true);
        }
   }
 
   private BillingMode assertEntitlementsForCall(String userId, RequestDTO requestDTO) {
-    BillingMode billingMode =
-        entitlementService.assertCanUseModel(userId, requestDTO.provider(), requestDTO.modelId());
+    BillingMode billingMode = entitlementService.resolveBillingMode(userId);
+    entitlementService.assertCanUseModel(
+        userId, requestDTO.provider(), requestDTO.modelId(), billingMode);
     if (billingMode == BillingMode.MANAGED) {
       entitlementService.assertWithinDailyCap(userId);
     }
@@ -660,10 +667,6 @@ public class ChatService {
         log.warn("Failed to increment managed usage counter for user {}", userId, ex);
       }
     }
-  }
-
-  private boolean isProviderError(Throwable error) {
-    return error instanceof WebClientResponseException || error instanceof RestClientResponseException;
   }
 
   private TokenUsage toTokenUsage(Usage usage) {
