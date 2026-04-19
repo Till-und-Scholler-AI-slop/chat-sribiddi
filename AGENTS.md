@@ -80,3 +80,43 @@ German or English sentence.
 - [ ] `cd Frontend/web && npm test` still passes.
 - [ ] `cd Frontend/web && npm run build` still passes (vue-i18n compiles
       messages at build time and will fail if `@`/`:` is misused).
+
+# Agent guidelines: manual owner-setup steps
+
+Some features require the repository owner to perform manual, out-of-band steps
+(creating accounts, registering secrets, configuring external services) that a
+coding agent cannot automate. **Every AI/agent working on this codebase must
+append such steps here** whenever they introduce a feature that requires
+owner action — this file is the single source of truth so the owner can find
+everything in one place.
+
+Format per feature: a short heading, the ticket id, and a bullet list of the
+exact manual steps plus any environment variables / secrets involved.
+
+## BILL-7 — OpenRouter managed-mode for Free tier
+
+To enable the Free-tier managed (platform-paid) chat path through OpenRouter,
+the owner must:
+
+1. **Create an OpenRouter account** at <https://openrouter.ai> and generate a
+   server-side API key (Dashboard → Keys → *Create Key*). Top up credits as
+   needed; free-tier traffic uses `:free`-suffixed models, which are zero-cost
+   but still require a valid key for routing.
+2. **Store the key as a deployment secret** named `OPENROUTER_API_KEY` (e.g.
+   GitHub Actions secret, Caddy/Docker env, `.env` file for local dev). The
+   backend reads it via `app.billing.managed-keys.openrouter` — a blank value
+   disables managed mode for OpenRouter entirely.
+3. **Configure OpenRouter attribution** (optional but recommended; OpenRouter
+   uses these to group requests on their dashboard):
+   - `OPENROUTER_APP_NAME` — sent as the `X-Title` header
+     (default: `chat-sribiddi`).
+   - `OPENROUTER_REFERRER` — sent as the `HTTP-Referer` header; should point to
+     the public URL of the deployment (default: value of `APP_FRONTEND_URL`,
+     falling back to `https://chat-sribiddi.local`).
+4. **Verify Free-tier behaviour after deployment**: sign in as a Free user
+   without any BYOK key stored, open the model picker, and confirm only
+   OpenRouter `:free` models are listed. Selecting a paid model such as
+   `gpt-5.2` must be rejected with a `PlanRestrictionException`
+   (HTTP 402, `MODEL_NOT_ALLOWED`) and an upgrade hint.
+
+No DB migrations or additional OAuth scopes are required for BILL-7.

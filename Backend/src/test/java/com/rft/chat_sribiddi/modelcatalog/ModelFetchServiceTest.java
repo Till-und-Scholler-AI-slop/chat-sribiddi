@@ -3,6 +3,7 @@ package com.rft.chat_sribiddi.modelcatalog;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.HttpMethod.GET;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -164,6 +165,8 @@ class ModelFetchServiceTest {
         .expect(requestTo(openRouterProperties.getModelCatalogUrl()))
         .andExpect(method(GET))
         .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer or-key"))
+        .andExpect(header("HTTP-Referer", openRouterProperties.getReferrer()))
+        .andExpect(header("X-Title", openRouterProperties.getAppName()))
         .andRespond(
             withSuccess(
                 """
@@ -196,6 +199,25 @@ class ModelFetchServiceTest {
         .containsExactly("GPT-4o", "OpenRouter Auto");
     assertThat(models.getFirst().getPromptPrice()).isEqualTo("0.000005");
     assertThat(models.getFirst().getCompletionPrice()).isEqualTo("0.000015");
+  }
+
+  @Test
+  void fetchOpenRouterModels_omitsAttributionHeadersWhenConfigIsBlank() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    openRouterProperties.setAppName("");
+    openRouterProperties.setReferrer("");
+    service = new ModelFetchService(builder.build(), new ObjectMapper(), openRouterProperties);
+
+    server
+        .expect(requestTo(openRouterProperties.getModelCatalogUrl()))
+        .andExpect(method(GET))
+        .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer or-key"))
+        .andExpect(headerDoesNotExist("HTTP-Referer"))
+        .andExpect(headerDoesNotExist("X-Title"))
+        .andRespond(withSuccess("{\"data\":[]}", MediaType.APPLICATION_JSON));
+
+    assertThat(service.fetchOpenRouterModels("or-key")).isEmpty();
   }
 
   @Test

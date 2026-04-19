@@ -1,6 +1,7 @@
 package com.rft.chat_sribiddi.modelcatalog;
 
 import com.rft.chat_sribiddi.auth.RequestUserResolver;
+import com.rft.chat_sribiddi.billing.EntitlementService;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,6 +22,7 @@ public class ModelController {
   private final ModelCatalogService modelCatalogService;
   private final ApiKeyService apiKeyService;
   private final RequestUserResolver requestUserResolver;
+  private final EntitlementService entitlementService;
 
   @GetMapping("/openai")
   public ResponseEntity<List<ModelCatalogProperties.ModelOption>> openAiModels(
@@ -46,8 +48,12 @@ public class ModelController {
   @GetMapping("/openrouter")
   public ResponseEntity<List<ModelCatalogProperties.ModelOption>> openRouterModels(
       @AuthenticationPrincipal OidcUser principal, HttpServletRequest request) {
+    String userId = requestUserResolver.resolveUserId(principal, request).orElse(null);
     String apiKey = resolveApiKey(principal, request, Provider.OPENROUTER);
-    return ResponseEntity.ok(modelCatalogService.listOpenRouterModels(apiKey));
+    List<ModelCatalogProperties.ModelOption> models = modelCatalogService.listOpenRouterModels(apiKey);
+    // Free-tier users can only pick OpenRouter `:free` models when chatting in managed mode;
+    // hide the rest from the catalog so the UI never offers a model the plan will reject.
+    return ResponseEntity.ok(entitlementService.filterOpenRouterModelsForPlan(userId, models));
   }
 
   private String resolveApiKey(OidcUser principal, HttpServletRequest request, Provider provider) {

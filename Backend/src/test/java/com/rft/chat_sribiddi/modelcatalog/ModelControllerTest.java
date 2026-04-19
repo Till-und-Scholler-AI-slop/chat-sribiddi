@@ -5,6 +5,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.rft.chat_sribiddi.auth.RequestUserResolver;
+import com.rft.chat_sribiddi.billing.EntitlementService;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,6 +23,7 @@ class ModelControllerTest {
 
   @Mock private ModelCatalogService modelCatalogService;
   @Mock private ApiKeyService apiKeyService;
+  @Mock private EntitlementService entitlementService;
   @Mock private HttpServletRequest request;
   @Mock private OidcUser principal;
 
@@ -29,7 +31,9 @@ class ModelControllerTest {
 
   @BeforeEach
   void setUp() {
-    controller = new ModelController(modelCatalogService, apiKeyService, new RequestUserResolver());
+    controller =
+        new ModelController(
+            modelCatalogService, apiKeyService, new RequestUserResolver(), entitlementService);
   }
 
   @Test
@@ -39,12 +43,15 @@ class ModelControllerTest {
     when(request.getHeader(RequestUserResolver.USER_ID_HEADER)).thenReturn("frontend-user");
     when(apiKeyService.getKey("frontend-user", Provider.OPENROUTER)).thenReturn(Optional.of("or-user-key"));
     when(modelCatalogService.listOpenRouterModels("or-user-key")).thenReturn(models);
+    when(entitlementService.filterOpenRouterModelsForPlan("frontend-user", models))
+        .thenReturn(models);
 
     var response = controller.openRouterModels(null, request);
 
     assertThat(response.getBody()).isEqualTo(models);
     verify(apiKeyService).getKey("frontend-user", Provider.OPENROUTER);
     verify(modelCatalogService).listOpenRouterModels("or-user-key");
+    verify(entitlementService).filterOpenRouterModelsForPlan("frontend-user", models);
   }
 
   @Test
@@ -54,11 +61,34 @@ class ModelControllerTest {
     when(principal.getSubject()).thenReturn("oidc-user");
     when(apiKeyService.getKey("oidc-user", Provider.OPENROUTER)).thenReturn(Optional.of("or-oidc-key"));
     when(modelCatalogService.listOpenRouterModels("or-oidc-key")).thenReturn(models);
+    when(entitlementService.filterOpenRouterModelsForPlan("oidc-user", models))
+        .thenReturn(models);
 
     var response = controller.openRouterModels(principal, request);
 
     assertThat(response.getBody()).isEqualTo(models);
     verify(apiKeyService).getKey("oidc-user", Provider.OPENROUTER);
     verify(modelCatalogService).listOpenRouterModels("or-oidc-key");
+  }
+
+  @Test
+  void openRouterModels_appliesFreeTierFilter() {
+    List<ModelCatalogProperties.ModelOption> all =
+        List.of(
+            new ModelCatalogProperties.ModelOption("openai/gpt-4o", "GPT-4o"),
+            new ModelCatalogProperties.ModelOption(
+                "meta-llama/llama-3.1-8b-instruct:free", "Llama 3.1 (free)"));
+    List<ModelCatalogProperties.ModelOption> onlyFree =
+        List.of(
+            new ModelCatalogProperties.ModelOption(
+                "meta-llama/llama-3.1-8b-instruct:free", "Llama 3.1 (free)"));
+    when(principal.getSubject()).thenReturn("free-user");
+    when(apiKeyService.getKey("free-user", Provider.OPENROUTER)).thenReturn(Optional.empty());
+    when(modelCatalogService.listOpenRouterModels(null)).thenReturn(all);
+    when(entitlementService.filterOpenRouterModelsForPlan("free-user", all)).thenReturn(onlyFree);
+
+    var response = controller.openRouterModels(principal, request);
+
+    assertThat(response.getBody()).isEqualTo(onlyFree);
   }
 }

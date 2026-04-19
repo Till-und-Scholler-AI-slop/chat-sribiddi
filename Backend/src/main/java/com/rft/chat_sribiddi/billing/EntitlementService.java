@@ -10,6 +10,7 @@ import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -231,6 +232,29 @@ public class EntitlementService {
         .map(User::getBillingModePreference)
         .map(mode -> mode == null || mode == BillingMode.AUTO ? BillingMode.BYOK : mode)
         .orElse(BillingMode.BYOK);
+  }
+
+  /**
+   * Filters an OpenRouter model catalog down to what the user's plan is allowed to use.
+   *
+   * <p>The Free tier is restricted to OpenRouter's {@code :free}-suffix convention (zero-cost
+   * models) matching the price thresholds configured under {@code app.billing.model-access.*}.
+   * Premium/Max plans receive the catalog unchanged.
+   */
+  public List<com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption>
+      filterOpenRouterModelsForPlan(
+          String userId,
+          List<com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption> models) {
+    if (models == null || models.isEmpty()) {
+      return models == null ? List.of() : models;
+    }
+    Plan plan = get(userId).plan();
+    if (plan != Plan.FREE) {
+      return models;
+    }
+    return models.stream()
+        .filter(opt -> opt != null && opt.getId() != null && opt.getId().endsWith(":free"))
+        .toList();
   }
 
   private Optional<User> resolveUser(String userId) {
