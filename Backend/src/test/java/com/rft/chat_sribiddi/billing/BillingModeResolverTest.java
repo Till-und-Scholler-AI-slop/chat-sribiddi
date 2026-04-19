@@ -56,7 +56,24 @@ class BillingModeResolverTest {
 
     assertThat(resolved.apiKey()).isEqualTo("user-key");
     assertThat(resolved.effectiveMode()).isEqualTo(BillingMode.BYOK);
-    verify(entitlementService, never()).assertCanUseModel(any(), any(), any(), any());
+    verify(entitlementService)
+        .assertCanUseModel(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.BYOK);
+  }
+
+  @Test
+  void byok_withStoredUserKey_blockedByEntitlement_throwsPlanRestriction() {
+    when(apiKeyService.getKey(USER_ID, Provider.OPENAI)).thenReturn(Optional.of("user-key"));
+    PlanRestrictionException denied =
+        new PlanRestrictionException(
+            PlanRestrictionException.Reason.MODEL_NOT_ALLOWED, Plan.FREE, "price cap");
+    doThrow(denied)
+        .when(entitlementService)
+        .assertCanUseModel(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.BYOK);
+    BillingModeResolver resolver = newResolverWithAllServerKeys();
+
+    assertThatThrownBy(
+            () -> resolver.resolve(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.BYOK))
+        .isSameAs(denied);
   }
 
   @Test
@@ -90,7 +107,24 @@ class BillingModeResolverTest {
 
     assertThat(resolved.apiKey()).isEqualTo("user-key");
     assertThat(resolved.effectiveMode()).isEqualTo(BillingMode.BYOK);
-    verify(entitlementService, never()).assertCanUseModel(any(), any(), any(), any());
+    verify(entitlementService)
+        .assertCanUseModel(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.BYOK);
+  }
+
+  @Test
+  void auto_withUserKey_blockedByEntitlement_throwsPlanRestriction() {
+    when(apiKeyService.getKey(USER_ID, Provider.OPENAI)).thenReturn(Optional.of("user-key"));
+    PlanRestrictionException denied =
+        new PlanRestrictionException(
+            PlanRestrictionException.Reason.MODEL_NOT_ALLOWED, Plan.FREE, "price cap");
+    doThrow(denied)
+        .when(entitlementService)
+        .assertCanUseModel(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.BYOK);
+    BillingModeResolver resolver = newResolverWithAllServerKeys();
+
+    assertThatThrownBy(
+            () -> resolver.resolve(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.AUTO))
+        .isSameAs(denied);
   }
 
   @Test

@@ -19,12 +19,15 @@ import org.springframework.stereotype.Component;
  *
  * <p>Resolution rules (BILL-6):
  * <ol>
- *   <li>{@code requestedMode == BYOK} and a user key exists → {@link BillingMode#BYOK}.</li>
- *   <li>{@code requestedMode == AUTO}: prefer BYOK when a user key is present, otherwise fall back
- *       to {@link BillingMode#MANAGED} if the plan/model allows it.</li>
+ *   <li>{@code requestedMode == BYOK} and a user key exists → {@link BillingMode#BYOK} (after
+ *       passing {@link EntitlementService#assertCanUseModel} for BYOK, which also validates
+ *       {@code modelId} and applies any plan-level price caps).</li>
+ *   <li>{@code requestedMode == AUTO}: prefer BYOK when a user key is present (same entitlement
+ *       check as the explicit BYOK path); otherwise fall back to {@link BillingMode#MANAGED} if
+ *       the plan/model allows it.</li>
  *   <li>{@code requestedMode == MANAGED}: use the server-side env key for the provider
  *       (e.g. {@code OPENAI_API_KEY}, {@code GOOGLE_API_KEY}, {@code CLAUDE_API_KEY},
- *       {@code OPENROUTER_API_KEY}).</li>
+ *       {@code OPENROUTER_API_KEY}) after the managed-mode entitlement check passes.</li>
  *   <li>Otherwise → {@link PlanRestrictionException}.</li>
  * </ol>
  */
@@ -63,25 +66,33 @@ public class BillingModeResolver {
     BillingMode mode = requestedMode == null ? BillingMode.AUTO : requestedMode;
 
     return switch (mode) {
-      case BYOK -> resolveByok(userId, provider, lookupUserKey(userId, provider));
+      case BYOK -> resolveByok(userId, provider, modelId, lookupUserKey(userId, provider));
       case AUTO -> resolveAuto(userId, provider, modelId, lookupUserKey(userId, provider));
       case MANAGED -> resolveManaged(userId, provider, modelId);
     };
   }
 
-  private ResolvedKey resolveByok(String userId, Provider provider, Optional<String> userKey) {
-    if (userKey.isPresent()) {
-      return new ResolvedKey(userKey.get(), BillingMode.BYOK);
+  private ResolvedKey resolveByok(
+      String userId, Provider provider, String modelId, Optional<String> userKey) {
+    if (userKey.isEmpty()) {
+      throw new PlanRestrictionException(
+          PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
+          resolvePlan(userId),
+          "BYOK billing mode requested but no stored API key found for provider %s"
+              .formatted(provider));
     }
-    throw new PlanRestrictionException(
-        PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
-        resolvePlan(userId),
-        "BYOK billing mode requested but no stored API key found for provider %s".formatted(provider));
+    // Entitlement checks (price cap, blank model id, …) apply regardless of billing mode — the
+    // user's plan still gates which models they can pick through the app, even when they bring
+    // their own API key.
+    entitlementService.assertCanUseModel(userId, provider, modelId, BillingMode.BYOK);
+    return new ResolvedKey(userKey.get(), BillingMode.BYOK);
   }
 
   private ResolvedKey resolveAuto(
       String userId, Provider provider, String modelId, Optional<String> userKey) {
     if (userKey.isPresent()) {
+      // Same entitlement gating as the explicit BYOK path.
+      entitlementService.assertCanUseModel(userId, provider, modelId, BillingMode.BYOK);
       return new ResolvedKey(userKey.get(), BillingMode.BYOK);
     }
     // No user key → fall back to MANAGED if the plan/model allows it.
