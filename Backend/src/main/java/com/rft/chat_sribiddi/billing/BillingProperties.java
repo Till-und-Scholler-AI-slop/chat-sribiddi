@@ -94,6 +94,23 @@ public class BillingProperties {
 
     /** Maximum completion/output price in USD per 1M tokens allowed on the Free tier. */
     private double freeMaxOutputUsdPerMillion = 0.0;
+
+    /**
+     * Providers allowed for managed-mode (platform-paid) calls. Defaults to OpenRouter only —
+     * direct provider APIs (OpenAI/Google/Claude) are BYOK-only because our paid tiers route
+     * 100% through OpenRouter. Use {@code "*"} to allow any provider.
+     */
+    private Set<com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider> managedProviders =
+        new LinkedHashSet<>(
+            Set.of(com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider.OPENROUTER));
+
+    public boolean allowsManagedProvider(
+        com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider provider) {
+      if (provider == null || managedProviders == null) {
+        return false;
+      }
+      return managedProviders.contains(provider);
+    }
   }
 }
 

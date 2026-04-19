@@ -1,5 +1,6 @@
 package com.rft.chat_sribiddi.billing;
 
+import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
@@ -91,22 +92,48 @@ public class EntitlementService {
   }
 
   /**
-   * Verifies that the user's plan allows the given model. Premium/Max plans have no price cap.
-   * Free users are restricted to models whose prompt and completion prices are at or below the
-   * configured thresholds ({@code app.billing.model-access.free-max-{input,output}-usd-per-million}).
-   *
-   * @throws PlanRestrictionException with reason {@link
-   *     PlanRestrictionException.Reason#MODEL_NOT_ALLOWED} if the model is not permitted or its
-   *     price cannot be determined on the Free tier.
+   * Verifies that the user's plan allows the given model, assuming a BYOK call (no managed-mode
+   * provider restriction applied). See {@link #assertCanUseModel(String, Provider, String,
+   * BillingMode)} for the managed-aware variant.
    */
   public void assertCanUseModel(String userId, Provider provider, String modelId) {
+    assertCanUseModel(userId, provider, modelId, BillingMode.BYOK);
+  }
+
+  /**
+   * Verifies that the user's plan allows the given model for the given {@link BillingMode}.
+   *
+   * <p>Rules:
+   * <ul>
+   *   <li>Managed-mode calls must target a provider listed in
+   *       {@code app.billing.model-access.managed-providers} (default {@code [OPENROUTER]}) — our
+   *       paid tiers route 100% through OpenRouter; direct OpenAI/Google/Claude are BYOK-only.
+   *   <li>Free users are restricted to models whose prompt and completion prices are at or below
+   *       the configured price thresholds.
+   *   <li>Premium/Max have no price cap.
+   * </ul>
+   *
+   * @throws PlanRestrictionException with reason {@link
+   *     PlanRestrictionException.Reason#MODEL_NOT_ALLOWED} if the model is not permitted.
+   */
+  public void assertCanUseModel(
+      String userId, Provider provider, String modelId, BillingMode billingMode) {
     Objects.requireNonNull(provider, "provider must not be null");
+    Objects.requireNonNull(billingMode, "billingMode must not be null");
     Entitlements entitlements = get(userId);
     if (modelId == null || modelId.isBlank()) {
       throw new PlanRestrictionException(
           PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
           entitlements.plan(),
           "Model id must not be blank");
+    }
+    if (billingMode == BillingMode.MANAGED
+        && !billingProperties.getModelAccess().allowsManagedProvider(provider)) {
+      throw new PlanRestrictionException(
+          PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
+          entitlements.plan(),
+          "Provider %s is not available in managed billing mode; use BYOK or choose an OpenRouter model"
+              .formatted(provider));
     }
     if (entitlements.allModelsAllowed()) {
       return;

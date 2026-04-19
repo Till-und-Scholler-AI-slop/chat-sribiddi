@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
@@ -57,6 +58,7 @@ class EntitlementServiceTest {
     ModelAccess access = new ModelAccess();
     access.setFreeMaxInputUsdPerMillion(0.0);
     access.setFreeMaxOutputUsdPerMillion(0.0);
+    access.setManagedProviders(new LinkedHashSet<>(Set.of(Provider.OPENROUTER)));
     billingProperties.setModelAccess(access);
 
     Clock fixed = Clock.fixed(Instant.parse("2026-04-19T10:15:30Z"), ZoneId.of("UTC"));
@@ -208,6 +210,68 @@ class EntitlementServiceTest {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.MAX)));
 
     assertThatThrownBy(() -> service.assertCanUseModel(USER_ID, Provider.OPENAI, " "))
+        .isInstanceOf(PlanRestrictionException.class);
+  }
+
+  // -------- managed-mode provider gating --------
+
+  @Test
+  void assertCanUseModel_managedMode_rejectsDirectOpenAiForPremium() {
+    when(userRepository.findByProviderId(USER_ID))
+        .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+
+    assertThatThrownBy(
+            () ->
+                service.assertCanUseModel(
+                    USER_ID, Provider.OPENAI, "gpt-5.2", BillingMode.MANAGED))
+        .isInstanceOf(PlanRestrictionException.class)
+        .satisfies(
+            ex ->
+                assertThat(((PlanRestrictionException) ex).getReason())
+                    .isEqualTo(PlanRestrictionException.Reason.MODEL_NOT_ALLOWED));
+    verifyNoInteractions(modelPricingLookup);
+  }
+
+  @Test
+  void assertCanUseModel_managedMode_rejectsDirectClaudeForMax() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.MAX)));
+
+    assertThatThrownBy(
+            () ->
+                service.assertCanUseModel(
+                    USER_ID, Provider.CLAUDE, "claude-sonnet-4-6", BillingMode.MANAGED))
+        .isInstanceOf(PlanRestrictionException.class);
+  }
+
+  @Test
+  void assertCanUseModel_managedMode_allowsOpenRouterForPremium() {
+    when(userRepository.findByProviderId(USER_ID))
+        .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+
+    service.assertCanUseModel(
+        USER_ID, Provider.OPENROUTER, "openai/gpt-4o-mini", BillingMode.MANAGED);
+  }
+
+  @Test
+  void assertCanUseModel_byokMode_allowsDirectOpenAiForPremium() {
+    when(userRepository.findByProviderId(USER_ID))
+        .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+
+    service.assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-5.2", BillingMode.BYOK);
+
+    verifyNoInteractions(modelPricingLookup);
+  }
+
+  @Test
+  void assertCanUseModel_managedMode_freeUserStillPriceGatedOnOpenRouter() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "openai/gpt-4o-mini"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.15, 0.60)));
+
+    assertThatThrownBy(
+            () ->
+                service.assertCanUseModel(
+                    USER_ID, Provider.OPENROUTER, "openai/gpt-4o-mini", BillingMode.MANAGED))
         .isInstanceOf(PlanRestrictionException.class);
   }
 

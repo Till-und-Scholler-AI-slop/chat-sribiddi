@@ -200,6 +200,10 @@ app:
       # :free-suffix convention: only truly free models on Free; everything else requires Premium.
       free-max-input-usd-per-million: ${BILLING_FREE_MAX_INPUT_USD_PER_MILLION:0.0}
       free-max-output-usd-per-million: ${BILLING_FREE_MAX_OUTPUT_USD_PER_MILLION:0.0}
+      # Providers that may be used in managed (platform-paid) billing mode. Paid tiers route 100%
+      # through OpenRouter, so direct OpenAI/Google/Claude are BYOK-only.
+      managed-providers:
+        - OPENROUTER
     tiers:
       free:
         max-attachments: 2
