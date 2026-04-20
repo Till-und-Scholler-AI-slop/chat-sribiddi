@@ -7,6 +7,9 @@ import com.rft.chat_sribiddi.auth.UserRepository;
 import com.rft.chat_sribiddi.billing.BillingProperties.ModelAccess;
 import com.rft.chat_sribiddi.billing.BillingProperties.TierConfig;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
+import com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag;
+import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties;
+import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -237,26 +240,101 @@ public class EntitlementService {
   }
 
   /**
-   * Filters an OpenRouter model catalog down to what the user's plan is allowed to use.
+   * Annotates a provider model catalog with plan-awareness flags so the frontend can render
+   * locked/upgrade indicators without re-deriving plan rules. The catalog itself is
+   * <strong>not</strong> filtered: every input option is preserved and returned as a copy with
+   * {@link ModelOption#getAvailability()} and {@link ModelOption#getRequiredPlan()} populated.
    *
-   * <p>The Free tier is restricted to OpenRouter's {@code :free}-suffix convention (zero-cost
-   * models) matching the price thresholds configured under {@code app.billing.model-access.*}.
-   * Premium/Max plans receive the catalog unchanged.
+   * <p>Rules:
+   *
+   * <ul>
+   *   <li>Direct providers (anything not listed under {@code app.billing.model-access
+   *       .managed-providers}) → {@link AvailabilityFlag#BYOK_ONLY}. The platform never pays for
+   *       these endpoints; users must bring their own key regardless of plan.
+   *   <li>Managed providers (default: OpenRouter):
+   *       <ul>
+   *         <li>Premium/Max (no price cap) → {@link AvailabilityFlag#ALWAYS}.
+   *         <li>{@link Plan#FREE}: uses the same price-threshold check as
+   *             {@link #assertCanUseModel(String, Provider, String, BillingMode)} — a model is
+   *             {@link AvailabilityFlag#ALWAYS} when its prompt/completion prices are at or below
+   *             the configured {@code app.billing.model-access.free-max-*-usd-per-million}
+   *             thresholds, else {@link AvailabilityFlag#UPGRADE_REQUIRED} with
+   *             {@code requiredPlan = PREMIUM}. Models with unknown pricing default to
+   *             {@code UPGRADE_REQUIRED} (matching the enforcement path).
+   *       </ul>
+   * </ul>
    */
-  public List<com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption>
-      filterOpenRouterModelsForPlan(
-          String userId,
-          List<com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption> models) {
+  public List<ModelOption> annotateModelsForPlan(
+      String userId, Provider provider, List<ModelOption> models) {
     if (models == null || models.isEmpty()) {
       return models == null ? List.of() : models;
     }
-    Plan plan = get(userId).plan();
-    if (plan != Plan.FREE) {
-      return models;
-    }
+    Objects.requireNonNull(provider, "provider must not be null");
+    Entitlements entitlements = get(userId);
+    boolean managedProvider = billingProperties.getModelAccess().allowsManagedProvider(provider);
     return models.stream()
-        .filter(opt -> opt != null && opt.getId() != null && opt.getId().endsWith(":free"))
+        .filter(Objects::nonNull)
+        .map(
+            opt -> {
+              ModelOption copy = opt.copy();
+              AvailabilityFlag flag;
+              Plan required = null;
+              if (!managedProvider) {
+                // Direct providers are BYOK-only regardless of plan because managed mode only
+                // routes through providers listed in app.billing.model-access.managed-providers.
+                flag = AvailabilityFlag.BYOK_ONLY;
+              } else if (isAllowedByPricing(entitlements, provider, opt.getId())) {
+                flag = AvailabilityFlag.ALWAYS;
+              } else {
+                flag = AvailabilityFlag.UPGRADE_REQUIRED;
+                required = Plan.PREMIUM;
+              }
+              copy.setAvailability(flag);
+              copy.setRequiredPlan(required);
+              return copy;
+            })
         .toList();
+  }
+
+  /**
+   * @deprecated Use {@link #annotateModelsForPlan(String, Provider, List)} instead. Kept for
+   *     backwards compatibility — no longer filters models and returns the annotated copies
+   *     produced by that method for the OpenRouter provider.
+   */
+  @Deprecated
+  public List<ModelCatalogProperties.ModelOption> filterOpenRouterModelsForPlan(
+      String userId, List<ModelCatalogProperties.ModelOption> models) {
+    return annotateModelsForPlan(userId, Provider.OPENROUTER, models);
+  }
+
+  /**
+   * Mirrors the price-threshold gate in {@link #assertCanUseModel(String, Provider, String,
+   * BillingMode)}: returns {@code true} when the user's plan allows the given model based on its
+   * prompt/completion prices. Plans without a price cap ({@link Entitlements#allModelsAllowed()})
+   * always allow every model; unknown pricing is treated as "not allowed" so the UI shows an
+   * upgrade hint consistent with the enforcement path.
+   */
+  private boolean isAllowedByPricing(Entitlements entitlements, Provider provider, String modelId) {
+    if (entitlements.allModelsAllowed()) {
+      return true;
+    }
+    if (modelId == null || modelId.isBlank()) {
+      return false;
+    }
+    double maxInput =
+        entitlements.maxModelInputUsdPerMillion() != null
+            ? entitlements.maxModelInputUsdPerMillion()
+            : Double.POSITIVE_INFINITY;
+    double maxOutput =
+        entitlements.maxModelOutputUsdPerMillion() != null
+            ? entitlements.maxModelOutputUsdPerMillion()
+            : Double.POSITIVE_INFINITY;
+    Optional<ModelPricingLookup.Pricing> pricing = modelPricingLookup.find(provider, modelId);
+    if (pricing.isEmpty()) {
+      return false;
+    }
+    ModelPricingLookup.Pricing p = pricing.get();
+    return p.inputUsdPerMillion() <= maxInput && p.outputUsdPerMillion() <= maxOutput;
   }
 
   private Optional<User> resolveUser(String userId) {

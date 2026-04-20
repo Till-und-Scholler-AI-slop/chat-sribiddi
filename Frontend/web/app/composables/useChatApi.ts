@@ -11,6 +11,13 @@ export const MODEL_ENDPOINTS: Record<Provider, string> = {
 
 export const REQUEST_USER_ID_HEADER = 'X-Chat-User-Id'
 
+/**
+ * Plan-awareness flag returned by {@code GET /models/*}. Mirrors the Java enum
+ * {@code com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag}. Consumers should treat
+ * unknown values as {@code 'ALWAYS'} for forward compatibility.
+ */
+export type AvailabilityFlag = 'ALWAYS' | 'BYOK_ONLY' | 'UPGRADE_REQUIRED'
+
 export type ModelOption = {
   label: string
   value: string
@@ -28,6 +35,10 @@ export type ModelOption = {
   inputModalities?: string[]
   outputModalities?: string[]
   supportedParameters?: string[]
+  /** Plan-awareness hint set by the backend (see {@link AvailabilityFlag}). */
+  availability?: AvailabilityFlag | null
+  /** Minimum plan required to unlock this model when {@code availability === 'UPGRADE_REQUIRED'}. */
+  requiredPlan?: 'PREMIUM' | 'MAX' | null
 }
 
 export type MediaAttachment = {
