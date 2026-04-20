@@ -333,6 +333,12 @@ class EntitlementServiceTest {
   @Test
   void annotateModelsForPlan_openRouter_freeTier_flagsPaidAsUpgradeRequired() {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    // :free model is priced at zero via ModelPricingLookup (matches the FREE price threshold).
+    when(modelPricingLookup.find(Provider.OPENROUTER, "meta-llama/llama-3.1-8b-instruct:free"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.0, 0.0)));
+    // Paid model has unknown pricing → conservatively marked UPGRADE_REQUIRED (matches
+    // assertCanUseModel behavior: unknown pricing = not allowed on FREE).
+    when(modelPricingLookup.find(Provider.OPENROUTER, "openai/gpt-4o")).thenReturn(Optional.empty());
     var paid =
         new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
             "openai/gpt-4o", "GPT-4o");
@@ -353,6 +359,36 @@ class EntitlementServiceTest {
     assertThat(result.get(1).getAvailability())
         .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.ALWAYS);
     assertThat(result.get(1).getRequiredPlan()).isNull();
+  }
+
+  @Test
+  void annotateModelsForPlan_openRouter_freeTier_usesConfiguredPriceThresholds() {
+    // When the threshold is raised, a non-:free model that is cheap enough must flip from
+    // UPGRADE_REQUIRED to ALWAYS — matches the assertCanUseModel enforcement path and avoids
+    // diverging the UI from the enforcement logic.
+    billingProperties.getModelAccess().setFreeMaxInputUsdPerMillion(1.0);
+    billingProperties.getModelAccess().setFreeMaxOutputUsdPerMillion(1.0);
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "cheap/model"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.5, 0.5)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "expensive/model"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(5.0, 5.0)));
+    var cheap =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "cheap/model", "Cheap");
+    var expensive =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "expensive/model", "Expensive");
+
+    var result =
+        service.annotateModelsForPlan(
+            USER_ID, Provider.OPENROUTER, java.util.List.of(cheap, expensive));
+
+    assertThat(result.get(0).getAvailability())
+        .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.ALWAYS);
+    assertThat(result.get(1).getAvailability())
+        .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.UPGRADE_REQUIRED);
+    assertThat(result.get(1).getRequiredPlan()).isEqualTo(Plan.PREMIUM);
   }
 
   @Test
@@ -443,6 +479,9 @@ class EntitlementServiceTest {
   @Test
   void filterOpenRouterModelsForPlan_delegatesToAnnotateForBackwardsCompatibility() {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "meta-llama/llama-3.1-8b-instruct:free"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.0, 0.0)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "openai/gpt-4o")).thenReturn(Optional.empty());
     var paid =
         new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
             "openai/gpt-4o", "GPT-4o");

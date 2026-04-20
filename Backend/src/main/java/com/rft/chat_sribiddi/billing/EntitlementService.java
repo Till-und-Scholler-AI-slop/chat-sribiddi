@@ -253,10 +253,14 @@ public class EntitlementService {
    *       these endpoints; users must bring their own key regardless of plan.
    *   <li>Managed providers (default: OpenRouter):
    *       <ul>
-   *         <li>OpenRouter {@code :free} ids → always {@link AvailabilityFlag#ALWAYS}.
-   *         <li>Paid ids on {@link Plan#FREE} → {@link AvailabilityFlag#UPGRADE_REQUIRED} with
-   *             {@code requiredPlan = PREMIUM}.
-   *         <li>Paid ids on Premium/Max → {@link AvailabilityFlag#ALWAYS}.
+   *         <li>Premium/Max (no price cap) → {@link AvailabilityFlag#ALWAYS}.
+   *         <li>{@link Plan#FREE}: uses the same price-threshold check as
+   *             {@link #assertCanUseModel(String, Provider, String, BillingMode)} — a model is
+   *             {@link AvailabilityFlag#ALWAYS} when its prompt/completion prices are at or below
+   *             the configured {@code app.billing.model-access.free-max-*-usd-per-million}
+   *             thresholds, else {@link AvailabilityFlag#UPGRADE_REQUIRED} with
+   *             {@code requiredPlan = PREMIUM}. Models with unknown pricing default to
+   *             {@code UPGRADE_REQUIRED} (matching the enforcement path).
    *       </ul>
    * </ul>
    */
@@ -266,7 +270,7 @@ public class EntitlementService {
       return models == null ? List.of() : models;
     }
     Objects.requireNonNull(provider, "provider must not be null");
-    Plan plan = get(userId).plan();
+    Entitlements entitlements = get(userId);
     boolean managedProvider = billingProperties.getModelAccess().allowsManagedProvider(provider);
     return models.stream()
         .filter(Objects::nonNull)
@@ -279,7 +283,7 @@ public class EntitlementService {
                 // Direct providers are BYOK-only regardless of plan because managed mode only
                 // routes through providers listed in app.billing.model-access.managed-providers.
                 flag = AvailabilityFlag.BYOK_ONLY;
-              } else if (isFreeTierModel(provider, opt.getId()) || plan != Plan.FREE) {
+              } else if (isAllowedByPricing(entitlements, provider, opt.getId())) {
                 flag = AvailabilityFlag.ALWAYS;
               } else {
                 flag = AvailabilityFlag.UPGRADE_REQUIRED;
@@ -294,7 +298,8 @@ public class EntitlementService {
 
   /**
    * @deprecated Use {@link #annotateModelsForPlan(String, Provider, List)} instead. Kept for
-   *     backwards compatibility — returns the input list unchanged (no filtering).
+   *     backwards compatibility — no longer filters models and returns the annotated copies
+   *     produced by that method for the OpenRouter provider.
    */
   @Deprecated
   public List<ModelCatalogProperties.ModelOption> filterOpenRouterModelsForPlan(
@@ -302,8 +307,34 @@ public class EntitlementService {
     return annotateModelsForPlan(userId, Provider.OPENROUTER, models);
   }
 
-  private static boolean isFreeTierModel(Provider provider, String modelId) {
-    return provider == Provider.OPENROUTER && modelId != null && modelId.endsWith(":free");
+  /**
+   * Mirrors the price-threshold gate in {@link #assertCanUseModel(String, Provider, String,
+   * BillingMode)}: returns {@code true} when the user's plan allows the given model based on its
+   * prompt/completion prices. Plans without a price cap ({@link Entitlements#allModelsAllowed()})
+   * always allow every model; unknown pricing is treated as "not allowed" so the UI shows an
+   * upgrade hint consistent with the enforcement path.
+   */
+  private boolean isAllowedByPricing(Entitlements entitlements, Provider provider, String modelId) {
+    if (entitlements.allModelsAllowed()) {
+      return true;
+    }
+    if (modelId == null || modelId.isBlank()) {
+      return false;
+    }
+    double maxInput =
+        entitlements.maxModelInputUsdPerMillion() != null
+            ? entitlements.maxModelInputUsdPerMillion()
+            : Double.POSITIVE_INFINITY;
+    double maxOutput =
+        entitlements.maxModelOutputUsdPerMillion() != null
+            ? entitlements.maxModelOutputUsdPerMillion()
+            : Double.POSITIVE_INFINITY;
+    Optional<ModelPricingLookup.Pricing> pricing = modelPricingLookup.find(provider, modelId);
+    if (pricing.isEmpty()) {
+      return false;
+    }
+    ModelPricingLookup.Pricing p = pricing.get();
+    return p.inputUsdPerMillion() <= maxInput && p.outputUsdPerMillion() <= maxOutput;
   }
 
   private Optional<User> resolveUser(String userId) {
