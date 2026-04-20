@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendTextToMessage, calculateMessageCost, estimateAssistantOutputTokens, estimateConversationTokens, estimatePreSendCost, estimateTextTokens, extractAssistantText, extractTokenUsage, favoriteModelKey, filterToolCallLogs, formatCost, formatRatePerMillion, formatStreamErrorMessage, parseAttachmentContext, parsePersistedMessageId, resolveStreamOutcome } from '../chat-helpers'
+import { appendTextToMessage, calculateMessageCost, estimateAssistantOutputTokens, estimateConversationTokens, estimatePreSendCost, estimateTextTokens, extractAssistantText, extractTokenUsage, favoriteModelKey, filterToolCallLogs, formatCost, formatRatePerMillion, parseAttachmentContext, parsePersistedMessageId, resolveStreamOutcome } from '../chat-helpers'
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {
@@ -235,40 +235,8 @@ describe('resolveStreamOutcome', () => {
       receivedContent: true
     }, null)).toEqual({
       status: 'error',
-      error: 'Response from the AI provider was interrupted before completion. Partial response shown.'
+      error: 'The response stream was interrupted before completion. Partial response shown.'
     })
-  })
-
-  it('includes provider, model and status for interrupted streams when context is available', () => {
-    expect(resolveStreamOutcome({
-      receivedDone: false,
-      receivedError: false,
-      receivedContent: false
-    }, null, {
-      provider: 'GOOGLE',
-      modelId: 'gemma-4-31b-it',
-      statusCode: 504,
-      errorType: 'TIMEOUT'
-    })).toEqual({
-      status: 'error',
-      error: 'Response from Google (gemma-4-31b-it) was interrupted before completion (HTTP 504).'
-    })
-  })
-})
-
-describe('formatStreamErrorMessage', () => {
-  it('builds a contextual stream error message from metadata', () => {
-    expect(formatStreamErrorMessage({
-      type: 'error',
-      provider: 'GOOGLE',
-      modelId: 'gemma-4-31b-it',
-      statusCode: 503,
-      errorType: 'SERVER_ERROR',
-      content: null,
-      incomplete: true
-    })).toBe(
-      'Response from Google (gemma-4-31b-it) was interrupted (HTTP 503). The provider returned a server error. Partial response shown.'
-    )
   })
 })
 

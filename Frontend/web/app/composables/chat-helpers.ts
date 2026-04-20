@@ -1,5 +1,5 @@
 import type { ChatStatus, UIMessage } from 'ai'
-import type { ModelOption, SendMessageResponse, StreamEvent, TokenUsage, ToolCallLog } from '~/composables/useChatApi'
+import type { ModelOption, SendMessageResponse, TokenUsage, ToolCallLog } from '~/composables/useChatApi'
 
 export const favoriteModelKey = (model: ModelOption) => `${model.provider}:${model.value}`
 
@@ -282,73 +282,13 @@ export function getFirstTextContent(message: UIMessage): string {
   )?.text || ''
 }
 
-type StreamFailureContext = Pick<StreamEvent, 'provider' | 'modelId' | 'statusCode' | 'errorType'>
-
-function providerLabel(provider?: string | null): string {
-  switch (provider) {
-    case 'OPENAI':
-      return 'OpenAI'
-    case 'GOOGLE':
-      return 'Google'
-    case 'CLAUDE':
-      return 'Claude'
-    case 'OPENROUTER':
-      return 'OpenRouter'
-    default:
-      return 'the AI provider'
-  }
-}
-
-function streamErrorKindDescription(errorType?: string | null): string {
-  switch (errorType) {
-    case 'TIMEOUT':
-      return 'The provider timed out before completion.'
-    case 'PARSE_ERROR':
-      return 'The streamed response could not be parsed completely.'
-    case 'RATE_LIMIT':
-      return 'The provider rate limit was reached.'
-    case 'SERVER_ERROR':
-      return 'The provider returned a server error.'
-    case 'PROVIDER_ERROR':
-      return 'The provider rejected the request.'
-    default:
-      return 'The stream failed before completion.'
-  }
-}
-
-export function formatStreamErrorMessage(
-  event: StreamFailureContext & { content?: string | null; incomplete?: boolean | null }
-): string {
-  const existing = event.content?.trim()
-  if (existing) {
-    return existing
-  }
-
-  const provider = providerLabel(event.provider)
-  const modelSuffix = event.modelId ? ` (${event.modelId})` : ''
-  const statusSuffix = event.statusCode != null ? ` (HTTP ${event.statusCode})` : ''
-  const partialSuffix = event.incomplete ? ' Partial response shown.' : ''
-  return `Response from ${provider}${modelSuffix} was interrupted${statusSuffix}. ${streamErrorKindDescription(event.errorType)}${partialSuffix}`
-}
-
-export function formatInterruptedStreamMessage(
-  context?: StreamFailureContext & { receivedContent?: boolean }
-): string {
-  const provider = providerLabel(context?.provider)
-  const modelSuffix = context?.modelId ? ` (${context.modelId})` : ''
-  const statusSuffix = context?.statusCode != null ? ` (HTTP ${context.statusCode})` : ''
-  const partialSuffix = context?.receivedContent ? ' Partial response shown.' : ''
-  return `Response from ${provider}${modelSuffix} was interrupted before completion${statusSuffix}.${partialSuffix}`
-}
-
 export function resolveStreamOutcome(
   status: {
     receivedDone: boolean
     receivedError: boolean
     receivedContent: boolean
   },
-  currentError: string | null,
-  context?: StreamFailureContext
+  currentError: string | null
 ): {
   status: ChatStatus
   error: string | null
@@ -363,10 +303,9 @@ export function resolveStreamOutcome(
   if (!status.receivedDone) {
     return {
       status: 'error',
-      error: formatInterruptedStreamMessage({
-        ...context,
-        receivedContent: status.receivedContent
-      })
+      error: status.receivedContent
+        ? 'The response stream was interrupted before completion. Partial response shown.'
+        : 'The response stream was interrupted before completion.'
     }
   }
 

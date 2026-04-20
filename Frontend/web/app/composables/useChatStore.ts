@@ -15,7 +15,6 @@ import {
   favoriteModelKey,
   filterToolCallLogs,
   formatCost,
-  formatStreamErrorMessage,
   formatRatePerMillion,
   getFirstTextContent,
   messageId,
@@ -499,12 +498,6 @@ export function useChatStore() {
       receivedError: false,
       receivedContent: false
     }
-    let streamErrorContext: Pick<StreamEvent, 'provider' | 'modelId' | 'statusCode' | 'errorType'> = {
-      provider: model.provider,
-      modelId: model.value,
-      statusCode: null,
-      errorType: null
-    }
 
     try {
       const input = {
@@ -574,13 +567,7 @@ export function useChatStore() {
 
             case 'error':
               streamStatus.receivedError = true
-              streamErrorContext = {
-                provider: event.provider ?? model.provider,
-                modelId: event.modelId ?? model.value,
-                statusCode: event.statusCode ?? null,
-                errorType: event.errorType ?? null
-              }
-              conversation.error = formatStreamErrorMessage({ ...event, incomplete: true })
+              conversation.error = event.content || 'Streaming error'
               break
           }
         },
@@ -588,7 +575,7 @@ export function useChatStore() {
       )
 
       conversation.activeRequest = undefined
-      const outcome = resolveStreamOutcome(streamStatus, conversation.error, streamErrorContext)
+      const outcome = resolveStreamOutcome(streamStatus, conversation.error)
       conversation.status = outcome.status
       conversation.error = outcome.error
 
@@ -711,12 +698,6 @@ export function useChatStore() {
       receivedError: false,
       receivedContent: false
     }
-    let streamErrorContext: Pick<StreamEvent, 'provider' | 'modelId' | 'statusCode' | 'errorType'> = {
-      provider: model.provider,
-      modelId: model.value,
-      statusCode: null,
-      errorType: null
-    }
 
     try {
       const input = {
@@ -783,13 +764,7 @@ export function useChatStore() {
 
             case 'error':
               streamStatus.receivedError = true
-              streamErrorContext = {
-                provider: event.provider ?? model.provider,
-                modelId: event.modelId ?? model.value,
-                statusCode: event.statusCode ?? null,
-                errorType: event.errorType ?? null
-              }
-              conversation.error = formatStreamErrorMessage({ ...event, incomplete: true })
+              conversation.error = event.content || 'Streaming error'
               break
           }
         },
@@ -797,7 +772,7 @@ export function useChatStore() {
       )
 
       conversation.activeRequest = undefined
-      const outcome = resolveStreamOutcome(streamStatus, conversation.error, streamErrorContext)
+      const outcome = resolveStreamOutcome(streamStatus, conversation.error)
       conversation.status = outcome.status
       conversation.error = outcome.error
 
