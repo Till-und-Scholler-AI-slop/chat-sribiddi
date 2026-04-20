@@ -212,6 +212,10 @@ app:
       # :free-suffix convention: only truly free models on Free; everything else requires Premium.
       free-max-input-usd-per-million: ${BILLING_FREE_MAX_INPUT_USD_PER_MILLION:0.0}
       free-max-output-usd-per-million: ${BILLING_FREE_MAX_OUTPUT_USD_PER_MILLION:0.0}
+      # Premium tier allows all models under these thresholds (USD per 1,000,000 tokens). Models
+      # above the threshold — e.g. claude-opus-4-7 (~$15/$75 per 1M) — require Max. BILL-8.
+      premium-max-input-usd-per-million: ${BILLING_PREMIUM_MAX_INPUT_USD_PER_MILLION:5.0}
+      premium-max-output-usd-per-million: ${BILLING_PREMIUM_MAX_OUTPUT_USD_PER_MILLION:5.0}
       # Providers that may be used in managed (platform-paid) billing mode. Paid tiers route 100%
       # through OpenRouter, so direct OpenAI/Google/Claude are BYOK-only.
       managed-providers:

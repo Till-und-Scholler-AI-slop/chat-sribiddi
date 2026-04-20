@@ -85,8 +85,8 @@ public class EntitlementService {
     Plan plan = user != null && user.getPlan() != null ? user.getPlan() : Plan.FREE;
     TierConfig tier = billingProperties.tier(plan);
     ModelAccess access = billingProperties.getModelAccess();
-    Double maxInput = plan == Plan.FREE ? access.getFreeMaxInputUsdPerMillion() : null;
-    Double maxOutput = plan == Plan.FREE ? access.getFreeMaxOutputUsdPerMillion() : null;
+    Double maxInput = priceCapInput(access, plan);
+    Double maxOutput = priceCapOutput(access, plan);
     return new Entitlements(
         plan,
         tier.getMaxAttachments(),
@@ -98,6 +98,27 @@ public class EntitlementService {
         tier.getParallelStreams(),
         maxInput,
         maxOutput);
+  }
+
+  /**
+   * Returns the input-price cap (USD per 1M tokens) applied to the given plan, or {@code null}
+   * when the plan has no cap (Max). Free uses {@code freeMax*}, Premium uses {@code premiumMax*}
+   * (see BILL-8).
+   */
+  private static Double priceCapInput(ModelAccess access, Plan plan) {
+    return switch (plan) {
+      case FREE -> access.getFreeMaxInputUsdPerMillion();
+      case PREMIUM -> access.getPremiumMaxInputUsdPerMillion();
+      case MAX -> null;
+    };
+  }
+
+  private static Double priceCapOutput(ModelAccess access, Plan plan) {
+    return switch (plan) {
+      case FREE -> access.getFreeMaxOutputUsdPerMillion();
+      case PREMIUM -> access.getPremiumMaxOutputUsdPerMillion();
+      case MAX -> null;
+    };
   }
 
   /**
@@ -253,14 +274,18 @@ public class EntitlementService {
    *       these endpoints; users must bring their own key regardless of plan.
    *   <li>Managed providers (default: OpenRouter):
    *       <ul>
-   *         <li>Premium/Max (no price cap) → {@link AvailabilityFlag#ALWAYS}.
-   *         <li>{@link Plan#FREE}: uses the same price-threshold check as
-   *             {@link #assertCanUseModel(String, Provider, String, BillingMode)} — a model is
-   *             {@link AvailabilityFlag#ALWAYS} when its prompt/completion prices are at or below
-   *             the configured {@code app.billing.model-access.free-max-*-usd-per-million}
-   *             thresholds, else {@link AvailabilityFlag#UPGRADE_REQUIRED} with
-   *             {@code requiredPlan = PREMIUM}. Models with unknown pricing default to
-   *             {@code UPGRADE_REQUIRED} (matching the enforcement path).
+   *         <li>{@link Plan#MAX} (no price cap) → {@link AvailabilityFlag#ALWAYS}.
+   *         <li>{@link Plan#PREMIUM}: models at or below the configured
+   *             {@code app.billing.model-access.premium-max-*-usd-per-million} thresholds are
+   *             {@link AvailabilityFlag#ALWAYS}, else {@link AvailabilityFlag#UPGRADE_REQUIRED}
+   *             with {@code requiredPlan = MAX}.
+   *         <li>{@link Plan#FREE}: models at or below the {@code free-max-*} thresholds are
+   *             {@link AvailabilityFlag#ALWAYS}; more expensive models are
+   *             {@link AvailabilityFlag#UPGRADE_REQUIRED} with {@code requiredPlan = PREMIUM}
+   *             unless they also exceed the Premium thresholds, in which case
+   *             {@code requiredPlan = MAX}. Models with unknown pricing default to
+   *             {@code UPGRADE_REQUIRED} with {@code requiredPlan = PREMIUM} (matching the
+   *             enforcement path).
    *       </ul>
    * </ul>
    */
@@ -287,7 +312,7 @@ public class EntitlementService {
                 flag = AvailabilityFlag.ALWAYS;
               } else {
                 flag = AvailabilityFlag.UPGRADE_REQUIRED;
-                required = Plan.PREMIUM;
+                required = requiredPlanFor(provider, opt.getId());
               }
               copy.setAvailability(flag);
               copy.setRequiredPlan(required);
@@ -335,6 +360,27 @@ public class EntitlementService {
     }
     ModelPricingLookup.Pricing p = pricing.get();
     return p.inputUsdPerMillion() <= maxInput && p.outputUsdPerMillion() <= maxOutput;
+  }
+
+  /**
+   * Determines which plan the user must upgrade to in order to access the given model. Models
+   * that fit within the Premium price cap require {@link Plan#PREMIUM}; models that exceed it
+   * require {@link Plan#MAX}. Models with unknown pricing are conservatively treated as
+   * requiring {@link Plan#MAX} because capped plans reject unknown pricing in the enforcement
+   * path, so the suggested upgrade must be one that can actually unlock access.
+   */
+  private Plan requiredPlanFor(Provider provider, String modelId) {
+    ModelAccess access = billingProperties.getModelAccess();
+    Optional<ModelPricingLookup.Pricing> pricing = modelPricingLookup.find(provider, modelId);
+    if (pricing.isEmpty()) {
+      return Plan.MAX;
+    }
+    ModelPricingLookup.Pricing p = pricing.get();
+    if (p.inputUsdPerMillion() > access.getPremiumMaxInputUsdPerMillion()
+        || p.outputUsdPerMillion() > access.getPremiumMaxOutputUsdPerMillion()) {
+      return Plan.MAX;
+    }
+    return Plan.PREMIUM;
   }
 
   private Optional<User> resolveUser(String userId) {

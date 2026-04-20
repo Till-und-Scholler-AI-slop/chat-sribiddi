@@ -106,16 +106,19 @@ class EntitlementServiceTest {
   }
 
   @Test
-  void get_returnsPremiumTierWithNoPriceCap() {
+  void get_returnsPremiumTierWithPriceCap() {
     when(userRepository.findByProviderId(USER_ID))
         .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
 
     Entitlements entitlements = service.get(USER_ID);
 
     assertThat(entitlements.plan()).isEqualTo(Plan.PREMIUM);
-    assertThat(entitlements.allModelsAllowed()).isTrue();
-    assertThat(entitlements.maxModelInputUsdPerMillion()).isNull();
-    assertThat(entitlements.maxModelOutputUsdPerMillion()).isNull();
+    // BILL-8: Premium is capped at the configured premium thresholds.
+    assertThat(entitlements.allModelsAllowed()).isFalse();
+    assertThat(entitlements.maxModelInputUsdPerMillion())
+        .isEqualTo(billingProperties.getModelAccess().getPremiumMaxInputUsdPerMillion());
+    assertThat(entitlements.maxModelOutputUsdPerMillion())
+        .isEqualTo(billingProperties.getModelAccess().getPremiumMaxOutputUsdPerMillion());
     assertThat(entitlements.allowsTool("brave-search")).isTrue();
     assertThat(entitlements.allowsTool("other-tool")).isFalse();
   }
@@ -187,13 +190,36 @@ class EntitlementServiceTest {
   }
 
   @Test
-  void assertCanUseModel_allowsAnyModelForPremiumWithoutPricingLookup() {
+  void assertCanUseModel_allowsCheapModelForPremium() {
     when(userRepository.findByProviderId(USER_ID))
         .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "openai/gpt-4o-mini"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.15, 0.60)));
 
-    service.assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-5.2");
+    service.assertCanUseModel(USER_ID, Provider.OPENROUTER, "openai/gpt-4o-mini");
+  }
 
-    verifyNoInteractions(modelPricingLookup);
+  @Test
+  void assertCanUseModel_rejectsExpensivePremiumModelForPremiumPlan() {
+    // BILL-8: Premium is capped at 5.0/5.0 USD per 1M; claude-opus-4-7 at $15/$75 exceeds it
+    // and must be rejected with MODEL_NOT_ALLOWED (→ HTTP 402, upgrade-to-MAX hint).
+    when(userRepository.findByProviderId(USER_ID))
+        .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "anthropic/claude-opus-4-7"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(15.0, 75.0)));
+
+    assertThatThrownBy(
+            () ->
+                service.assertCanUseModel(
+                    USER_ID, Provider.OPENROUTER, "anthropic/claude-opus-4-7"))
+        .isInstanceOf(PlanRestrictionException.class)
+        .satisfies(
+            ex -> {
+              PlanRestrictionException pre = (PlanRestrictionException) ex;
+              assertThat(pre.getReason())
+                  .isEqualTo(PlanRestrictionException.Reason.MODEL_NOT_ALLOWED);
+              assertThat(pre.getPlan()).isEqualTo(Plan.PREMIUM);
+            });
   }
 
   @Test
@@ -247,6 +273,8 @@ class EntitlementServiceTest {
   void assertCanUseModel_managedMode_allowsOpenRouterForPremium() {
     when(userRepository.findByProviderId(USER_ID))
         .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "openai/gpt-4o-mini"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.15, 0.60)));
 
     service.assertCanUseModel(
         USER_ID, Provider.OPENROUTER, "openai/gpt-4o-mini", BillingMode.MANAGED);
@@ -256,10 +284,11 @@ class EntitlementServiceTest {
   void assertCanUseModel_byokMode_allowsDirectOpenAiForPremium() {
     when(userRepository.findByProviderId(USER_ID))
         .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+    // BILL-8: Premium now price-checks even on BYOK; mid-range model under the $5/1M cap passes.
+    when(modelPricingLookup.find(Provider.OPENAI, "gpt-5.2"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(2.5, 4.5)));
 
     service.assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-5.2", BillingMode.BYOK);
-
-    verifyNoInteractions(modelPricingLookup);
   }
 
   @Test
@@ -354,7 +383,9 @@ class EntitlementServiceTest {
     assertThat(result.get(0).getId()).isEqualTo("openai/gpt-4o");
     assertThat(result.get(0).getAvailability())
         .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.UPGRADE_REQUIRED);
-    assertThat(result.get(0).getRequiredPlan()).isEqualTo(Plan.PREMIUM);
+    // Unknown pricing → neither FREE nor PREMIUM can access (both check prices); only MAX skips
+    // the pricing gate, so the minimum upgrade hint is MAX.
+    assertThat(result.get(0).getRequiredPlan()).isEqualTo(Plan.MAX);
     assertThat(result.get(1).getId()).isEqualTo("meta-llama/llama-3.1-8b-instruct:free");
     assertThat(result.get(1).getAvailability())
         .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.ALWAYS);
@@ -392,9 +423,14 @@ class EntitlementServiceTest {
   }
 
   @Test
-  void annotateModelsForPlan_openRouter_premiumTier_allModelsAlwaysAvailable() {
+  void annotateModelsForPlan_openRouter_premiumTier_allowsModelsUnderPremiumCap() {
     when(userRepository.findByProviderId(USER_ID))
         .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+    // BILL-8: Premium is capped at 5.0/5.0; both sample models are under that.
+    when(modelPricingLookup.find(Provider.OPENROUTER, "openai/gpt-4o"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(2.5, 4.0)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "meta-llama/llama-3.1-8b-instruct:free"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.0, 0.0)));
     var paid =
         new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
             "openai/gpt-4o", "GPT-4o");
@@ -405,12 +441,51 @@ class EntitlementServiceTest {
     var result =
         service.annotateModelsForPlan(USER_ID, Provider.OPENROUTER, java.util.List.of(paid, free));
 
-    // Snapshot: PREMIUM user has no upgrade gate on OpenRouter.
+    // Models under the Premium cap are ALWAYS available with no upgrade required.
     assertThat(result)
         .extracting(o -> o.getId() + ":" + o.getAvailability() + ":" + o.getRequiredPlan())
         .containsExactly(
             "openai/gpt-4o:ALWAYS:null",
             "meta-llama/llama-3.1-8b-instruct:free:ALWAYS:null");
+  }
+
+  @Test
+  void annotateModelsForPlan_openRouter_premiumTier_flagsExpensiveModelsAsMaxUpgrade() {
+    // BILL-8: claude-opus-4-7 above the $5/1M Premium cap → UPGRADE_REQUIRED to MAX.
+    when(userRepository.findByProviderId(USER_ID))
+        .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "anthropic/claude-opus-4-7"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(15.0, 75.0)));
+    var opus =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "anthropic/claude-opus-4-7", "Claude Opus 4.7");
+
+    var result =
+        service.annotateModelsForPlan(USER_ID, Provider.OPENROUTER, java.util.List.of(opus));
+
+    assertThat(result).hasSize(1);
+    assertThat(result.get(0).getAvailability())
+        .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.UPGRADE_REQUIRED);
+    assertThat(result.get(0).getRequiredPlan()).isEqualTo(Plan.MAX);
+  }
+
+  @Test
+  void annotateModelsForPlan_openRouter_freeTier_flagsExpensiveModelsAsMaxUpgrade() {
+    // BILL-8: a FREE user looking at an expensive model (> Premium cap) should be pushed all
+    // the way to MAX, not just PREMIUM — Premium couldn't use it either.
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "anthropic/claude-opus-4-7"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(15.0, 75.0)));
+    var opus =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "anthropic/claude-opus-4-7", "Claude Opus 4.7");
+
+    var result =
+        service.annotateModelsForPlan(USER_ID, Provider.OPENROUTER, java.util.List.of(opus));
+
+    assertThat(result.get(0).getAvailability())
+        .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.UPGRADE_REQUIRED);
+    assertThat(result.get(0).getRequiredPlan()).isEqualTo(Plan.MAX);
   }
 
   @Test
