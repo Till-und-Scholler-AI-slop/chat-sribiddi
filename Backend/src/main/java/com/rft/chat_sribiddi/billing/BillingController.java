@@ -14,6 +14,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -38,6 +41,8 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/billing")
 public class BillingController {
+
+  private static final Logger log = LoggerFactory.getLogger(BillingController.class);
 
   /** Window used by {@code GET /billing/usage}: the trailing 30 days of {@code usage_events}. */
   static final Duration USAGE_WINDOW = Duration.ofDays(30);
@@ -196,9 +201,23 @@ public class BillingController {
         status != null && status >= 400 && status < 500
             ? HttpStatus.BAD_REQUEST
             : HttpStatus.BAD_GATEWAY;
-    String message =
-        ex.getMessage() == null ? "Stripe request failed" : "Stripe: " + ex.getMessage();
-    return new ResponseStatusException(mapped, message, ex);
+    // Generate a short correlation id so the operator can cross-reference the detailed
+    // server-side log entry from the client error without leaking internals (Stripe error
+    // messages can include API keys, internal IDs, rate-limit hints, etc.).
+    String correlationId = UUID.randomUUID().toString().substring(0, 8);
+    log.warn(
+        "Stripe API call failed (correlationId={}, status={}, requestId={}, code={}): {}",
+        correlationId,
+        status,
+        ex.getRequestId(),
+        ex.getCode(),
+        ex.getMessage(),
+        ex);
+    String clientMessage =
+        mapped == HttpStatus.BAD_REQUEST
+            ? "The billing request was rejected by Stripe (ref: " + correlationId + ")"
+            : "Failed to reach Stripe (ref: " + correlationId + ")";
+    return new ResponseStatusException(mapped, clientMessage, ex);
   }
 
   public record CheckoutSessionRequest(

@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -36,24 +37,48 @@ public class StripeService {
    * Creates (or reuses) a Stripe Customer for the given internal user and returns its id. The
    * customer id is persisted on {@link User#getStripeCustomerId()} so subsequent Checkout /
    * Portal calls reuse the same record.
+   *
+   * <p>Concurrency: acquires a pessimistic row-lock on the user record before checking/creating
+   * the Stripe Customer, so two concurrent requests for the same user serialize on the lock and
+   * only one Stripe Customer is ever created. The lock is held for the duration of the Stripe
+   * API call, which is acceptable here because Customer creation is a single fast call and this
+   * method is only invoked from the {@code /billing/*} endpoints (one per user interaction).
    */
+  @Transactional
   public String ensureCustomer(User user) throws StripeException {
     Objects.requireNonNull(user, "user must not be null");
     requireConfigured();
+    // Fast path: the caller already loaded a user that has a customer id. Still re-read under a
+    // pessimistic lock below in the slow path to avoid the race entirely.
     String existing = user.getStripeCustomerId();
     if (existing != null && !existing.isBlank()) {
       return existing;
     }
+    User locked =
+        userRepository
+            .findWithLockById(user.getId())
+            .orElseThrow(
+                () ->
+                    new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User no longer exists"));
+    String lockedCustomerId = locked.getStripeCustomerId();
+    if (lockedCustomerId != null && !lockedCustomerId.isBlank()) {
+      // Another concurrent caller won the race and already created a customer — reuse it and
+      // propagate onto the detached entity the caller is holding.
+      user.setStripeCustomerId(lockedCustomerId);
+      return lockedCustomerId;
+    }
     CustomerCreateParams params =
         CustomerCreateParams.builder()
-            .setEmail(user.getEmail())
-            .putMetadata("user_id", String.valueOf(user.getId()))
-            .putMetadata("provider_id", user.getProviderId() == null ? "" : user.getProviderId())
+            .setEmail(locked.getEmail())
+            .putMetadata("user_id", String.valueOf(locked.getId()))
+            .putMetadata(
+                "provider_id", locked.getProviderId() == null ? "" : locked.getProviderId())
             .build();
     Customer customer = Customer.create(params, requestOptions());
+    locked.setStripeCustomerId(customer.getId());
+    userRepository.save(locked);
     user.setStripeCustomerId(customer.getId());
-    userRepository.save(user);
-    log.debug("Created Stripe customer {} for user id={}", customer.getId(), user.getId());
+    log.debug("Created Stripe customer {} for user id={}", customer.getId(), locked.getId());
     return customer.getId();
   }
 

@@ -13,8 +13,12 @@ public interface UsageEventRepository extends JpaRepository<UsageEventEntity, Lo
   /**
    * Aggregates usage events for the given user since {@code since}, grouped by provider and
    * model. Used by {@code GET /billing/usage} to render a per-model summary for the trailing
-   * 30 days. {@code null} token columns (some providers return no usage data) are coalesced to
-   * zero in the SUM so the totals match what users would see on per-message cards.
+   * 30 days.
+   *
+   * <p>{@code totalTokens} falls back per-row to {@code promptTokens + completionTokens} when
+   * the provider only reported the split (some providers omit the total in their usage payload
+   * — see {@link UsageEventService#record}). Null columns are coalesced to zero so SUM() always
+   * returns a numeric value.
    */
   @Query(
       """
@@ -23,7 +27,8 @@ public interface UsageEventRepository extends JpaRepository<UsageEventEntity, Lo
              COUNT(u) AS calls,
              COALESCE(SUM(u.promptTokens), 0) AS promptTokens,
              COALESCE(SUM(u.completionTokens), 0) AS completionTokens,
-             COALESCE(SUM(u.totalTokens), 0) AS totalTokens,
+             COALESCE(SUM(COALESCE(u.totalTokens,
+                 COALESCE(u.promptTokens, 0) + COALESCE(u.completionTokens, 0))), 0) AS totalTokens,
              COALESCE(SUM(u.costMicroCents), 0) AS costMicroCents
       FROM UsageEventEntity u
       WHERE u.userId = :userId
