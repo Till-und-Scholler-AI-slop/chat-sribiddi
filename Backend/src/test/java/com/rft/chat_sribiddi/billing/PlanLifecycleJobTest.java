@@ -10,10 +10,9 @@ import static org.mockito.Mockito.when;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
-import java.lang.reflect.Field;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,34 +34,23 @@ class PlanLifecycleJobTest {
   }
 
   @Test
-  void processExpiredSubscriptions_downgradesUserAndMarksSubscriptionExpired() {
-    SubscriptionEntity subscription = new SubscriptionEntity();
-    setId(subscription, 11L);
-    subscription.setUserId(42L);
-    subscription.setStatus("active");
-    subscription.setPlan(Plan.PREMIUM);
-    subscription.setCurrentPeriodEnd(Instant.now().minusSeconds(3600));
-
-    User user = new User();
-    setUserId(user, 42L);
-    user.setPlan(Plan.PREMIUM);
-    user.setPlanStatus("active");
-    user.setPlanValidUntil(Instant.now().minusSeconds(3600));
-
+  void processExpiredSubscriptions_conditionallyMarksExpiredAndDowngradesUser() {
+    SubscriptionEntity subscription = newSubscription(11L, 42L);
     when(subscriptionRepository.findByStatusAndCurrentPeriodEndBefore(eq("active"), any()))
         .thenReturn(List.of(subscription));
-    when(userRepository.findById(42L)).thenReturn(Optional.of(user));
+    when(subscriptionRepository.markExpiredIfStillActive(
+            eq(11L), eq(PlanLifecycleJob.EXPIRED_STATUS), any(), any()))
+        .thenReturn(1);
+    when(userRepository.downgradeToFreeIfExpired(
+            eq(42L), eq(PlanLifecycleJob.USER_EXPIRED_STATUS), any()))
+        .thenReturn(1);
 
     job.processExpiredSubscriptions();
 
-    ArgumentCaptor<SubscriptionEntity> subCap = ArgumentCaptor.forClass(SubscriptionEntity.class);
-    verify(subscriptionRepository).save(subCap.capture());
-    assertThat(subCap.getValue().getStatus()).isEqualTo(PlanLifecycleJob.EXPIRED_STATUS);
-
-    ArgumentCaptor<User> userCap = ArgumentCaptor.forClass(User.class);
-    verify(userRepository).save(userCap.capture());
-    assertThat(userCap.getValue().getPlan()).isEqualTo(Plan.FREE);
-    assertThat(userCap.getValue().getPlanStatus()).isEqualTo(PlanLifecycleJob.USER_EXPIRED_STATUS);
+    verify(subscriptionRepository)
+        .markExpiredIfStillActive(eq(11L), eq(PlanLifecycleJob.EXPIRED_STATUS), any(), any());
+    verify(userRepository)
+        .downgradeToFreeIfExpired(eq(42L), eq(PlanLifecycleJob.USER_EXPIRED_STATUS), any());
   }
 
   @Test
@@ -72,96 +60,103 @@ class PlanLifecycleJobTest {
 
     job.processExpiredSubscriptions();
 
-    verify(subscriptionRepository, never()).save(any());
-    verify(userRepository, never()).save(any());
+    verify(subscriptionRepository, never())
+        .markExpiredIfStillActive(any(), any(), any(), any());
+    verify(userRepository, never()).downgradeToFreeIfExpired(any(), any(), any());
   }
 
   @Test
-  void processExpiredSubscriptions_missingUser_stillMarksSubscriptionExpired() {
-    SubscriptionEntity subscription = new SubscriptionEntity();
-    setId(subscription, 12L);
-    subscription.setUserId(99L);
-    subscription.setStatus("active");
-
+  void processExpiredSubscriptions_lostRace_skipsUserUpdate() {
+    SubscriptionEntity subscription = newSubscription(12L, 99L);
     when(subscriptionRepository.findByStatusAndCurrentPeriodEndBefore(eq("active"), any()))
         .thenReturn(List.of(subscription));
-    when(userRepository.findById(99L)).thenReturn(Optional.empty());
+    // Subscription row was changed concurrently (e.g. webhook renewal) — conditional update
+    // affects 0 rows, so the user must not be touched.
+    when(subscriptionRepository.markExpiredIfStillActive(
+            eq(12L), eq(PlanLifecycleJob.EXPIRED_STATUS), any(), any()))
+        .thenReturn(0);
 
     job.processExpiredSubscriptions();
 
-    ArgumentCaptor<SubscriptionEntity> subCap = ArgumentCaptor.forClass(SubscriptionEntity.class);
-    verify(subscriptionRepository).save(subCap.capture());
-    assertThat(subCap.getValue().getStatus()).isEqualTo(PlanLifecycleJob.EXPIRED_STATUS);
-    verify(userRepository, never()).save(any());
+    verify(userRepository, never()).downgradeToFreeIfExpired(any(), any(), any());
   }
 
   @Test
-  void processPaymentFailedGracePeriod_downgradesUsersPastCutoff() {
-    User user = new User();
-    setUserId(user, 7L);
-    user.setPlan(Plan.PREMIUM);
-    user.setPlanStatus(StripeWebhookProcessor.PAYMENT_FAILED_STATUS);
-    user.setPlanValidUntil(Instant.now().minus(java.time.Duration.ofDays(4)));
+  void processExpiredSubscriptions_subExpiredButUserRenewed_userNotOverwritten() {
+    SubscriptionEntity subscription = newSubscription(13L, 55L);
+    when(subscriptionRepository.findByStatusAndCurrentPeriodEndBefore(eq("active"), any()))
+        .thenReturn(List.of(subscription));
+    when(subscriptionRepository.markExpiredIfStillActive(
+            eq(13L), eq(PlanLifecycleJob.EXPIRED_STATUS), any(), any()))
+        .thenReturn(1);
+    // User conditional UPDATE matched 0 rows (plan already FREE / planValidUntil in the future).
+    when(userRepository.downgradeToFreeIfExpired(
+            eq(55L), eq(PlanLifecycleJob.USER_EXPIRED_STATUS), any()))
+        .thenReturn(0);
 
-    when(userRepository.findByPlanStatusAndPlanValidUntilBefore(
-            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS), any()))
-        .thenReturn(List.of(user));
+    job.processExpiredSubscriptions();
 
-    job.processPaymentFailedGracePeriod();
-
-    ArgumentCaptor<User> userCap = ArgumentCaptor.forClass(User.class);
-    verify(userRepository).save(userCap.capture());
-    assertThat(userCap.getValue().getPlan()).isEqualTo(Plan.FREE);
-    assertThat(userCap.getValue().getPlanStatus())
-        .isEqualTo(PlanLifecycleJob.USER_DOWNGRADED_STATUS);
+    verify(userRepository)
+        .downgradeToFreeIfExpired(eq(55L), eq(PlanLifecycleJob.USER_EXPIRED_STATUS), any());
   }
 
   @Test
-  void processPaymentFailedGracePeriod_noResults_writesNothing() {
-    when(userRepository.findByPlanStatusAndPlanValidUntilBefore(
-            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS), any()))
-        .thenReturn(List.of());
+  void processPaymentFailedGracePeriod_delegatesToBulkConditionalUpdate() {
+    when(userRepository.downgradeAllByStatusAndValidUntilBefore(
+            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
+            eq(PlanLifecycleJob.USER_DOWNGRADED_STATUS),
+            any()))
+        .thenReturn(2);
 
     job.processPaymentFailedGracePeriod();
 
-    verify(userRepository, never()).save(any());
+    verify(userRepository)
+        .downgradeAllByStatusAndValidUntilBefore(
+            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
+            eq(PlanLifecycleJob.USER_DOWNGRADED_STATUS),
+            any());
   }
 
   @Test
   void processPaymentFailedGracePeriod_usesThreeDayCutoff() {
-    when(userRepository.findByPlanStatusAndPlanValidUntilBefore(
-            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS), any()))
-        .thenReturn(List.of());
+    when(userRepository.downgradeAllByStatusAndValidUntilBefore(
+            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
+            eq(PlanLifecycleJob.USER_DOWNGRADED_STATUS),
+            any()))
+        .thenReturn(0);
 
-    Instant before = Instant.now().minus(java.time.Duration.ofDays(3));
+    Instant before = Instant.now().minus(Duration.ofDays(3));
     job.processPaymentFailedGracePeriod();
-    Instant after = Instant.now().minus(java.time.Duration.ofDays(3));
+    Instant after = Instant.now().minus(Duration.ofDays(3));
 
     ArgumentCaptor<Instant> cutoffCap = ArgumentCaptor.forClass(Instant.class);
     verify(userRepository)
-        .findByPlanStatusAndPlanValidUntilBefore(
-            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS), cutoffCap.capture());
-    Instant cutoff = cutoffCap.getValue();
-    assertThat(cutoff).isBetween(before, after);
+        .downgradeAllByStatusAndValidUntilBefore(
+            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
+            eq(PlanLifecycleJob.USER_DOWNGRADED_STATUS),
+            cutoffCap.capture());
+    assertThat(cutoffCap.getValue()).isBetween(before, after);
   }
 
-  private static void setId(SubscriptionEntity entity, Long id) {
-    try {
-      Field field = SubscriptionEntity.class.getDeclaredField("id");
-      field.setAccessible(true);
-      field.set(entity, id);
-    } catch (ReflectiveOperationException ex) {
-      throw new AssertionError(ex);
-    }
+  /**
+   * Small factory that relies on Lombok-generated setters (User/SubscriptionEntity are
+   * annotated with {@code @Setter} at the class level) — no reflection required.
+   */
+  private static SubscriptionEntity newSubscription(Long id, Long userId) {
+    SubscriptionEntity subscription = new SubscriptionEntity();
+    subscription.setId(id);
+    subscription.setUserId(userId);
+    subscription.setStatus("active");
+    subscription.setPlan(Plan.PREMIUM);
+    subscription.setCurrentPeriodEnd(Instant.now().minusSeconds(3600));
+    return subscription;
   }
 
-  private static void setUserId(User user, Long id) {
-    try {
-      Field field = User.class.getDeclaredField("id");
-      field.setAccessible(true);
-      field.set(user, id);
-    } catch (ReflectiveOperationException ex) {
-      throw new AssertionError(ex);
-    }
+  /** Kept for static analysis: {@link User} must expose a {@code setId(Long)} via Lombok. */
+  @SuppressWarnings("unused")
+  private static User newUser(Long id) {
+    User user = new User();
+    user.setId(id);
+    return user;
   }
 }
