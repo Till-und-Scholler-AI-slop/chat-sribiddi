@@ -43,6 +43,7 @@ class BillingControllerTest {
   @Mock private UserRepository userRepository;
   @Mock private SubscriptionRepository subscriptionRepository;
   @Mock private UsageEventRepository usageEventRepository;
+  @Mock private StripeWebhookProcessor stripeWebhookProcessor;
   @Mock private HttpServletRequest request;
 
   private BillingController controller;
@@ -76,6 +77,7 @@ class BillingControllerTest {
             subscriptionRepository,
             usageEventRepository,
             resolver,
+            stripeWebhookProcessor,
             Clock.fixed(NOW, ZoneId.of("UTC")));
   }
 

@@ -7,6 +7,7 @@ import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.stripe.exception.StripeException;
+import com.stripe.model.Event;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.NotNull;
 import java.time.Clock;
@@ -25,6 +26,7 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -53,6 +55,7 @@ public class BillingController {
   private final SubscriptionRepository subscriptionRepository;
   private final UsageEventRepository usageEventRepository;
   private final RequestUserResolver requestUserResolver;
+  private final StripeWebhookProcessor stripeWebhookProcessor;
   private final Clock clock;
 
   @Autowired
@@ -62,7 +65,8 @@ public class BillingController {
       UserRepository userRepository,
       SubscriptionRepository subscriptionRepository,
       UsageEventRepository usageEventRepository,
-      RequestUserResolver requestUserResolver) {
+      RequestUserResolver requestUserResolver,
+      StripeWebhookProcessor stripeWebhookProcessor) {
     this(
         stripeService,
         stripeProperties,
@@ -70,6 +74,7 @@ public class BillingController {
         subscriptionRepository,
         usageEventRepository,
         requestUserResolver,
+        stripeWebhookProcessor,
         Clock.system(ZoneId.of("UTC")));
   }
 
@@ -80,6 +85,7 @@ public class BillingController {
       SubscriptionRepository subscriptionRepository,
       UsageEventRepository usageEventRepository,
       RequestUserResolver requestUserResolver,
+      StripeWebhookProcessor stripeWebhookProcessor,
       Clock clock) {
     this.stripeService = stripeService;
     this.stripeProperties = stripeProperties;
@@ -87,6 +93,7 @@ public class BillingController {
     this.subscriptionRepository = subscriptionRepository;
     this.usageEventRepository = usageEventRepository;
     this.requestUserResolver = requestUserResolver;
+    this.stripeWebhookProcessor = stripeWebhookProcessor;
     this.clock = clock;
   }
 
@@ -168,6 +175,27 @@ public class BillingController {
     return ResponseEntity.ok(
         new BillingUsageResponse(
             since, now, totalCalls, totalTokens, totalCostMicroCents, items));
+  }
+
+  @PostMapping(path = "/webhook", consumes = "application/json")
+  public ResponseEntity<Void> webhook(
+      @RequestBody String payload,
+      @RequestHeader(name = "Stripe-Signature", required = false) String signature) {
+    Event event = stripeService.constructWebhookEvent(payload, signature);
+    try {
+      stripeWebhookProcessor.process(event);
+    } catch (RuntimeException ex) {
+      // Log & return 500 so Stripe retries delivery. We deliberately do not leak processor
+      // internals to the caller.
+      log.error(
+          "Failed to process Stripe webhook event id={} type={}",
+          event.getId(),
+          event.getType(),
+          ex);
+      throw new ResponseStatusException(
+          HttpStatus.INTERNAL_SERVER_ERROR, "Failed to process webhook", ex);
+    }
+    return ResponseEntity.ok().build();
   }
 
   private User requireUser(OidcUser principal, HttpServletRequest request) {

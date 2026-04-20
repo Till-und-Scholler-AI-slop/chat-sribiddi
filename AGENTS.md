@@ -163,3 +163,32 @@ owner must:
    webhook to flip the user's plan, and confirm `GET /billing/me` returns
    `{"plan":"PREMIUM", …}`.
 
+## BILL-12 — Stripe Webhook Event Processing
+
+The webhook endpoint is `POST /billing/webhook` (unauthenticated, exempt from
+CSRF — Stripe authenticates via the `Stripe-Signature` header against
+`STRIPE_WEBHOOK_SECRET`). To enable event processing the owner must:
+
+1. **Register the webhook endpoint** in the Stripe dashboard
+   (Developers → Webhooks → *Add endpoint*). Point it at
+   `https://<deployment>/billing/webhook` and subscribe **at least** to these
+   event types:
+   - `checkout.session.completed`
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+   - `invoice.payment_failed`
+2. **Copy the signing secret** (`whsec_…`) from the endpoint detail page into
+   the `STRIPE_WEBHOOK_SECRET` deployment secret (already referenced by
+   BILL-11). A blank value makes the endpoint return HTTP 503.
+3. **Local testing**: install the Stripe CLI and run
+   `stripe listen --forward-to localhost:8080/billing/webhook`. The CLI prints
+   a `whsec_…` secret on startup — export it as `STRIPE_WEBHOOK_SECRET` for the
+   local backend so signature verification succeeds. Trigger events with
+   `stripe trigger checkout.session.completed`,
+   `stripe trigger customer.subscription.updated`, etc.
+4. **Idempotency is automatic**: duplicate deliveries are skipped via the
+   `stripe_events.stripe_event_id` UNIQUE constraint (Flyway V7). No owner
+   action required.
+
+
