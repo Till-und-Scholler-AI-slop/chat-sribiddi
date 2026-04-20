@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,20 +64,21 @@ public class StripeWebhookProcessor {
       log.warn("Ignoring Stripe webhook with missing event id");
       return false;
     }
-    Optional<StripeEventEntity> existing =
-        stripeEventRepository.findByStripeEventId(event.getId());
-    if (existing.isPresent()) {
-      log.debug(
-          "Stripe event {} already processed at {}; skipping",
-          event.getId(),
-          existing.get().getProcessedAt());
-      return false;
-    }
+    // Claim the event id by inserting the row first. Under concurrent delivery of the same
+    // Stripe event, exactly one transaction wins the UNIQUE constraint on stripe_event_id; the
+    // losing transaction surfaces a DataIntegrityViolationException which we treat as "already
+    // processed" and ACK so Stripe stops retrying.
     StripeEventEntity record = new StripeEventEntity();
     record.setStripeEventId(event.getId());
     record.setType(event.getType() == null ? "" : event.getType());
     record.setPayload(event.toJson() == null ? "{}" : event.toJson());
-    stripeEventRepository.save(record);
+    try {
+      stripeEventRepository.saveAndFlush(record);
+    } catch (DataIntegrityViolationException ex) {
+      log.debug(
+          "Stripe event {} already claimed by another processor; skipping", event.getId());
+      return false;
+    }
 
     dispatch(event);
 
@@ -154,13 +156,11 @@ public class StripeWebhookProcessor {
     }
 
     SubscriptionEntity entity =
-        subscriptionRepository
-            .findFirstByUserIdOrderByUpdatedAtDesc(user.getId())
-            .filter(
-                e ->
-                    subscription.getId() != null
-                        && subscription.getId().equals(e.getStripeSubscriptionId()))
-            .orElseGet(SubscriptionEntity::new);
+        subscription.getId() == null
+            ? new SubscriptionEntity()
+            : subscriptionRepository
+                .findByStripeSubscriptionId(subscription.getId())
+                .orElseGet(SubscriptionEntity::new);
     entity.setUserId(user.getId());
     entity.setStripeSubscriptionId(subscription.getId());
     entity.setPlan(plan);
@@ -208,19 +208,17 @@ public class StripeWebhookProcessor {
     user.setPlanValidUntil(null);
     userRepository.save(user);
 
-    subscriptionRepository
-        .findFirstByUserIdOrderByUpdatedAtDesc(user.getId())
-        .filter(
-            e ->
-                subscription.getId() != null
-                    && subscription.getId().equals(e.getStripeSubscriptionId()))
-        .ifPresent(
-            e -> {
-              e.setStatus(
-                  subscription.getStatus() == null ? "canceled" : subscription.getStatus());
-              e.setCancelAtPeriodEnd(Boolean.TRUE.equals(subscription.getCancelAtPeriodEnd()));
-              subscriptionRepository.save(e);
-            });
+    if (subscription.getId() != null) {
+      subscriptionRepository
+          .findByStripeSubscriptionId(subscription.getId())
+          .ifPresent(
+              e -> {
+                e.setStatus(
+                    subscription.getStatus() == null ? "canceled" : subscription.getStatus());
+                e.setCancelAtPeriodEnd(Boolean.TRUE.equals(subscription.getCancelAtPeriodEnd()));
+                subscriptionRepository.save(e);
+              });
+    }
     log.info(
         "customer.subscription.deleted {}: downgraded user id={} to FREE",
         event.getId(),

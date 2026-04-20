@@ -19,6 +19,7 @@ import com.stripe.model.SubscriptionItem;
 import com.stripe.model.SubscriptionItemCollection;
 import com.stripe.model.checkout.Session;
 import java.lang.reflect.Field;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +30,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -62,14 +64,15 @@ class StripeWebhookProcessorTest {
 
     when(stripeEventRepository.save(any(StripeEventEntity.class)))
         .thenAnswer(inv -> inv.getArgument(0));
+    when(stripeEventRepository.saveAndFlush(any(StripeEventEntity.class)))
+        .thenAnswer(inv -> inv.getArgument(0));
   }
 
   @Test
   void idempotency_skipsAlreadyProcessedEvents() {
     Event event = eventOfType("customer.subscription.updated", "evt_dup");
-    StripeEventEntity existing = new StripeEventEntity();
-    existing.setStripeEventId("evt_dup");
-    when(stripeEventRepository.findByStripeEventId("evt_dup")).thenReturn(Optional.of(existing));
+    when(stripeEventRepository.saveAndFlush(any(StripeEventEntity.class)))
+        .thenThrow(new DataIntegrityViolationException("duplicate key"));
 
     boolean processed = processor.process(event);
 
@@ -89,7 +92,6 @@ class StripeWebhookProcessorTest {
     session.setCustomer("cus_new");
     Event event = eventWithPayload("checkout.session.completed", "evt_cs_1", session);
 
-    when(stripeEventRepository.findByStripeEventId("evt_cs_1")).thenReturn(Optional.empty());
     when(userRepository.findById(77L)).thenReturn(Optional.of(fresh));
 
     assertThat(processor.process(event)).isTrue();
@@ -101,12 +103,15 @@ class StripeWebhookProcessorTest {
 
   @Test
   void subscriptionUpdated_upsertsAndGrantsPlan() {
-    Subscription sub = activeSubscription("sub_1", "cus_123", "price_premium_month", "active");
+    long periodStart = 1_700_000_000L;
+    long periodEnd = 1_702_678_400L;
+    Subscription sub =
+        activeSubscription(
+            "sub_1", "cus_123", "price_premium_month", "active", periodStart, periodEnd);
     Event event = eventWithPayload("customer.subscription.updated", "evt_sub_1", sub);
 
-    when(stripeEventRepository.findByStripeEventId("evt_sub_1")).thenReturn(Optional.empty());
     when(userRepository.findByStripeCustomerId("cus_123")).thenReturn(Optional.of(user));
-    when(subscriptionRepository.findFirstByUserIdOrderByUpdatedAtDesc(42L))
+    when(subscriptionRepository.findByStripeSubscriptionId("sub_1"))
         .thenReturn(Optional.empty());
 
     assertThat(processor.process(event)).isTrue();
@@ -116,11 +121,42 @@ class StripeWebhookProcessorTest {
     assertThat(subCap.getValue().getPlan()).isEqualTo(Plan.PREMIUM);
     assertThat(subCap.getValue().getStatus()).isEqualTo("active");
     assertThat(subCap.getValue().getStripeSubscriptionId()).isEqualTo("sub_1");
+    assertThat(subCap.getValue().getCurrentPeriodStart())
+        .isEqualTo(Instant.ofEpochSecond(periodStart));
+    assertThat(subCap.getValue().getCurrentPeriodEnd())
+        .isEqualTo(Instant.ofEpochSecond(periodEnd));
 
     ArgumentCaptor<User> userCap = ArgumentCaptor.forClass(User.class);
     verify(userRepository).save(userCap.capture());
     assertThat(userCap.getValue().getPlan()).isEqualTo(Plan.PREMIUM);
     assertThat(userCap.getValue().getPlanStatus()).isEqualTo("active");
+    assertThat(userCap.getValue().getPlanValidUntil())
+        .isEqualTo(Instant.ofEpochSecond(periodEnd));
+  }
+
+  @Test
+  void subscriptionUpdated_upsertsExistingRowByStripeSubscriptionId() {
+    SubscriptionEntity existing = new SubscriptionEntity();
+    existing.setUserId(42L);
+    existing.setStripeSubscriptionId("sub_1");
+    existing.setPlan(Plan.PREMIUM);
+    existing.setStatus("trialing");
+
+    Subscription sub = activeSubscription("sub_1", "cus_123", "price_max_month", "active");
+    Event event = eventWithPayload("customer.subscription.updated", "evt_sub_3", sub);
+
+    when(userRepository.findByStripeCustomerId("cus_123")).thenReturn(Optional.of(user));
+    when(subscriptionRepository.findByStripeSubscriptionId("sub_1"))
+        .thenReturn(Optional.of(existing));
+
+    processor.process(event);
+
+    ArgumentCaptor<SubscriptionEntity> subCap = ArgumentCaptor.forClass(SubscriptionEntity.class);
+    verify(subscriptionRepository).save(subCap.capture());
+    // Same row (same id reference) gets updated — plan changed to MAX, status to active.
+    assertThat(subCap.getValue()).isSameAs(existing);
+    assertThat(subCap.getValue().getPlan()).isEqualTo(Plan.MAX);
+    assertThat(subCap.getValue().getStatus()).isEqualTo("active");
   }
 
   @Test
@@ -128,9 +164,8 @@ class StripeWebhookProcessorTest {
     Subscription sub = activeSubscription("sub_1", "cus_123", "price_max_year", "past_due");
     Event event = eventWithPayload("customer.subscription.updated", "evt_sub_2", sub);
 
-    when(stripeEventRepository.findByStripeEventId("evt_sub_2")).thenReturn(Optional.empty());
     when(userRepository.findByStripeCustomerId("cus_123")).thenReturn(Optional.of(user));
-    when(subscriptionRepository.findFirstByUserIdOrderByUpdatedAtDesc(42L))
+    when(subscriptionRepository.findByStripeSubscriptionId("sub_1"))
         .thenReturn(Optional.empty());
 
     processor.process(event);
@@ -147,9 +182,8 @@ class StripeWebhookProcessorTest {
     Subscription sub = activeSubscription("sub_1", "cus_123", "price_premium_month", "canceled");
     Event event = eventWithPayload("customer.subscription.deleted", "evt_del", sub);
 
-    when(stripeEventRepository.findByStripeEventId("evt_del")).thenReturn(Optional.empty());
     when(userRepository.findByStripeCustomerId("cus_123")).thenReturn(Optional.of(user));
-    when(subscriptionRepository.findFirstByUserIdOrderByUpdatedAtDesc(42L))
+    when(subscriptionRepository.findByStripeSubscriptionId("sub_1"))
         .thenReturn(Optional.empty());
 
     processor.process(event);
@@ -170,7 +204,6 @@ class StripeWebhookProcessorTest {
     invoice.setCustomer("cus_123");
     Event event = eventWithPayload("invoice.payment_failed", "evt_pf", invoice);
 
-    when(stripeEventRepository.findByStripeEventId("evt_pf")).thenReturn(Optional.empty());
     when(userRepository.findByStripeCustomerId("cus_123")).thenReturn(Optional.of(user));
 
     processor.process(event);
@@ -185,12 +218,12 @@ class StripeWebhookProcessorTest {
   @Test
   void unknownEventType_isMarkedProcessedWithoutDispatch() {
     Event event = eventOfType("payment_intent.succeeded", "evt_ignore");
-    when(stripeEventRepository.findByStripeEventId("evt_ignore")).thenReturn(Optional.empty());
 
     assertThat(processor.process(event)).isTrue();
 
-    // Saved twice: once to claim the id, once to stamp processed_at.
-    verify(stripeEventRepository, org.mockito.Mockito.times(2)).save(any(StripeEventEntity.class));
+    // saveAndFlush claims the id; save stamps processed_at.
+    verify(stripeEventRepository).saveAndFlush(any(StripeEventEntity.class));
+    verify(stripeEventRepository).save(any(StripeEventEntity.class));
     verify(userRepository, never()).save(any());
     verify(subscriptionRepository, never()).save(any());
   }
@@ -228,6 +261,16 @@ class StripeWebhookProcessorTest {
 
   private static Subscription activeSubscription(
       String id, String customer, String priceId, String status) {
+    return activeSubscription(id, customer, priceId, status, null, null);
+  }
+
+  private static Subscription activeSubscription(
+      String id,
+      String customer,
+      String priceId,
+      String status,
+      Long periodStartEpochSeconds,
+      Long periodEndEpochSeconds) {
     Subscription sub = new Subscription();
     sub.setId(id);
     sub.setCustomer(customer);
@@ -238,6 +281,12 @@ class StripeWebhookProcessorTest {
     price.setId(priceId);
     SubscriptionItem item = new SubscriptionItem();
     item.setPrice(price);
+    if (periodStartEpochSeconds != null) {
+      item.setCurrentPeriodStart(periodStartEpochSeconds);
+    }
+    if (periodEndEpochSeconds != null) {
+      item.setCurrentPeriodEnd(periodEndEpochSeconds);
+    }
     SubscriptionItemCollection items = new SubscriptionItemCollection();
     items.setData(List.of(item));
     sub.setItems(items);

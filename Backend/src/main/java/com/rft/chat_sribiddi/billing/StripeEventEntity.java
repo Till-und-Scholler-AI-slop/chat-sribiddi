@@ -36,9 +36,11 @@ public class StripeEventEntity {
   private String type;
 
   /**
-   * Raw JSON payload of the event as delivered by Stripe. Stored in a JSONB column for easy
-   * inspection during incident response; the processor itself only reads the deserialised
-   * {@link com.stripe.model.Event} object.
+   * JSON representation of the Stripe event as persisted by the application. Stored in a JSONB
+   * column for easy inspection during incident response; this is typically a serialised
+   * {@link com.stripe.model.Event} via {@link com.stripe.model.Event#toJson()} rather than the
+   * original raw webhook request body delivered by Stripe, and the processor itself only reads
+   * the deserialised event object.
    */
   @JdbcTypeCode(SqlTypes.JSON)
   @Column(nullable = false, columnDefinition = "jsonb")

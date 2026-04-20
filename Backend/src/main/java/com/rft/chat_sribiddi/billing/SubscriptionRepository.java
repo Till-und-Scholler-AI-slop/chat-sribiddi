@@ -13,4 +13,12 @@ public interface SubscriptionRepository extends JpaRepository<SubscriptionEntity
    * decide whether the subscription is active.
    */
   Optional<SubscriptionEntity> findFirstByUserIdOrderByUpdatedAtDesc(Long userId);
+
+  /**
+   * Looks up a subscription by its Stripe subscription id ({@code sub_…}). Used by
+   * {@link StripeWebhookProcessor} to upsert the exact row an event refers to, rather than
+   * relying on "most recent subscription for user" which breaks when a user has multiple
+   * historical subscriptions.
+   */
+  Optional<SubscriptionEntity> findByStripeSubscriptionId(String stripeSubscriptionId);
 }
