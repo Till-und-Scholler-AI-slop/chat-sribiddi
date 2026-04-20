@@ -1,6 +1,8 @@
 package com.rft.chat_sribiddi.auth;
 
 import jakarta.persistence.LockModeType;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -16,6 +18,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
    * user record.
    */
   Optional<User> findByStripeCustomerId(String stripeCustomerId);
+
+  /**
+   * Returns users whose {@code planStatus} matches the given value and whose
+   * {@code planValidUntil} is strictly before {@code cutoff}. Used by
+   * {@link com.rft.chat_sribiddi.billing.PlanLifecycleJob} to find users whose payment-failed
+   * grace period has expired so they can be downgraded to {@link Plan#FREE}.
+   */
+  List<User> findByPlanStatusAndPlanValidUntilBefore(String planStatus, Instant cutoff);
+
 
   /**
    * Acquires a row-level write lock on the user record. Used by
