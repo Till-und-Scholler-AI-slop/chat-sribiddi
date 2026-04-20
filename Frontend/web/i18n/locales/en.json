@@ -157,7 +157,9 @@
     "providerFilterAllShort": "All",
     "noModelsFoundDescriptionShort": "Add an API key or pick another provider to see models.",
     "inputLabel": "Input",
-    "outputLabel": "Output"
+    "outputLabel": "Output",
+    "premiumRequired": "Premium required",
+    "premiumRequiredAria": "{label} – Premium required. Click to open the pricing page."
   },
   "settings": {
     "title": "Settings",

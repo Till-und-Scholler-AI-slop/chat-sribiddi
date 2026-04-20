@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
+import { isModelLocked } from '~/composables/useChatApi'
 import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/chat-helpers'
 
 const { t } = useI18n()
@@ -70,6 +71,12 @@ const selectedModel = computed<ModelOption | null>({
     return defaultModel.value
   },
   set: value => {
+    if (value && isModelLocked(value)) {
+      // Do not assign the locked model — route the user to the upgrade page
+      // instead (see FE-5). Keep the current selection untouched.
+      void navigateTo('/pricing')
+      return
+    }
     if (value && activeConversation.value) {
       setModelForChat(activeConversation.value.session.chatId, value)
       saveLastUsedModel(value)
@@ -716,7 +723,10 @@ const submitEditMessage = async () => {
                   <UIcon name="i-heroicons-cpu-chip" />
                 </template>
                 <template #option="{ option }">
-                  <div class="flex items-center justify-between gap-2 w-full">
+                  <div
+                    class="flex items-center justify-between gap-2 w-full"
+                    :class="{ 'opacity-60': isModelLocked(option) }"
+                  >
                     <span class="truncate">{{ option.label }}</span>
                     <div class="flex items-center gap-1 flex-shrink-0">
                       <template v-for="priceLabel in [optionPriceLabel(option)]" :key="option.value">
@@ -732,6 +742,13 @@ const submitEditMessage = async () => {
                         name="i-heroicons-star-solid"
                         class="size-3 text-yellow-400"
                       />
+                      <UTooltip v-if="isModelLocked(option)" :text="t('models.premiumRequired')">
+                        <UIcon
+                          name="i-heroicons-lock-closed"
+                          class="size-3.5 text-gray-500 dark:text-gray-400"
+                          :aria-label="t('models.premiumRequired')"
+                        />
+                      </UTooltip>
                       <UBadge :label="providerLabel(option.provider)" variant="soft" color="neutral" />
                     </div>
                   </div>
