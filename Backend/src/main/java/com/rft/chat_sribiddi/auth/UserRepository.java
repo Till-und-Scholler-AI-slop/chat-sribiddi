@@ -11,6 +11,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
   Optional<User> findByProviderId(String providerId);
 
   /**
+   * Looks up a user by their Stripe Customer ID. Used by the billing webhook processor to map
+   * subscription / invoice events (which reference the Stripe customer) back to the internal
+   * user record.
+   */
+  Optional<User> findByStripeCustomerId(String stripeCustomerId);
+
+  /**
    * Acquires a row-level write lock on the user record. Used by
    * {@link com.rft.chat_sribiddi.billing.StripeService#ensureCustomer} to make Stripe Customer
    * creation race-safe: concurrent callers for the same user serialize on this lock and only the

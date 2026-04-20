@@ -78,6 +78,25 @@ public class StripeProperties {
     return priceId == null ? "" : priceId;
   }
 
+  /**
+   * Reverse lookup: maps a Stripe Price ID back to the corresponding {@link Plan}. Used by
+   * {@link StripeWebhookProcessor} when handling {@code customer.subscription.*} events to
+   * determine which plan a subscription grants. Returns {@code null} when the price id is unknown
+   * or blank.
+   */
+  public Plan resolvePlanFromPriceId(String priceId) {
+    if (priceId == null || priceId.isBlank()) {
+      return null;
+    }
+    if (priceId.equals(priceIdPremiumMonth) || priceId.equals(priceIdPremiumYear)) {
+      return Plan.PREMIUM;
+    }
+    if (priceId.equals(priceIdMaxMonth) || priceId.equals(priceIdMaxYear)) {
+      return Plan.MAX;
+    }
+    return null;
+  }
+
   private Map<Plan, Map<Interval, String>> priceMap() {
     Map<Interval, String> premium = new EnumMap<>(Interval.class);
     premium.put(Interval.MONTH, priceIdPremiumMonth);

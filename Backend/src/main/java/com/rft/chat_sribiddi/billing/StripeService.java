@@ -2,10 +2,13 @@ package com.rft.chat_sribiddi.billing;
 
 import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
+import com.stripe.exception.SignatureVerificationException;
 import com.stripe.exception.StripeException;
 import com.stripe.model.Customer;
+import com.stripe.model.Event;
 import com.stripe.model.checkout.Session;
 import com.stripe.net.RequestOptions;
+import com.stripe.net.Webhook;
 import com.stripe.param.CustomerCreateParams;
 import com.stripe.param.checkout.SessionCreateParams;
 import java.util.Objects;
@@ -137,6 +140,39 @@ public class StripeService {
 
   private RequestOptions requestOptions() {
     return RequestOptions.builder().setApiKey(stripeProperties.getSecretKey()).build();
+  }
+
+  /**
+   * Verifies the signature of an incoming Stripe webhook payload against the configured webhook
+   * secret and returns the parsed {@link Event}. Throws {@link ResponseStatusException} with HTTP
+   * 400 when the signature is missing/invalid, and HTTP 503 when no webhook secret is configured
+   * on this deployment.
+   *
+   * @param payload raw request body exactly as delivered by Stripe; must not be pre-parsed
+   * @param sigHeader value of the {@code Stripe-Signature} HTTP header
+   */
+  public Event constructWebhookEvent(String payload, String sigHeader) {
+    String secret = stripeProperties.getWebhookSecret();
+    if (secret == null || secret.isBlank()) {
+      throw new ResponseStatusException(
+          HttpStatus.SERVICE_UNAVAILABLE,
+          "Stripe webhook secret is not configured on this deployment");
+    }
+    if (payload == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing webhook payload");
+    }
+    if (sigHeader == null || sigHeader.isBlank()) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "Missing Stripe-Signature header");
+    }
+    try {
+      return Webhook.constructEvent(payload, sigHeader, secret);
+    } catch (SignatureVerificationException ex) {
+      log.warn(
+          "Rejected Stripe webhook: signature verification failed ({})", ex.getMessage());
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "Invalid Stripe webhook signature");
+    }
   }
 
   private void requireConfigured() {
