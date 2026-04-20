@@ -383,7 +383,9 @@ class EntitlementServiceTest {
     assertThat(result.get(0).getId()).isEqualTo("openai/gpt-4o");
     assertThat(result.get(0).getAvailability())
         .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.UPGRADE_REQUIRED);
-    assertThat(result.get(0).getRequiredPlan()).isEqualTo(Plan.PREMIUM);
+    // Unknown pricing → neither FREE nor PREMIUM can access (both check prices); only MAX skips
+    // the pricing gate, so the minimum upgrade hint is MAX.
+    assertThat(result.get(0).getRequiredPlan()).isEqualTo(Plan.MAX);
     assertThat(result.get(1).getId()).isEqualTo("meta-llama/llama-3.1-8b-instruct:free");
     assertThat(result.get(1).getAvailability())
         .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.ALWAYS);
