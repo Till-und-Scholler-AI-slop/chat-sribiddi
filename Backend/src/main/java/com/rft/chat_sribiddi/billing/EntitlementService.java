@@ -7,6 +7,9 @@ import com.rft.chat_sribiddi.auth.UserRepository;
 import com.rft.chat_sribiddi.billing.BillingProperties.ModelAccess;
 import com.rft.chat_sribiddi.billing.BillingProperties.TierConfig;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
+import com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag;
+import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties;
+import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -237,26 +240,70 @@ public class EntitlementService {
   }
 
   /**
-   * Filters an OpenRouter model catalog down to what the user's plan is allowed to use.
+   * Annotates a provider model catalog with plan-awareness flags so the frontend can render
+   * locked/upgrade indicators without re-deriving plan rules. The catalog itself is
+   * <strong>not</strong> filtered: every input option is preserved and returned as a copy with
+   * {@link ModelOption#getAvailability()} and {@link ModelOption#getRequiredPlan()} populated.
    *
-   * <p>The Free tier is restricted to OpenRouter's {@code :free}-suffix convention (zero-cost
-   * models) matching the price thresholds configured under {@code app.billing.model-access.*}.
-   * Premium/Max plans receive the catalog unchanged.
+   * <p>Rules:
+   *
+   * <ul>
+   *   <li>Direct providers (anything not listed under {@code app.billing.model-access
+   *       .managed-providers}) → {@link AvailabilityFlag#BYOK_ONLY}. The platform never pays for
+   *       these endpoints; users must bring their own key regardless of plan.
+   *   <li>Managed providers (default: OpenRouter):
+   *       <ul>
+   *         <li>OpenRouter {@code :free} ids → always {@link AvailabilityFlag#ALWAYS}.
+   *         <li>Paid ids on {@link Plan#FREE} → {@link AvailabilityFlag#UPGRADE_REQUIRED} with
+   *             {@code requiredPlan = PREMIUM}.
+   *         <li>Paid ids on Premium/Max → {@link AvailabilityFlag#ALWAYS}.
+   *       </ul>
+   * </ul>
    */
-  public List<com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption>
-      filterOpenRouterModelsForPlan(
-          String userId,
-          List<com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption> models) {
+  public List<ModelOption> annotateModelsForPlan(
+      String userId, Provider provider, List<ModelOption> models) {
     if (models == null || models.isEmpty()) {
       return models == null ? List.of() : models;
     }
+    Objects.requireNonNull(provider, "provider must not be null");
     Plan plan = get(userId).plan();
-    if (plan != Plan.FREE) {
-      return models;
-    }
+    boolean managedProvider = billingProperties.getModelAccess().allowsManagedProvider(provider);
     return models.stream()
-        .filter(opt -> opt != null && opt.getId() != null && opt.getId().endsWith(":free"))
+        .filter(Objects::nonNull)
+        .map(
+            opt -> {
+              ModelOption copy = opt.copy();
+              AvailabilityFlag flag;
+              Plan required = null;
+              if (!managedProvider) {
+                // Direct providers are BYOK-only regardless of plan because managed mode only
+                // routes through providers listed in app.billing.model-access.managed-providers.
+                flag = AvailabilityFlag.BYOK_ONLY;
+              } else if (isFreeTierModel(provider, opt.getId()) || plan != Plan.FREE) {
+                flag = AvailabilityFlag.ALWAYS;
+              } else {
+                flag = AvailabilityFlag.UPGRADE_REQUIRED;
+                required = Plan.PREMIUM;
+              }
+              copy.setAvailability(flag);
+              copy.setRequiredPlan(required);
+              return copy;
+            })
         .toList();
+  }
+
+  /**
+   * @deprecated Use {@link #annotateModelsForPlan(String, Provider, List)} instead. Kept for
+   *     backwards compatibility — returns the input list unchanged (no filtering).
+   */
+  @Deprecated
+  public List<ModelCatalogProperties.ModelOption> filterOpenRouterModelsForPlan(
+      String userId, List<ModelCatalogProperties.ModelOption> models) {
+    return annotateModelsForPlan(userId, Provider.OPENROUTER, models);
+  }
+
+  private static boolean isFreeTierModel(Provider provider, String modelId) {
+    return provider == Provider.OPENROUTER && modelId != null && modelId.endsWith(":free");
   }
 
   private Optional<User> resolveUser(String userId) {

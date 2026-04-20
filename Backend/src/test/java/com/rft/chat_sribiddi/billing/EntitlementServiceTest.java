@@ -328,25 +328,35 @@ class EntitlementServiceTest {
     verify(dailyQuotaCounterRepository, never()).incrementCounter(anyLong(), any());
   }
 
-  // -------- filterOpenRouterModelsForPlan --------
+  // -------- annotateModelsForPlan (BILL-15: snapshot-per-tier) --------
 
   @Test
-  void filterOpenRouterModelsForPlan_returnsOnlyFreeSuffixForFreeUser() {
+  void annotateModelsForPlan_openRouter_freeTier_flagsPaidAsUpgradeRequired() {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
-    var free =
-        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
-            "meta-llama/llama-3.1-8b-instruct:free", "Llama (free)");
     var paid =
         new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
             "openai/gpt-4o", "GPT-4o");
+    var free =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "meta-llama/llama-3.1-8b-instruct:free", "Llama (free)");
 
-    var result = service.filterOpenRouterModelsForPlan(USER_ID, java.util.List.of(paid, free));
+    var result =
+        service.annotateModelsForPlan(USER_ID, Provider.OPENROUTER, java.util.List.of(paid, free));
 
-    assertThat(result).containsExactly(free);
+    // Snapshot: FREE user sees every model, but paid ones are locked.
+    assertThat(result).hasSize(2);
+    assertThat(result.get(0).getId()).isEqualTo("openai/gpt-4o");
+    assertThat(result.get(0).getAvailability())
+        .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.UPGRADE_REQUIRED);
+    assertThat(result.get(0).getRequiredPlan()).isEqualTo(Plan.PREMIUM);
+    assertThat(result.get(1).getId()).isEqualTo("meta-llama/llama-3.1-8b-instruct:free");
+    assertThat(result.get(1).getAvailability())
+        .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.ALWAYS);
+    assertThat(result.get(1).getRequiredPlan()).isNull();
   }
 
   @Test
-  void filterOpenRouterModelsForPlan_returnsAllModelsForPremium() {
+  void annotateModelsForPlan_openRouter_premiumTier_allModelsAlwaysAvailable() {
     when(userRepository.findByProviderId(USER_ID))
         .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
     var paid =
@@ -355,19 +365,99 @@ class EntitlementServiceTest {
     var free =
         new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
             "meta-llama/llama-3.1-8b-instruct:free", "Llama (free)");
-    var input = java.util.List.of(paid, free);
 
-    var result = service.filterOpenRouterModelsForPlan(USER_ID, input);
+    var result =
+        service.annotateModelsForPlan(USER_ID, Provider.OPENROUTER, java.util.List.of(paid, free));
 
-    assertThat(result).isSameAs(input);
+    // Snapshot: PREMIUM user has no upgrade gate on OpenRouter.
+    assertThat(result)
+        .extracting(o -> o.getId() + ":" + o.getAvailability() + ":" + o.getRequiredPlan())
+        .containsExactly(
+            "openai/gpt-4o:ALWAYS:null",
+            "meta-llama/llama-3.1-8b-instruct:free:ALWAYS:null");
   }
 
   @Test
-  void filterOpenRouterModelsForPlan_handlesNullAndEmptyInput() {
-    // Unresolved userId defaults to FREE; an empty list short-circuits without hitting the repo.
-    assertThat(service.filterOpenRouterModelsForPlan(USER_ID, null)).isEmpty();
-    assertThat(service.filterOpenRouterModelsForPlan(USER_ID, java.util.List.of())).isEmpty();
+  void annotateModelsForPlan_openRouter_maxTier_allModelsAlwaysAvailable() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.MAX)));
+    var paid =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "openai/gpt-4o", "GPT-4o");
+    var free =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "meta-llama/llama-3.1-8b-instruct:free", "Llama (free)");
+
+    var result =
+        service.annotateModelsForPlan(USER_ID, Provider.OPENROUTER, java.util.List.of(paid, free));
+
+    // Snapshot: MAX user has no upgrade gate either.
+    assertThat(result)
+        .extracting(o -> o.getId() + ":" + o.getAvailability() + ":" + o.getRequiredPlan())
+        .containsExactly(
+            "openai/gpt-4o:ALWAYS:null",
+            "meta-llama/llama-3.1-8b-instruct:free:ALWAYS:null");
+  }
+
+  @Test
+  void annotateModelsForPlan_directProviders_areByokOnlyForEveryTier() {
+    // Direct providers (OpenAI/Google/Claude) are BYOK-only because managed mode only routes
+    // through OpenRouter (see app.billing.model-access.managed-providers).
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    var gpt =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "gpt-4o", "GPT-4o");
+
+    var result = service.annotateModelsForPlan(USER_ID, Provider.OPENAI, java.util.List.of(gpt));
+
+    assertThat(result).hasSize(1);
+    assertThat(result.get(0).getAvailability())
+        .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.BYOK_ONLY);
+    assertThat(result.get(0).getRequiredPlan()).isNull();
+  }
+
+  @Test
+  void annotateModelsForPlan_doesNotMutateInputList() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    var paid =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "openai/gpt-4o", "GPT-4o");
+    var input = java.util.List.of(paid);
+
+    service.annotateModelsForPlan(USER_ID, Provider.OPENROUTER, input);
+
+    // Cached catalog entries must not be mutated — only the returned copies carry flags.
+    assertThat(paid.getAvailability()).isNull();
+    assertThat(paid.getRequiredPlan()).isNull();
+  }
+
+  @Test
+  void annotateModelsForPlan_handlesNullAndEmptyInput() {
+    assertThat(service.annotateModelsForPlan(USER_ID, Provider.OPENROUTER, null)).isEmpty();
+    assertThat(service.annotateModelsForPlan(USER_ID, Provider.OPENROUTER, java.util.List.of()))
+        .isEmpty();
     verifyNoInteractions(userRepository);
+  }
+
+  // -------- filterOpenRouterModelsForPlan (deprecated shim — still delegates to annotate) -----
+
+  @Test
+  void filterOpenRouterModelsForPlan_delegatesToAnnotateForBackwardsCompatibility() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    var paid =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "openai/gpt-4o", "GPT-4o");
+    var free =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "meta-llama/llama-3.1-8b-instruct:free", "Llama (free)");
+
+    var result = service.filterOpenRouterModelsForPlan(USER_ID, java.util.List.of(paid, free));
+
+    // No longer filters: returns every model annotated with plan flags.
+    assertThat(result).hasSize(2);
+    assertThat(result.get(0).getAvailability())
+        .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.UPGRADE_REQUIRED);
+    assertThat(result.get(1).getAvailability())
+        .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.ALWAYS);
   }
 }
 

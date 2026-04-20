@@ -31,7 +31,8 @@ public class ModelController {
       @AuthenticationPrincipal OidcUser principal, HttpServletRequest request) {
     String userId = requestUserResolver.resolveUserId(principal, request).orElse(null);
     String apiKey = lookupUserKey(userId, Provider.OPENAI);
-    return ResponseEntity.ok(modelCatalogService.listOpenAiModels(apiKey));
+    List<ModelCatalogProperties.ModelOption> models = modelCatalogService.listOpenAiModels(apiKey);
+    return ResponseEntity.ok(entitlementService.annotateModelsForPlan(userId, Provider.OPENAI, models));
   }
 
   @GetMapping("/google")
@@ -39,7 +40,8 @@ public class ModelController {
       @AuthenticationPrincipal OidcUser principal, HttpServletRequest request) {
     String userId = requestUserResolver.resolveUserId(principal, request).orElse(null);
     String apiKey = lookupUserKey(userId, Provider.GOOGLE);
-    return ResponseEntity.ok(modelCatalogService.listGoogleModels(apiKey));
+    List<ModelCatalogProperties.ModelOption> models = modelCatalogService.listGoogleModels(apiKey);
+    return ResponseEntity.ok(entitlementService.annotateModelsForPlan(userId, Provider.GOOGLE, models));
   }
 
   @GetMapping("/claude")
@@ -47,7 +49,8 @@ public class ModelController {
       @AuthenticationPrincipal OidcUser principal, HttpServletRequest request) {
     String userId = requestUserResolver.resolveUserId(principal, request).orElse(null);
     String apiKey = lookupUserKey(userId, Provider.CLAUDE);
-    return ResponseEntity.ok(modelCatalogService.listClaudeModels(apiKey));
+    List<ModelCatalogProperties.ModelOption> models = modelCatalogService.listClaudeModels(apiKey);
+    return ResponseEntity.ok(entitlementService.annotateModelsForPlan(userId, Provider.CLAUDE, models));
   }
 
   @GetMapping("/openrouter")
@@ -57,12 +60,12 @@ public class ModelController {
     String userKey = lookupUserKey(userId, Provider.OPENROUTER);
     // Free-tier users typically have no BYOK key; fall back to the server-managed OpenRouter
     // key so the catalog is fetched live (and therefore actually contains `:free` model ids)
-    // rather than the static YAML fallback, which would otherwise be empty after filtering.
+    // rather than the static YAML fallback, which would otherwise be empty.
     String apiKey = (userKey != null && !userKey.isBlank()) ? userKey : managedApiKeyOrNull();
     List<ModelCatalogProperties.ModelOption> models = modelCatalogService.listOpenRouterModels(apiKey);
-    // Free-tier users can only pick OpenRouter `:free` models when chatting in managed mode;
-    // hide the rest from the catalog so the UI never offers a model the plan will reject.
-    return ResponseEntity.ok(entitlementService.filterOpenRouterModelsForPlan(userId, models));
+    // Free-tier users still see every model in the catalog; paid OpenRouter models are flagged
+    // UPGRADE_REQUIRED so the UI can render a "🔒 Premium" lock + upgrade link.
+    return ResponseEntity.ok(entitlementService.annotateModelsForPlan(userId, Provider.OPENROUTER, models));
   }
 
   private String lookupUserKey(String userId, Provider provider) {
