@@ -5,6 +5,7 @@ plugins {
 }
 val springAiVersion by extra("2.0.0-M4")
 val dotenvJavaVersion by extra("3.2.0")
+val stripeJavaVersion by extra("32.0.0")
 
 group = "com.rft"
 version = "0.0.1-SNAPSHOT"
@@ -42,6 +43,7 @@ dependencies {
     implementation("org.springframework.ai:spring-ai-starter-model-google-genai")
     implementation("org.springframework.ai:spring-ai-starter-model-openai")
     implementation("org.springframework.ai:spring-ai-starter-model-anthropic")
+    implementation("com.stripe:stripe-java:$stripeJavaVersion")
     compileOnly("org.projectlombok:lombok")
     developmentOnly("org.springframework.boot:spring-boot-devtools")
     developmentOnly("org.springframework.boot:spring-boot-docker-compose")

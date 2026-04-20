@@ -198,6 +198,24 @@ app:
     # Per-tier entitlements. Values are consumed by BillingProperties / EntitlementService.
     # Model access is NOT gated via hardcoded ID whitelists — it uses the price threshold
     # defined under `model-access` below (see MONETIZATION_PLAN.md).
+    stripe:
+      # Server-side Stripe API key. Blank in dev disables the /billing/checkout-session and
+      # /billing/portal-session endpoints at the Stripe SDK boundary (they will return 503).
+      secret-key: ${STRIPE_SECRET_KEY:}
+      # Webhook signing secret (used by the BILL-10 webhook controller; included here so that
+      # the full `app.billing.stripe.*` namespace lives in one place per issue spec).
+      webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+      # Stripe Price IDs for each (plan, interval) combination. Configure in the Stripe dashboard
+      # (Products → Pricing) and supply via environment variables in deployment.
+      price-id-premium-month: ${STRIPE_PRICE_ID_PREMIUM_MONTH:}
+      price-id-premium-year: ${STRIPE_PRICE_ID_PREMIUM_YEAR:}
+      price-id-max-month: ${STRIPE_PRICE_ID_MAX_MONTH:}
+      price-id-max-year: ${STRIPE_PRICE_ID_MAX_YEAR:}
+      # Redirect targets for Stripe Checkout and Customer Portal. Defaults append sensible paths
+      # to the configured frontend URL.
+      success-url: ${STRIPE_SUCCESS_URL:${APP_FRONTEND_URL:http://localhost:3000}/billing/success?session_id={CHECKOUT_SESSION_ID}}
+      cancel-url: ${STRIPE_CANCEL_URL:${APP_FRONTEND_URL:http://localhost:3000}/billing/cancel}
+      portal-return-url: ${STRIPE_PORTAL_RETURN_URL:${APP_FRONTEND_URL:http://localhost:3000}/settings}
     managed-keys:
       # Server-side API keys used by BillingModeResolver when a request is resolved to
       # managed billing mode. Defaults read the conventional env vars — a blank value disables

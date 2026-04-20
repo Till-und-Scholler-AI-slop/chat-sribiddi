@@ -120,3 +120,46 @@ the owner must:
    (HTTP 402, `MODEL_NOT_ALLOWED`) and an upgrade hint.
 
 No DB migrations or additional OAuth scopes are required for BILL-7.
+
+## BILL-11 — Stripe Checkout & Customer Portal
+
+To enable the paid-tier billing flow (`POST /billing/checkout-session`,
+`POST /billing/portal-session`, `GET /billing/me`, `GET /billing/usage`) the
+owner must:
+
+1. **Create a Stripe account** at <https://stripe.com> and register the
+   required products in the Stripe dashboard:
+   - *Premium* plan with a **monthly** recurring Price and a **yearly**
+     recurring Price.
+   - *Max* plan with a **monthly** recurring Price and a **yearly** recurring
+     Price.
+2. **Grab the Price IDs** (`price_…`) from each Price's detail page and set
+   them as deployment secrets:
+   - `STRIPE_PRICE_ID_PREMIUM_MONTH`
+   - `STRIPE_PRICE_ID_PREMIUM_YEAR`
+   - `STRIPE_PRICE_ID_MAX_MONTH`
+   - `STRIPE_PRICE_ID_MAX_YEAR`
+3. **Store the Stripe secret key** (Developers → API keys) as
+   `STRIPE_SECRET_KEY`. Use the *test* key for staging and the *live* key for
+   production. A blank key causes the billing endpoints to return HTTP 503 so
+   the rest of the app keeps working.
+4. **Store the webhook signing secret** as `STRIPE_WEBHOOK_SECRET`. This is
+   consumed by the BILL-10 webhook handler; it is declared under the same
+   `app.billing.stripe.*` namespace here so all Stripe configuration lives in
+   one place.
+5. **Enable the Stripe Customer Portal** (Settings → Billing → Customer Portal)
+   and configure the allowed actions (cancel, switch plan, update payment
+   method).
+6. **Configure the redirect URLs** (optional — defaults are derived from
+   `APP_FRONTEND_URL`):
+   - `STRIPE_SUCCESS_URL` — where Stripe Checkout sends users after a
+     successful subscription. May contain the
+     `{CHECKOUT_SESSION_ID}` placeholder which Stripe substitutes server-side.
+   - `STRIPE_CANCEL_URL` — where Stripe sends users who abandon Checkout.
+   - `STRIPE_PORTAL_RETURN_URL` — where the Customer Portal returns users.
+7. **Verify end-to-end** after deployment: sign in, call
+   `POST /billing/checkout-session` with `{"plan":"PREMIUM","interval":"MONTH"}`,
+   complete checkout with a test card (e.g. `4242 4242 4242 4242`), wait for the
+   webhook to flip the user's plan, and confirm `GET /billing/me` returns
+   `{"plan":"PREMIUM", …}`.
+
