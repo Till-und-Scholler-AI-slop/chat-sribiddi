@@ -83,8 +83,10 @@ public class BillingProperties {
 
   /**
    * Price-threshold configuration for model access. Expressed in USD per 1,000,000 tokens to
-   * match industry-standard pricing tables. The defaults (0.0 / 0.0) restrict Free to models that
-   * are truly free (matching OpenRouter's {@code :free} convention).
+   * match industry-standard pricing tables. Free defaults (0.0 / 0.0) restrict the tier to
+   * models that are truly free (matching OpenRouter's {@code :free} convention); Premium
+   * defaults (5.0 / 5.0) cap Premium users to mid-range models — anything above the threshold
+   * (e.g. {@code claude-opus-4-7} at ~$15/1M) requires upgrading to {@link Plan#MAX}.
    */
   @Getter
   @Setter
@@ -94,6 +96,19 @@ public class BillingProperties {
 
     /** Maximum completion/output price in USD per 1M tokens allowed on the Free tier. */
     private double freeMaxOutputUsdPerMillion = 0.0;
+
+    /**
+     * Maximum prompt/input price in USD per 1M tokens allowed on the Premium tier. Models whose
+     * prompt price exceeds this threshold (e.g. premium frontier models like claude-opus-4-7)
+     * require upgrading to {@link Plan#MAX}. See BILL-8.
+     */
+    private double premiumMaxInputUsdPerMillion = 5.0;
+
+    /**
+     * Maximum completion/output price in USD per 1M tokens allowed on the Premium tier. Models
+     * whose completion price exceeds this threshold require upgrading to {@link Plan#MAX}.
+     */
+    private double premiumMaxOutputUsdPerMillion = 5.0;
 
     /**
      * Providers allowed for managed-mode (platform-paid) calls. Defaults to OpenRouter only —
