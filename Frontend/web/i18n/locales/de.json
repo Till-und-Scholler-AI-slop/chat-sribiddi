@@ -157,7 +157,9 @@
     "providerFilterAllShort": "Alle",
     "noModelsFoundDescriptionShort": "Hinterlege einen API-Schlüssel oder wähle einen anderen Anbieter, um Modelle zu sehen.",
     "inputLabel": "Eingabe",
-    "outputLabel": "Ausgabe"
+    "outputLabel": "Ausgabe",
+    "premiumRequired": "Premium erforderlich",
+    "premiumRequiredAria": "{label} – Premium erforderlich. Klicke, um die Preisseite zu öffnen."
   },
   "settings": {
     "title": "Einstellungen",

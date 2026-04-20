@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import {
+  isModelLocked,
   isTerminalStreamEvent,
   modelEndpointPath,
+  normalizeAvailability,
   normalizeBaseUrl,
+  normalizeRequiredPlan,
   parseSseEvents,
   REQUEST_USER_ID_HEADER,
   useChatApi,
@@ -224,5 +227,49 @@ describe('useChatApi.logout', () => {
 
     const { logout } = useChatApi()
     expect(await logout()).toBe(false)
+  })
+})
+
+describe('normalizeAvailability', () => {
+  it('accepts the three known availability flags', () => {
+    expect(normalizeAvailability('ALWAYS')).toBe('ALWAYS')
+    expect(normalizeAvailability('BYOK_ONLY')).toBe('BYOK_ONLY')
+    expect(normalizeAvailability('UPGRADE_REQUIRED')).toBe('UPGRADE_REQUIRED')
+  })
+
+  it('is case-insensitive', () => {
+    expect(normalizeAvailability('upgrade_required')).toBe('UPGRADE_REQUIRED')
+  })
+
+  it('falls back to ALWAYS for unknown / null / missing values', () => {
+    expect(normalizeAvailability(null)).toBe('ALWAYS')
+    expect(normalizeAvailability(undefined)).toBe('ALWAYS')
+    expect(normalizeAvailability('')).toBe('ALWAYS')
+    expect(normalizeAvailability('something_else')).toBe('ALWAYS')
+    expect(normalizeAvailability(42)).toBe('ALWAYS')
+  })
+})
+
+describe('normalizeRequiredPlan', () => {
+  it('accepts PREMIUM and MAX (any case)', () => {
+    expect(normalizeRequiredPlan('PREMIUM')).toBe('PREMIUM')
+    expect(normalizeRequiredPlan('max')).toBe('MAX')
+  })
+
+  it('returns null for unknown or missing values', () => {
+    expect(normalizeRequiredPlan(null)).toBeNull()
+    expect(normalizeRequiredPlan(undefined)).toBeNull()
+    expect(normalizeRequiredPlan('FREE')).toBeNull()
+    expect(normalizeRequiredPlan(123)).toBeNull()
+  })
+})
+
+describe('isModelLocked', () => {
+  it('returns true only for UPGRADE_REQUIRED models', () => {
+    expect(isModelLocked({ availability: 'UPGRADE_REQUIRED' })).toBe(true)
+    expect(isModelLocked({ availability: 'ALWAYS' })).toBe(false)
+    expect(isModelLocked({ availability: 'BYOK_ONLY' })).toBe(false)
+    expect(isModelLocked({ availability: null })).toBe(false)
+    expect(isModelLocked({})).toBe(false)
   })
 })

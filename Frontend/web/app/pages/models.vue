@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ModelOption, Provider } from '~/composables/useChatApi'
-import { PROVIDERS } from '~/composables/useChatApi'
+import { isModelLocked, PROVIDERS } from '~/composables/useChatApi'
 import { formatRatePerMillion } from '~/composables/chat-helpers'
 
 const { t } = useI18n()
@@ -122,6 +122,13 @@ const modelSlug = (model: ModelOption) => {
 }
 
 const useModel = async (model: ModelOption) => {
+  if (isModelLocked(model)) {
+    // Plan-gated model — route the user to the upgrade/pricing page
+    // instead of starting a chat (see FE-5).
+    await router.push('/pricing')
+    return
+  }
+
   try {
     const conversation =
       activeConversation.value || {
@@ -217,9 +224,12 @@ onMounted(async () => {
               v-for="model in paginatedModels"
               :key="`${model.provider}:${model.value}`"
               class="model-card"
+              :class="{ 'model-card-locked': isModelLocked(model) }"
               role="button"
               tabindex="0"
-              :aria-label="t('models.chatWithModel', { label: model.label })"
+              :aria-label="isModelLocked(model)
+                ? t('models.premiumRequiredAria', { label: model.label })
+                : t('models.chatWithModel', { label: model.label })"
               @click="useModel(model)"
               @keydown="handleCardKeydown($event, model)"
               @keyup="handleCardKeyup($event, model)"
@@ -234,8 +244,17 @@ onMounted(async () => {
                     {{ providerInitial[model.provider] }}
                   </div>
                   <div class="min-w-0">
-                    <div class="text-base font-semibold text-gray-900 dark:text-gray-50 truncate">
-                      {{ model.label }}
+                    <div class="text-base font-semibold text-gray-900 dark:text-gray-50 truncate flex items-center gap-1.5">
+                      <span class="truncate">{{ model.label }}</span>
+                      <UTooltip
+                        v-if="isModelLocked(model)"
+                        :text="t('models.premiumRequired')"
+                      >
+                        <UIcon
+                          name="i-heroicons-lock-closed"
+                          class="size-4 text-gray-500 dark:text-gray-400 flex-shrink-0"
+                        />
+                      </UTooltip>
                     </div>
                     <div class="text-xs font-mono text-gray-500 dark:text-gray-400 truncate">
                       {{ modelSlug(model) }}
@@ -349,6 +368,15 @@ onMounted(async () => {
 :global(.dark) .model-card:hover {
   border-color: var(--color-gray-700);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* Plan-locked model cards: mute the card so users can still see the
+   information but understand the model is not available on their plan. */
+.model-card-locked {
+  opacity: 0.7;
+}
+.model-card-locked:hover {
+  opacity: 0.85;
 }
 
 /* ── Provider avatar ─────────────────────────────────────────────────── */

@@ -176,6 +176,41 @@ export function modelEndpointPath(provider: Provider) {
   return MODEL_ENDPOINTS[provider]
 }
 
+/**
+ * Normalises the {@link AvailabilityFlag} value returned by the backend.
+ * Unknown or missing values are treated as {@code 'ALWAYS'} for forward
+ * compatibility (see {@link AvailabilityFlag}).
+ */
+export function normalizeAvailability(value: unknown): AvailabilityFlag {
+  if (typeof value === 'string') {
+    const upper = value.toUpperCase()
+    if (upper === 'ALWAYS' || upper === 'BYOK_ONLY' || upper === 'UPGRADE_REQUIRED') {
+      return upper
+    }
+  }
+  return 'ALWAYS'
+}
+
+/** Normalises the backend {@code requiredPlan} field to the allowed plan values. */
+export function normalizeRequiredPlan(value: unknown): 'PREMIUM' | 'MAX' | null {
+  if (typeof value === 'string') {
+    const upper = value.toUpperCase()
+    if (upper === 'PREMIUM' || upper === 'MAX') {
+      return upper
+    }
+  }
+  return null
+}
+
+/**
+ * Returns true when the given model is plan-locked for the current user —
+ * i.e. the backend flagged it as {@code UPGRADE_REQUIRED}. UI consumers should
+ * show a lock icon and route clicks to {@code /pricing}.
+ */
+export function isModelLocked(model: Pick<ModelOption, 'availability'>): boolean {
+  return model.availability === 'UPGRADE_REQUIRED'
+}
+
 export function withRequestUserId(
   headers: Record<string, string>,
   userId?: string | null
@@ -545,6 +580,8 @@ export function useChatApi() {
       inputModalities?: string[] | null
       outputModalities?: string[] | null
       supportedParameters?: string[] | null
+      availability?: string | null
+      requiredPlan?: string | null
     }>>(modelEndpointPath(provider), {
       method: 'GET'
     })
@@ -567,7 +604,9 @@ export function useChatApi() {
       modality: model.modality ?? null,
       inputModalities: model.inputModalities ?? [],
       outputModalities: model.outputModalities ?? [],
-      supportedParameters: model.supportedParameters ?? []
+      supportedParameters: model.supportedParameters ?? [],
+      availability: normalizeAvailability(model.availability),
+      requiredPlan: normalizeRequiredPlan(model.requiredPlan)
     }))
   }
 
