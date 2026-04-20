@@ -366,15 +366,14 @@ public class EntitlementService {
    * Determines which plan the user must upgrade to in order to access the given model. Models
    * that fit within the Premium price cap require {@link Plan#PREMIUM}; models that exceed it
    * require {@link Plan#MAX}. Models with unknown pricing are conservatively treated as
-   * requiring {@link Plan#PREMIUM} to match the FREE-tier enforcement path (see
-   * {@link #isAllowedByPricing}), so users aren't pushed to MAX for a model whose price simply
-   * isn't in our lookup yet.
+   * requiring {@link Plan#MAX} because capped plans reject unknown pricing in the enforcement
+   * path, so the suggested upgrade must be one that can actually unlock access.
    */
   private Plan requiredPlanFor(Provider provider, String modelId) {
     ModelAccess access = billingProperties.getModelAccess();
     Optional<ModelPricingLookup.Pricing> pricing = modelPricingLookup.find(provider, modelId);
     if (pricing.isEmpty()) {
-      return Plan.PREMIUM;
+      return Plan.MAX;
     }
     ModelPricingLookup.Pricing p = pricing.get();
     if (p.inputUsdPerMillion() > access.getPremiumMaxInputUsdPerMillion()
