@@ -11,6 +11,12 @@ package com.rft.chat_sribiddi.chat.dto;
  * @param chatTitle updated chat title when auto-set from the first message (only on {@code done})
  * @param messageId persisted assistant message id (only on {@code done})
  * @param hasToolCalls whether the persisted assistant message has stored tool call logs
+ * @param provider provider associated with the stream
+ * @param modelId model associated with the stream
+ * @param statusCode upstream HTTP status code when available
+ * @param errorType categorized stream error type (for {@code error})
+ * @param receivedBytes UTF-8 bytes streamed before failure (for {@code error})
+ * @param incomplete whether the stream ended before completion
  */
 public record StreamEventDTO(
     String type,
@@ -20,4 +26,10 @@ public record StreamEventDTO(
     Long totalTokens,
     String chatTitle,
     Long messageId,
-    Boolean hasToolCalls) {}
+    Boolean hasToolCalls,
+    String provider,
+    String modelId,
+    Integer statusCode,
+    String errorType,
+    Long receivedBytes,
+    Boolean incomplete) {}

@@ -38,6 +38,7 @@ import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.transaction.Transactional;
 import java.io.IOException;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -444,6 +445,7 @@ public class ChatService {
                     billingMode,
                     chatId,
                     error,
+                    fullText,
                     lastUsage,
                     emitter,
                     clientHolder),
@@ -482,7 +484,9 @@ public class ChatService {
             SseEmitter.event()
                 .name("text")
                 .data(
-                    new StreamEventDTO("text", text, null, null, null, null, null, null),
+                    new StreamEventDTO(
+                        "text", text, null, null, null, null, null, null,
+                        null, null, null, null, null, null),
                     MediaType.APPLICATION_JSON));
       }
 
@@ -492,7 +496,9 @@ public class ChatService {
             SseEmitter.event()
                 .name("reasoning")
                 .data(
-                    new StreamEventDTO("reasoning", reasoning, null, null, null, null, null, null),
+                    new StreamEventDTO(
+                        "reasoning", reasoning, null, null, null, null, null, null,
+                        null, null, null, null, null, null),
                     MediaType.APPLICATION_JSON));
       }
 
@@ -518,21 +524,30 @@ public class ChatService {
       BillingMode billingMode,
       UUID chatId,
       Throwable error,
+      StringBuilder fullText,
       AtomicReference<Usage> lastUsage,
       SseEmitter emitter,
       ClientHolder clientHolder) {
-    logStreamingError(chatId, error);
+    StreamErrorDetails streamErrorDetails =
+        describeStreamError(provider, modelId, fullText, error);
+    logStreamingError(chatId, streamErrorDetails, error);
     TokenUsage tokenUsage = toTokenUsage(lastUsage.get());
       try (clientHolder) {
           emitter.send(
                   SseEmitter.event()
                           .name(EVENT_ERROR)
                           .data(
-                                   new StreamEventDTO(
-                                           EVENT_ERROR,
-                                           extractProviderErrorMessage(error),
-                                           null, null, null, null, null, null),
-                                   MediaType.APPLICATION_JSON));
+                                    new StreamEventDTO(
+                                            EVENT_ERROR,
+                                            buildClientStreamErrorMessage(streamErrorDetails),
+                                            null, null, null, null, null, null,
+                                            streamErrorDetails.provider().name(),
+                                            streamErrorDetails.modelId(),
+                                            streamErrorDetails.statusCode(),
+                                            streamErrorDetails.errorType(),
+                                            streamErrorDetails.receivedBytes(),
+                                            true),
+                                    MediaType.APPLICATION_JSON));
       } catch (IOException e) {
           log.warn("Failed to send SSE error event", e);
       } finally {
@@ -599,15 +614,21 @@ public class ChatService {
                           .name("done")
                           .data(
            new StreamEventDTO(
-                                            "done",
+                                             "done",
+                                             null,
+                                            promptTokens,
+                                            generationTokens,
+                                            totalTokens,
+                                            updatedTitle,
+                                            assistantMessage.getId(),
+                                            !toolExecutionCollector.isEmpty(),
                                             null,
-                                           promptTokens,
-                                           generationTokens,
-                                           totalTokens,
-                                           updatedTitle,
-                                           assistantMessage.getId(),
-                                           !toolExecutionCollector.isEmpty()),
-                                    MediaType.APPLICATION_JSON));
+                                            null,
+                                            null,
+                                            null,
+                                            null,
+                                            null),
+                                     MediaType.APPLICATION_JSON));
            emitter.complete();
        } catch (IOException e) {
            log.warn("Failed to send SSE done event", e);
@@ -815,20 +836,40 @@ public class ChatService {
     return null;
   }
 
-  private void logStreamingError(UUID chatId, Throwable error) {
-    switch (error) {
-      case WebClientResponseException webEx ->
-          logProviderHttpError(chatId, webEx.getStatusCode().value(), error);
-      case RestClientResponseException restEx ->
-          logProviderHttpError(chatId, restEx.getStatusCode().value(), error);
-      default ->
-          log.error("Streaming error for chat {}", chatId, error);
-    }
-  }
+  private void logStreamingError(UUID chatId, StreamErrorDetails details, Throwable error) {
+    String baseMessage =
+        "Streaming error type={} provider={} model={} chatId={} statusCode={} receivedBytes={} providerMessage={}";
 
-  private void logProviderHttpError(UUID chatId, int statusCode, Throwable error) {
-    log.warn("Streaming error for chat {} – provider returned HTTP {}: {}",
-        chatId, statusCode, extractProviderErrorMessage(error));
+    if (isExpectedStreamFailure(details.errorType())) {
+      log.warn(
+          baseMessage,
+          details.errorType(),
+          details.provider().name(),
+          details.modelId(),
+          chatId,
+          details.statusCode(),
+          details.receivedBytes(),
+          extractProviderErrorMessage(error));
+      log.debug(
+          "Streaming error stacktrace type={} provider={} model={} chatId={}",
+          details.errorType(),
+          details.provider().name(),
+          details.modelId(),
+          chatId,
+          error);
+      return;
+    }
+
+    log.error(
+        baseMessage,
+        details.errorType(),
+        details.provider().name(),
+        details.modelId(),
+        chatId,
+        details.statusCode(),
+        details.receivedBytes(),
+        extractProviderErrorMessage(error),
+        error);
   }
 
   static String extractProviderErrorMessage(Throwable error) {
@@ -857,6 +898,150 @@ public class ChatService {
   }
 
   private static final ObjectMapper ERROR_MAPPER = new ObjectMapper();
+
+  private static StreamErrorDetails describeStreamError(
+      Provider provider, String modelId, StringBuilder fullText, Throwable error) {
+    Integer statusCode = extractStatusCode(error);
+    return new StreamErrorDetails(
+        provider,
+        modelId,
+        statusCode,
+        classifyStreamError(error, statusCode),
+        (long) fullText.toString().getBytes(StandardCharsets.UTF_8).length);
+  }
+
+  private static Integer extractStatusCode(Throwable error) {
+    Throwable current = error;
+    int depth = 0;
+    while (current != null && depth < 10) {
+      switch (current) {
+        case WebClientResponseException webEx -> {
+          return webEx.getStatusCode().value();
+        }
+        case RestClientResponseException restEx -> {
+          return restEx.getStatusCode().value();
+        }
+        default -> {
+          current = current.getCause();
+          depth++;
+        }
+      }
+    }
+    return null;
+  }
+
+  static String classifyStreamError(Throwable error, Integer statusCode) {
+    if (statusCode != null) {
+      if (statusCode == 429) {
+        return "RATE_LIMIT";
+      }
+      if (statusCode >= 500) {
+        return "SERVER_ERROR";
+      }
+      if (statusCode >= 400) {
+        return "PROVIDER_ERROR";
+      }
+    }
+
+    if (isTimeoutError(error)) {
+      return "TIMEOUT";
+    }
+    if (isParseError(error)) {
+      return "PARSE_ERROR";
+    }
+    return "UNKNOWN";
+  }
+
+  private static boolean isTimeoutError(Throwable error) {
+    Throwable current = error;
+    int depth = 0;
+    while (current != null && depth < 10) {
+      if (current instanceof java.util.concurrent.TimeoutException
+          || current instanceof java.net.SocketTimeoutException
+          || current instanceof java.net.http.HttpTimeoutException) {
+        return true;
+      }
+      String message = current.getMessage();
+      if (message != null && message.toLowerCase(Locale.ROOT).contains("timeout")) {
+        return true;
+      }
+      current = current.getCause();
+      depth++;
+    }
+    return false;
+  }
+
+  private static boolean isParseError(Throwable error) {
+    Throwable current = error;
+    int depth = 0;
+    while (current != null && depth < 10) {
+      String className = current.getClass().getSimpleName().toLowerCase(Locale.ROOT);
+      if (className.contains("parse")
+          || className.contains("decode")
+          || className.contains("deserial")) {
+        return true;
+      }
+      String message = current.getMessage();
+      if (message != null) {
+        String lowered = message.toLowerCase(Locale.ROOT);
+        if (lowered.contains("parse") || lowered.contains("json")) {
+          return true;
+        }
+      }
+      current = current.getCause();
+      depth++;
+    }
+    return false;
+  }
+
+  static boolean isExpectedStreamFailure(String errorType) {
+    return switch (errorType) {
+      case "TIMEOUT", "PARSE_ERROR", "RATE_LIMIT", "SERVER_ERROR", "PROVIDER_ERROR" -> true;
+      default -> false;
+    };
+  }
+
+  static String buildClientStreamErrorMessage(StreamErrorDetails details) {
+    String providerName = providerDisplayName(details.provider());
+    StringBuilder builder =
+        new StringBuilder("Response from ")
+            .append(providerName)
+            .append(" (")
+            .append(details.modelId())
+            .append(") was interrupted");
+
+    if (details.statusCode() != null) {
+      builder.append(" (HTTP ").append(details.statusCode()).append(")");
+    }
+
+    builder.append(". ");
+    builder.append(
+        switch (details.errorType()) {
+          case "TIMEOUT" -> "The provider timed out before completion.";
+          case "PARSE_ERROR" -> "The streamed response could not be parsed completely.";
+          case "RATE_LIMIT" -> "The provider rate limit was reached.";
+          case "SERVER_ERROR" -> "The provider returned a server error.";
+          case "PROVIDER_ERROR" -> "The provider rejected the request.";
+          default -> "An unexpected streaming error occurred.";
+        });
+    if (details.receivedBytes() > 0) {
+      builder.append(" Partial response shown.");
+    }
+    return builder.toString();
+  }
+
+  private static String providerDisplayName(Provider provider) {
+    if (provider == null) {
+      return "AI provider";
+    }
+    return switch (provider) {
+      case OPENAI -> "OpenAI";
+      case GOOGLE -> "Google";
+      case CLAUDE -> "Claude";
+      case OPENROUTER -> "OpenRouter";
+      case BRAVE_SEARCH -> "Brave Search";
+    };
+  }
 
   static String parseErrorMessage(String responseBody) {
     try {
@@ -1092,7 +1277,8 @@ public class ChatService {
                   new StreamEventDTO(
                       EVENT_ERROR,
                       "Chat was deleted while response was being generated.",
-                      null, null, null, null, null, null),
+                      null, null, null, null, null, null,
+                      null, null, null, "CHAT_DELETED", null, true),
                   MediaType.APPLICATION_JSON));
     } catch (IOException e) {
       log.warn("Failed to send SSE chat-deleted error event", e);
@@ -1104,6 +1290,13 @@ public class ChatService {
   private static Long safeLong(Number value) {
     return value == null ? null : value.longValue();
   }
+
+  record StreamErrorDetails(
+      Provider provider,
+      String modelId,
+      Integer statusCode,
+      String errorType,
+      Long receivedBytes) {}
 
   public record ClientHolder(
       org.springframework.ai.chat.client.ChatClient client, AutoCloseable closeable)

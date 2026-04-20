@@ -87,6 +87,20 @@ describe('parseSseEvents', () => {
     expect(events).toEqual([{ type: 'error', content: 'Something went wrong' }])
   })
 
+  it('parses stream error metadata fields', () => {
+    const raw = 'event: error\ndata: {"type":"error","provider":"GOOGLE","modelId":"gemma-4-31b-it","statusCode":"503","errorType":"server_error","receivedBytes":"128","incomplete":true}\n\n'
+    const events = parseSseEvents(raw)
+    expect(events).toEqual([{
+      type: 'error',
+      provider: 'GOOGLE',
+      modelId: 'gemma-4-31b-it',
+      statusCode: 503,
+      errorType: 'SERVER_ERROR',
+      receivedBytes: 128,
+      incomplete: true
+    }])
+  })
+
   it('parses multiple events in one chunk', () => {
     const raw = 'event: text\ndata: {"type":"text","content":"Hello"}\n\nevent: text\ndata: {"type":"text","content":" world"}\n\n'
     const events = parseSseEvents(raw)

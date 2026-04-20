@@ -89,6 +89,40 @@ export type StreamEvent = {
   chatTitle?: string | null
   messageId?: number | null
   hasToolCalls?: boolean | null
+  provider?: Provider | null
+  modelId?: string | null
+  statusCode?: number | null
+  errorType?: string | null
+  receivedBytes?: number | null
+  incomplete?: boolean | null
+}
+
+function normalizeParsedStreamEvent(event: StreamEvent): StreamEvent {
+  if (event.statusCode != null) {
+    const parsed =
+      typeof event.statusCode === 'number'
+        ? event.statusCode
+        : Number.parseInt(String(event.statusCode), 10)
+    event.statusCode = Number.isFinite(parsed) ? parsed : null
+  }
+
+  if (event.errorType != null) {
+    event.errorType = String(event.errorType).toUpperCase()
+  }
+
+  if (event.receivedBytes != null) {
+    const parsed =
+      typeof event.receivedBytes === 'number'
+        ? event.receivedBytes
+        : Number.parseInt(String(event.receivedBytes), 10)
+    event.receivedBytes = Number.isFinite(parsed) ? parsed : null
+  }
+
+  if (event.incomplete != null) {
+    event.incomplete = Boolean(event.incomplete)
+  }
+
+  return event
 }
 
 function normalizeSsePayload(raw: string) {
@@ -119,7 +153,7 @@ export function parseSseEvents(raw: string): StreamEvent[] {
     if (!dataLine) continue
 
     try {
-      const parsed = JSON.parse(dataLine) as StreamEvent
+      const parsed = normalizeParsedStreamEvent(JSON.parse(dataLine) as StreamEvent)
       if (parsed && parsed.type) {
         events.push(parsed)
       }

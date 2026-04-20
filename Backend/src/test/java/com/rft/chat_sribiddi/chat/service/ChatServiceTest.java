@@ -794,6 +794,45 @@ class ChatServiceTest {
     assertThat(result).isEqualTo("An error occurred while streaming the response.");
   }
 
+  @Test
+  void classifyStreamError_detectsTimeoutWithoutHttpStatus() {
+    String result =
+        ChatService.classifyStreamError(
+            new RuntimeException("response timeout while streaming"), null);
+
+    assertThat(result).isEqualTo("TIMEOUT");
+  }
+
+  @Test
+  void classifyStreamError_detectsRateLimitFromHttpStatus() {
+    String result = ChatService.classifyStreamError(new RuntimeException("any"), 429);
+
+    assertThat(result).isEqualTo("RATE_LIMIT");
+  }
+
+  @Test
+  void buildClientStreamErrorMessage_includesProviderModelStatusAndPartialHint() {
+    String message =
+        ChatService.buildClientStreamErrorMessage(
+            new ChatService.StreamErrorDetails(
+                RequestDTO.Provider.GOOGLE,
+                "gemma-4-31b-it",
+                503,
+                "SERVER_ERROR",
+                128L));
+
+    assertThat(message)
+        .isEqualTo(
+            "Response from Google (gemma-4-31b-it) was interrupted (HTTP 503). The provider returned a server error. Partial response shown.");
+  }
+
+  @Test
+  void expectedStreamFailures_includeProviderAndTimeoutKinds() {
+    assertThat(ChatService.isExpectedStreamFailure("TIMEOUT")).isTrue();
+    assertThat(ChatService.isExpectedStreamFailure("PROVIDER_ERROR")).isTrue();
+    assertThat(ChatService.isExpectedStreamFailure("UNKNOWN")).isFalse();
+  }
+
   // ── Auto-title tests ────────────────────────────────────────────────────────
 
   private void setupSendMessageMocks(ChatEntity chat, String apiKey) {
