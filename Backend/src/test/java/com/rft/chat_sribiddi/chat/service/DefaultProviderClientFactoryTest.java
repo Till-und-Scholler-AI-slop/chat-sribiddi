@@ -105,4 +105,34 @@ class DefaultProviderClientFactoryTest {
     assertThatThrownBy(() -> factory.getClient(Provider.OPENAI, "key", null))
         .isInstanceOf(IllegalArgumentException.class);
   }
+
+  @Test
+  void buildOpenRouterAttributionHeaders_includesReferrerAndAppName() {
+    OpenRouterProviderProperties openRouter = new OpenRouterProviderProperties();
+    openRouter.setAppName("chat-sribiddi-test");
+    openRouter.setReferrer("https://example.invalid/chat");
+    DefaultProviderClientFactory custom =
+        new DefaultProviderClientFactory(
+            new OpenAiProviderProperties(), new GoogleProviderProperties(), openRouter);
+
+    var headers = custom.buildOpenRouterAttributionHeaders();
+
+    assertThat(headers.getFirst("HTTP-Referer")).isEqualTo("https://example.invalid/chat");
+    assertThat(headers.getFirst("X-Title")).isEqualTo("chat-sribiddi-test");
+  }
+
+  @Test
+  void buildOpenRouterAttributionHeaders_skipsBlankConfigValues() {
+    OpenRouterProviderProperties openRouter = new OpenRouterProviderProperties();
+    openRouter.setAppName("");
+    openRouter.setReferrer("   ");
+    DefaultProviderClientFactory custom =
+        new DefaultProviderClientFactory(
+            new OpenAiProviderProperties(), new GoogleProviderProperties(), openRouter);
+
+    var headers = custom.buildOpenRouterAttributionHeaders();
+
+    assertThat(headers.getFirst("HTTP-Referer")).isNull();
+    assertThat(headers.getFirst("X-Title")).isNull();
+  }
 }

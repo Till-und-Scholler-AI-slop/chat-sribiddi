@@ -327,5 +327,47 @@ class EntitlementServiceTest {
 
     verify(dailyQuotaCounterRepository, never()).incrementCounter(anyLong(), any());
   }
+
+  // -------- filterOpenRouterModelsForPlan --------
+
+  @Test
+  void filterOpenRouterModelsForPlan_returnsOnlyFreeSuffixForFreeUser() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    var free =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "meta-llama/llama-3.1-8b-instruct:free", "Llama (free)");
+    var paid =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "openai/gpt-4o", "GPT-4o");
+
+    var result = service.filterOpenRouterModelsForPlan(USER_ID, java.util.List.of(paid, free));
+
+    assertThat(result).containsExactly(free);
+  }
+
+  @Test
+  void filterOpenRouterModelsForPlan_returnsAllModelsForPremium() {
+    when(userRepository.findByProviderId(USER_ID))
+        .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
+    var paid =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "openai/gpt-4o", "GPT-4o");
+    var free =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "meta-llama/llama-3.1-8b-instruct:free", "Llama (free)");
+    var input = java.util.List.of(paid, free);
+
+    var result = service.filterOpenRouterModelsForPlan(USER_ID, input);
+
+    assertThat(result).isSameAs(input);
+  }
+
+  @Test
+  void filterOpenRouterModelsForPlan_handlesNullAndEmptyInput() {
+    // Unresolved userId defaults to FREE; an empty list short-circuits without hitting the repo.
+    assertThat(service.filterOpenRouterModelsForPlan(USER_ID, null)).isEmpty();
+    assertThat(service.filterOpenRouterModelsForPlan(USER_ID, java.util.List.of())).isEmpty();
+    verifyNoInteractions(userRepository);
+  }
 }
 

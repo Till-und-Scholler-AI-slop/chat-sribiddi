@@ -22,6 +22,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -141,6 +142,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                         .apiKey(apiKey)
                         .baseUrl(openRouterProperties.getBaseUrl())
                         .completionsPath(openRouterProperties.getCompletionsPath())
+                        .headers(buildOpenRouterAttributionHeaders())
                         .restClientBuilder(RestClient.builder().requestFactory(requestFactory))
                         .build();
                 ChatClient chatClient =
@@ -172,5 +174,23 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
     return HttpOptions.builder()
         .timeout(Math.toIntExact(googleProperties.getTimeout().toMillis()))
         .build();
+  }
+
+  /**
+   * Builds the OpenRouter attribution headers ({@code HTTP-Referer}, {@code X-Title}) from the
+   * configured {@link OpenRouterProviderProperties}. Blank values are omitted so the resulting
+   * {@link HttpHeaders} is always safe to attach to the {@link OpenAiApi} builder.
+   */
+  HttpHeaders buildOpenRouterAttributionHeaders() {
+    HttpHeaders headers = new HttpHeaders();
+    String referrer = openRouterProperties.getReferrer();
+    if (referrer != null && !referrer.isBlank()) {
+      headers.set("HTTP-Referer", referrer);
+    }
+    String appName = openRouterProperties.getAppName();
+    if (appName != null && !appName.isBlank()) {
+      headers.set("X-Title", appName);
+    }
+    return headers;
   }
 }

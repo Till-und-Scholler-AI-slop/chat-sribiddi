@@ -187,6 +187,10 @@ app:
       base-url: ${OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
       completions-path: ${OPENROUTER_COMPLETIONS_PATH:/chat/completions}
       model-catalog-url: ${OPENROUTER_MODEL_CATALOG_URL:https://openrouter.ai/api/v1/models}
+      # Attribution headers sent with every OpenRouter request (HTTP-Referer, X-Title). Required
+      # by OpenRouter so requests show up under the correct integrating app on their dashboard.
+      app-name: ${OPENROUTER_APP_NAME:chat-sribiddi}
+      referrer: ${OPENROUTER_REFERRER:${APP_FRONTEND_URL:https://chat-sribiddi.local}}
   web-search:
     max-results: ${WEB_SEARCH_MAX_RESULTS:5}
     request-timeout: ${WEB_SEARCH_REQUEST_TIMEOUT:10s}
