@@ -113,10 +113,12 @@ class EntitlementServiceTest {
     Entitlements entitlements = service.get(USER_ID);
 
     assertThat(entitlements.plan()).isEqualTo(Plan.PREMIUM);
-    // BILL-8: Premium is capped at the configured premium thresholds (default 5.0/5.0).
+    // BILL-8: Premium is capped at the configured premium thresholds.
     assertThat(entitlements.allModelsAllowed()).isFalse();
-    assertThat(entitlements.maxModelInputUsdPerMillion()).isEqualTo(5.0);
-    assertThat(entitlements.maxModelOutputUsdPerMillion()).isEqualTo(5.0);
+    assertThat(entitlements.maxModelInputUsdPerMillion())
+        .isEqualTo(billingProperties.getModelAccess().getPremiumMaxInputUsdPerMillion());
+    assertThat(entitlements.maxModelOutputUsdPerMillion())
+        .isEqualTo(billingProperties.getModelAccess().getPremiumMaxOutputUsdPerMillion());
     assertThat(entitlements.allowsTool("brave-search")).isTrue();
     assertThat(entitlements.allowsTool("other-tool")).isFalse();
   }
