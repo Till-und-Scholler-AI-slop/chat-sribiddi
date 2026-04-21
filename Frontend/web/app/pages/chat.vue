@@ -90,6 +90,37 @@ const promptError = computed(() =>
   errorMessage.value ? new Error(errorMessage.value) : undefined
 )
 
+// Up-sell banner (FE-6): shown when the backend rejects a send/stream request
+// with a DAILY_CAP_EXCEEDED reason (HTTP 402, see GlobalExceptionHandler). The
+// JSON body from the backend is surfaced verbatim in `conversation.error`, so
+// we look for the reason token substring — this keeps the trigger stable even
+// if the localized `message` text changes.
+const upgradeBannerDismissed = ref(false)
+const showUpgradeBanner = computed(() => {
+  if (upgradeBannerDismissed.value) return false
+  const err = activeConversation.value?.error
+  return typeof err === 'string' && err.includes('DAILY_CAP_EXCEEDED')
+})
+
+// Reset dismissal whenever the active chat changes or a new error is surfaced
+// so the banner reappears after subsequent quota-hit attempts.
+watch(
+  () => [activeChatId.value, activeConversation.value?.error] as const,
+  ([, err], [, prevErr]) => {
+    if (err !== prevErr) {
+      upgradeBannerDismissed.value = false
+    }
+  }
+)
+
+const dismissUpgradeBanner = () => {
+  upgradeBannerDismissed.value = true
+}
+
+const goToPricing = () => {
+  void navigateTo('/pricing')
+}
+
 const firstText = (parts?: Array<{ type: string; text?: string }>) =>
   parts?.find(part => part.type === 'text' && typeof part.text === 'string')?.text || ''
 
@@ -510,6 +541,24 @@ const submitEditMessage = async () => {
   <UDashboardPanel class="h-full min-h-0 flex flex-col">
     <template #body>
       <UContainer class="py-4 space-y-4 flex-1 min-h-0 overflow-hidden flex flex-col">
+        <UAlert
+          v-if="showUpgradeBanner"
+          color="primary"
+          variant="subtle"
+          icon="i-heroicons-sparkles"
+          :title="t('billing.upgradeBanner.title')"
+          :description="t('billing.upgradeBanner.description')"
+          :close="{ 'aria-label': t('billing.upgradeBanner.dismiss') }"
+          :actions="[
+            {
+              label: t('billing.upgradeBanner.cta'),
+              color: 'primary',
+              variant: 'solid',
+              onClick: goToPricing
+            }
+          ]"
+          @close="dismissUpgradeBanner"
+        />
         <UAlert
           v-if="errorMessage"
           color="error"

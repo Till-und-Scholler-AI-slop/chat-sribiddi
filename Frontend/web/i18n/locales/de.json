@@ -288,6 +288,18 @@
       "incomplete": "Unvollständig",
       "incomplete_expired": "Abgelaufen",
       "paused": "Pausiert"
+    },
+    "planBadge": {
+      "ariaLabel": "Aktueller Plan",
+      "free": "Free",
+      "premium": "Premium",
+      "max": "Max"
+    },
+    "upgradeBanner": {
+      "title": "Tageslimit erreicht",
+      "description": "Du hast dein tägliches Nachrichtenlimit im Free-Plan erreicht. Upgrade auf Premium oder Max für höhere Limits und Premium-Modelle.",
+      "cta": "Plan upgraden",
+      "dismiss": "Schließen"
     }
   },
   "pricing": {
