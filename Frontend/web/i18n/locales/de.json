@@ -253,6 +253,56 @@
     "serverError": "Server-Fehler. Bitte später erneut versuchen.",
     "apiKey": "API-Schlüssel ungültig oder fehlt. Bitte in den Einstellungen prüfen."
   },
+  "pricing": {
+    "title": "Preise",
+    "subtitle": "Wähle den Plan, der zu deiner Nutzung von Chat Sribiddi passt.",
+    "perMonth": "/ Monat",
+    "recommended": "Empfohlen",
+    "currentPlan": "Aktueller Plan",
+    "ctaCurrent": "Aktuell",
+    "ctaUpgrade": "Upgrade",
+    "ctaSignInToUpgrade": "Zum Upgraden anmelden",
+    "checkoutFailedTitle": "Checkout konnte nicht gestartet werden",
+    "plans": {
+      "free": {
+        "name": "Free",
+        "price": "0 €",
+        "description": "Starte mit den grundlegenden Chat-Funktionen.",
+        "features": {
+          "0": "Zugriff auf kostenlose Modelle",
+          "1": "Bis zu 2 Anhänge pro Nachricht (je 2 MB, 4 MB gesamt)",
+          "2": "Kontextfenster von 10 Nachrichten",
+          "3": "50 Nachrichten pro Tag"
+        }
+      },
+      "premium": {
+        "name": "Premium",
+        "price": "9 €",
+        "description": "Schalte Premium-Modelle, Tools und höhere Limits frei.",
+        "features": {
+          "0": "Zugriff auf Premium-Modelle",
+          "1": "Websuche-Tool inklusive",
+          "2": "Bis zu 5 Anhänge pro Nachricht (je 5 MB, 20 MB gesamt)",
+          "3": "Kontextfenster von 20 Nachrichten",
+          "4": "500 Nachrichten pro Tag",
+          "5": "2 parallele Chats"
+        }
+      },
+      "max": {
+        "name": "Max",
+        "price": "29 €",
+        "description": "Alles aus Premium, dazu Top-Modelle und mehr Spielraum für Power-User.",
+        "features": {
+          "0": "Zugriff auf alle KI-Modelle",
+          "1": "Alle Tools freigeschaltet",
+          "2": "Bis zu 10 Anhänge pro Nachricht (je 10 MB, 50 MB gesamt)",
+          "3": "Kontextfenster von 40 Nachrichten",
+          "4": "2.000 Nachrichten pro Tag",
+          "5": "4 parallele Chats"
+        }
+      }
+    }
+  },
   "legal": {
     "backToLogin": "Zurück zum Login",
     "impressum": {

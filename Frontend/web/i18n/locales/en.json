@@ -253,6 +253,56 @@
     "serverError": "Server error. Please try again later.",
     "apiKey": "API key invalid or missing. Please check the settings."
   },
+  "pricing": {
+    "title": "Pricing",
+    "subtitle": "Pick the plan that fits how you use Chat Sribiddi.",
+    "perMonth": "/ month",
+    "recommended": "Recommended",
+    "currentPlan": "Current plan",
+    "ctaCurrent": "Current",
+    "ctaUpgrade": "Upgrade",
+    "ctaSignInToUpgrade": "Sign in to upgrade",
+    "checkoutFailedTitle": "Could not start checkout",
+    "plans": {
+      "free": {
+        "name": "Free",
+        "price": "€0",
+        "description": "Get started with the core chat experience.",
+        "features": {
+          "0": "Access to free models",
+          "1": "Up to 2 attachments per message (2 MB each, 4 MB total)",
+          "2": "10-message context window",
+          "3": "50 messages per day"
+        }
+      },
+      "premium": {
+        "name": "Premium",
+        "price": "€9",
+        "description": "Unlock premium models, tools, and higher limits.",
+        "features": {
+          "0": "Access to premium AI models",
+          "1": "Web search tool included",
+          "2": "Up to 5 attachments per message (5 MB each, 20 MB total)",
+          "3": "20-message context window",
+          "4": "500 messages per day",
+          "5": "2 parallel chats"
+        }
+      },
+      "max": {
+        "name": "Max",
+        "price": "€29",
+        "description": "Everything in Premium, plus top-tier models and headroom for power users.",
+        "features": {
+          "0": "Access to all AI models",
+          "1": "All tools unlocked",
+          "2": "Up to 10 attachments per message (10 MB each, 50 MB total)",
+          "3": "40-message context window",
+          "4": "2,000 messages per day",
+          "5": "4 parallel chats"
+        }
+      }
+    }
+  },
   "legal": {
     "backToLogin": "Back to login",
     "impressum": {
