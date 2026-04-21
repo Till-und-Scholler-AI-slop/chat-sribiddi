@@ -715,6 +715,107 @@ class ChatServiceTest {
   }
 
   @Test
+  void streamMessage_managedMode_providerError_recordsUsageButDoesNotIncrementCounter() {
+    // BILL-14 refund path: when a managed-mode stream fails with a provider error
+    // (e.g. WebClientResponseException 500), the daily counter must NOT be incremented
+    // (so the user does not lose a cap slot for a failed call), but the usage event
+    // MUST still be recorded for analytics/auditing.
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of("stored-key"));
+    when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.stream()).thenReturn(streamResponseSpec);
+
+    when(streamResponseSpec.chatResponse())
+        .thenReturn(reactor.core.publisher.Flux.error(
+            new org.springframework.web.reactive.function.client.WebClientResponseException(
+                500, "Internal Server Error", null, null, null)));
+
+    chatService.streamMessage(chatId, userId, request);
+
+    // Usage event is recorded for analytics even on provider errors.
+    verify(usageEventService)
+        .record(
+            eq(userId),
+            eq(RequestDTO.Provider.OPENAI),
+            eq("gpt-5.2"),
+            any(),
+            any(),
+            any(),
+            any(),
+            eq(BillingMode.MANAGED));
+    // Counter is NOT incremented — failed call does not consume a daily cap slot.
+    verify(entitlementService, never()).incrementCounter(anyString());
+  }
+
+  @Test
+  void streamMessage_managedMode_successfulStream_recordsUsageAndIncrementsCounter() {
+    // BILL-14 refund path: on a successful managed-mode stream, both record() and
+    // incrementCounter() must be invoked (user consumes exactly one daily cap slot).
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(chatRepository.existsById(chatId)).thenReturn(true);
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of("stored-key"));
+    when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.stream()).thenReturn(streamResponseSpec);
+
+    ChatResponseMetadata metadata =
+        ChatResponseMetadata.builder().usage(new DefaultUsage(10, 5)).build();
+    ChatResponse chunk =
+        new ChatResponse(List.of(new Generation(new AssistantMessage("ok"))), metadata);
+    when(streamResponseSpec.chatResponse())
+        .thenReturn(reactor.core.publisher.Flux.just(chunk));
+
+    chatService.streamMessage(chatId, userId, request);
+
+    verify(usageEventService)
+        .record(
+            eq(userId),
+            eq(RequestDTO.Provider.OPENAI),
+            eq("gpt-5.2"),
+            eq(10L),
+            eq(5L),
+            eq(15L),
+            any(),
+            eq(BillingMode.MANAGED));
+    verify(entitlementService).incrementCounter(userId);
+  }
+
+  @Test
   void streamMessage_missingChat_throwsNotFound() {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.empty());
 
