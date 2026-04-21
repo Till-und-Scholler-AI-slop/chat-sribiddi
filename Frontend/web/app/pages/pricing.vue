@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { BillingPlan } from '~/composables/useBillingApi'
+import { PLAN_FEATURE_COUNTS } from '~/utils/plan-features'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -39,9 +40,9 @@ interface PlanDef {
 }
 
 const PLANS: readonly PlanDef[] = [
-  { key: 'free', billingPlan: null, featureCount: 4, highlighted: false },
-  { key: 'premium', billingPlan: 'PREMIUM', featureCount: 6, highlighted: true },
-  { key: 'max', billingPlan: 'MAX', featureCount: 6, highlighted: false }
+  { key: 'free', billingPlan: null, featureCount: PLAN_FEATURE_COUNTS.free, highlighted: false },
+  { key: 'premium', billingPlan: 'PREMIUM', featureCount: PLAN_FEATURE_COUNTS.premium, highlighted: true },
+  { key: 'max', billingPlan: 'MAX', featureCount: PLAN_FEATURE_COUNTS.max, highlighted: false }
 ]
 
 const isAuthenticated = computed(() => status.value === 'authenticated')

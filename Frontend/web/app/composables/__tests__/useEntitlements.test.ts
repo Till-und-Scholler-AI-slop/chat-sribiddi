@@ -32,13 +32,19 @@ describe('normalizeEntitlements', () => {
       plan: 'FREE',
       showAds: true,
       allowedModels: null,
-      caps: {}
+      caps: {},
+      status: null,
+      periodEnd: null,
+      cancelAtPeriodEnd: false
     })
     expect(normalizeEntitlements(undefined)).toEqual({
       plan: 'FREE',
       showAds: true,
       allowedModels: null,
-      caps: {}
+      caps: {},
+      status: null,
+      periodEnd: null,
+      cancelAtPeriodEnd: false
     })
   })
 
@@ -116,6 +122,25 @@ describe('normalizeEntitlements', () => {
         allowedModels: [1, 2] as unknown as string[]
       }).allowedModels
     ).toBeNull()
+  })
+
+  it('surfaces subscription status fields from the backend response', () => {
+    const normalized = normalizeEntitlements({
+      plan: 'PREMIUM',
+      status: 'active',
+      periodEnd: '2026-05-01T00:00:00Z',
+      cancelAtPeriodEnd: true
+    })
+    expect(normalized.status).toBe('active')
+    expect(normalized.periodEnd).toBe('2026-05-01T00:00:00Z')
+    expect(normalized.cancelAtPeriodEnd).toBe(true)
+  })
+
+  it('defaults subscription status fields to null/false when missing', () => {
+    const normalized = normalizeEntitlements({ plan: 'FREE' })
+    expect(normalized.status).toBeNull()
+    expect(normalized.periodEnd).toBeNull()
+    expect(normalized.cancelAtPeriodEnd).toBe(false)
   })
 })
 

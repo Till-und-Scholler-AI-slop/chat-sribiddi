@@ -40,6 +40,23 @@ export interface Entitlements {
    */
   allowedModels: string[] | null
   caps: EntitlementCaps
+  /**
+   * Subscription status as reported by Stripe (e.g. {@code active}, {@code trialing},
+   * {@code past_due}, {@code canceled}) or persisted on the {@code User} row. May be
+   * {@code null} for Free users who have never had a subscription.
+   */
+  status: string | null
+  /**
+   * ISO-8601 timestamp at which the current billing period ends. {@code null}
+   * for Free users or when no subscription has been recorded yet.
+   */
+  periodEnd: string | null
+  /**
+   * {@code true} when the user has scheduled the active subscription to be
+   * cancelled at the end of the current billing period (as set via the Stripe
+   * Customer Portal).
+   */
+  cancelAtPeriodEnd: boolean
 }
 
 /** Default entitlements used before {@code /billing/me} has loaded. Frozen so
@@ -49,12 +66,19 @@ const DEFAULT_ENTITLEMENTS: Entitlements = Object.freeze({
   plan: 'FREE',
   showAds: true,
   allowedModels: null,
-  caps: Object.freeze({}) as EntitlementCaps
+  caps: Object.freeze({}) as EntitlementCaps,
+  status: null,
+  periodEnd: null,
+  cancelAtPeriodEnd: false
 }) as Entitlements
 
 type RawEntitlementsResponse = Partial<Entitlements & EntitlementCaps> & {
   caps?: Partial<EntitlementCaps>
   allowedModels?: unknown
+  /** Stripe period-end is serialized as an ISO-8601 string by Jackson. */
+  periodEnd?: string | null
+  status?: string | null
+  cancelAtPeriodEnd?: boolean
 }
 
 function normalizePlan(value: unknown): Plan {
@@ -113,7 +137,12 @@ export function normalizeEntitlements(raw: RawEntitlementsResponse | null | unde
     : null
   const allowedModels = filteredModels && filteredModels.length > 0 ? filteredModels : null
 
-  return { plan, showAds, allowedModels, caps }
+  const status = typeof raw.status === 'string' && raw.status.length > 0 ? raw.status : null
+  const periodEnd =
+    typeof raw.periodEnd === 'string' && raw.periodEnd.length > 0 ? raw.periodEnd : null
+  const cancelAtPeriodEnd = raw.cancelAtPeriodEnd === true
+
+  return { plan, showAds, allowedModels, caps, status, periodEnd, cancelAtPeriodEnd }
 }
 
 type EntitlementsState = {
@@ -217,6 +246,9 @@ export function useEntitlements() {
   const showAds = computed<boolean>(() => entitlements.value.showAds)
   const allowedModels = computed<string[] | null>(() => entitlements.value.allowedModels)
   const caps = computed<EntitlementCaps>(() => state.value.data?.caps ?? {})
+  const status = computed<string | null>(() => entitlements.value.status)
+  const periodEnd = computed<string | null>(() => entitlements.value.periodEnd)
+  const cancelAtPeriodEnd = computed<boolean>(() => entitlements.value.cancelAtPeriodEnd)
   const loading = computed<boolean>(() => state.value.loading)
   const error = computed<string | null>(() => state.value.error)
   const loaded = computed<boolean>(() => state.value.loaded)
@@ -227,6 +259,9 @@ export function useEntitlements() {
     showAds,
     allowedModels,
     caps,
+    status,
+    periodEnd,
+    cancelAtPeriodEnd,
     loading,
     error,
     loaded,
