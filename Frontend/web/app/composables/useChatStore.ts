@@ -564,6 +564,11 @@ export function useChatStore() {
                 }
               }
               break
+
+            case 'error':
+              streamStatus.receivedError = true
+              conversation.error = event.content || 'Streaming error'
+              break
           }
         },
         controller.signal
