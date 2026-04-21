@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import type { BillingPlan } from '~/composables/useBillingApi'
+import { PLAN_FEATURE_COUNTS } from '~/utils/plan-features'
+
+/** Window used by {@code GET /billing/usage} — must match {@code BillingController.USAGE_WINDOW}. */
+const USAGE_WINDOW_DAYS = 30
 
 const { t, locale } = useI18n()
 const tt = useTranslatedError()
@@ -73,9 +77,16 @@ const dailyCap = computed<number>(() => {
 })
 
 const usageCalls = computed<number>(() => usage.value?.totalCalls ?? 0)
+/**
+ * Effective cap to compare {@link usageCalls} (a trailing-30-day total) against.
+ * We scale the daily cap up to a 30-day window so the progress bar is
+ * meaningful for a 30-day message count and doesn't peg at 100% within a day
+ * of normal use.
+ */
+const windowCap = computed<number>(() => dailyCap.value * USAGE_WINDOW_DAYS)
 const usagePercent = computed<number>(() => {
-  if (dailyCap.value <= 0) return 0
-  return Math.min(100, Math.round((usageCalls.value / dailyCap.value) * 100))
+  if (windowCap.value <= 0) return 0
+  return Math.min(100, Math.round((usageCalls.value / windowCap.value) * 100))
 })
 
 // ── Plan & status display helpers ───────────────────────────────────────
@@ -115,6 +126,19 @@ const formattedPeriodEnd = computed<string | null>(() => {
   } catch {
     return d.toISOString().slice(0, 10)
   }
+})
+
+/**
+ * Label for the {@link formattedPeriodEnd} date. Terminal statuses
+ * ({@code canceled}/{@code incomplete_expired}) map to "Ended on" since the
+ * subscription will not renew; {@code cancelAtPeriodEnd} maps to "Cancels on";
+ * everything else (active / trialing / past_due / …) maps to "Renews on".
+ */
+const periodEndLabel = computed<string>(() => {
+  const s = subscriptionStatus.value
+  if (s === 'canceled' || s === 'incomplete_expired') return t('billing.endedOn')
+  if (cancelAtPeriodEnd.value) return t('billing.cancelsOn')
+  return t('billing.renewsOn')
 })
 
 // ── Upgrade / portal actions ────────────────────────────────────────────
@@ -172,11 +196,11 @@ const upgradeCards: readonly UpgradeCard[] = [
 ]
 
 function cardFeatures(card: UpgradeCard): string[] {
-  const prefix = `pricing.plans.${card.key.toLowerCase()}.features`
+  const key = card.key.toLowerCase() as keyof typeof PLAN_FEATURE_COUNTS
+  const prefix = `pricing.plans.${key}.features`
+  const count = PLAN_FEATURE_COUNTS[key]
   const out: string[] = []
-  // The pricing page lists 6 features for both Premium and Max. We mirror that
-  // here so the dashboard shows the same feature summary.
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < count; i++) {
     out.push(t(`${prefix}.${i}`))
   }
   return out
@@ -226,7 +250,7 @@ function cardFeatures(card: UpgradeCard): string[] {
                 </div>
                 <div v-if="formattedPeriodEnd">
                   <dt class="text-gray-500 dark:text-gray-400">
-                    {{ cancelAtPeriodEnd ? t('billing.cancelsOn') : t('billing.renewsOn') }}
+                    {{ periodEndLabel }}
                   </dt>
                   <dd class="mt-1 font-semibold text-gray-900 dark:text-gray-50">
                     {{ formattedPeriodEnd }}
@@ -360,17 +384,17 @@ function cardFeatures(card: UpgradeCard): string[] {
                 <div class="flex items-baseline justify-between gap-2 flex-wrap">
                   <span class="text-sm text-gray-600 dark:text-gray-400">
                     {{
-                      dailyCap > 0
-                        ? t('billing.usageOfCap', { used: usageCalls, cap: dailyCap })
+                      windowCap > 0
+                        ? t('billing.usageOfCap', { used: usageCalls, cap: windowCap })
                         : t('billing.usageNoCap', { used: usageCalls })
                     }}
                   </span>
-                  <span v-if="dailyCap > 0" class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <span v-if="windowCap > 0" class="text-sm font-medium text-gray-700 dark:text-gray-300">
                     {{ usagePercent }}%
                   </span>
                 </div>
                 <div
-                  v-if="dailyCap > 0"
+                  v-if="windowCap > 0"
                   class="h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
                   role="progressbar"
                   :aria-valuenow="usagePercent"
