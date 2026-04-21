@@ -184,7 +184,7 @@ onMounted(async () => {
             <h1 class="font-serif-display text-4xl sm:text-5xl text-gray-900 dark:text-gray-50">
               {{ t('models.title') }}
             </h1>
-            <p class="text-base text-gray-500 dark:text-gray-400 max-w-2xl">
+            <p class="text-base text-gray-500 dark:text-gray-300 max-w-2xl">
               {{ t('models.pageIntroLine1') }}<br>
               {{ t('models.pageIntroLine2') }}
             </p>
@@ -252,11 +252,11 @@ onMounted(async () => {
                       >
                         <UIcon
                           name="i-heroicons-lock-closed"
-                          class="size-4 text-gray-500 dark:text-gray-400 flex-shrink-0"
+                          class="size-4 text-gray-500 dark:text-gray-300 flex-shrink-0"
                         />
                       </UTooltip>
                     </div>
-                    <div class="text-xs font-mono text-gray-500 dark:text-gray-400 truncate">
+                    <div class="text-xs font-mono text-gray-500 dark:text-gray-300 truncate">
                       {{ modelSlug(model) }}
                     </div>
                   </div>
@@ -278,11 +278,11 @@ onMounted(async () => {
 
               <div class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800/60 space-y-2">
                 <div class="flex items-center justify-between text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('models.inputLabel') }}</span>
+                  <span class="text-gray-500 dark:text-gray-300">{{ t('models.inputLabel') }}</span>
                   <span class="font-mono text-gray-700 dark:text-gray-200">{{ formatPrice(model.promptPrice) }}</span>
                 </div>
                 <div class="flex items-center justify-between text-sm">
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('models.outputLabel') }}</span>
+                  <span class="text-gray-500 dark:text-gray-300">{{ t('models.outputLabel') }}</span>
                   <span class="font-mono text-gray-700 dark:text-gray-200">{{ formatPrice(model.completionPrice) }}</span>
                 </div>
               </div>
@@ -444,11 +444,11 @@ onMounted(async () => {
   color: var(--color-gray-500);
 }
 :global(.dark) .favorite-btn {
-  color: var(--color-gray-600);
+  color: var(--color-gray-300);
 }
 :global(.dark) .favorite-btn:hover {
   background: rgba(255, 255, 255, 0.06);
-  color: var(--color-gray-400);
+  color: var(--color-gray-200);
 }
 .favorite-btn-active {
   color: var(--ui-primary);
