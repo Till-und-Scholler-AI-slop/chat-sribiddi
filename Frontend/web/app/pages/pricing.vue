@@ -17,9 +17,14 @@ definePageMeta({
 // `/pricing` is a public page, so `auth.global` does not run the check.
 if (import.meta.client) {
   void (async () => {
-    const result = await checkAuth()
-    if (result === 'authenticated') {
-      await ensureLoaded()
+    try {
+      const result = await checkAuth()
+      if (result === 'authenticated') {
+        await ensureLoaded()
+      }
+    } catch {
+      // Non-fatal: the CTAs degrade gracefully to the unauthenticated "Sign in
+      // to upgrade" state if the auth/entitlements probes fail.
     }
   })()
 }
@@ -66,7 +71,14 @@ async function handleCta(plan: PlanDef) {
     const { url } = await createCheckout(plan.billingPlan)
     if (url && import.meta.client) {
       window.location.assign(url)
+      return
     }
+    // Defensive: backend should always return a URL here, but surface a toast
+    // rather than silently clearing the loading state if it doesn't.
+    toast.add({
+      title: t('pricing.checkoutFailedTitle'),
+      color: 'error'
+    })
   } catch (err) {
     toast.add({
       title: t('pricing.checkoutFailedTitle'),
@@ -79,11 +91,10 @@ async function handleCta(plan: PlanDef) {
 }
 
 function ctaLabel(plan: PlanDef): string {
+  // Free is the default tier and has no checkout path, so it's always labeled
+  // "Current" regardless of session state.
+  if (plan.key === 'free') return t('pricing.ctaCurrent')
   if (isCurrentPlan(plan)) return t('pricing.ctaCurrent')
-  if (plan.key === 'free') {
-    // Free is always "current" for signed-out visitors (no checkout path).
-    return isAuthenticated.value ? t('pricing.ctaUpgrade') : t('pricing.ctaCurrent')
-  }
   if (!isAuthenticated.value) return t('pricing.ctaSignInToUpgrade')
   return t('pricing.ctaUpgrade')
 }
