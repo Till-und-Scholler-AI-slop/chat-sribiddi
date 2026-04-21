@@ -97,6 +97,18 @@ export type StreamEvent = {
   incomplete?: boolean | null
 }
 
+function parseOptionalBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true') return true
+    if (normalized === 'false') return false
+  }
+  return null
+}
+
 function normalizeParsedStreamEvent(event: StreamEvent): StreamEvent {
   if (event.statusCode != null) {
     const parsed =
@@ -119,7 +131,7 @@ function normalizeParsedStreamEvent(event: StreamEvent): StreamEvent {
   }
 
   if (event.incomplete != null) {
-    event.incomplete = Boolean(event.incomplete)
+    event.incomplete = parseOptionalBoolean(event.incomplete)
   }
 
   return event

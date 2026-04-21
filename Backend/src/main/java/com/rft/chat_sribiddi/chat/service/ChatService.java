@@ -38,7 +38,6 @@ import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.transaction.Transactional;
 import java.io.IOException;
 import java.net.http.HttpClient;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -48,6 +47,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -430,13 +430,14 @@ public class ChatService {
       ToolExecutionCollector toolExecutionCollector) {
 
     StringBuilder fullText = new StringBuilder();
+    AtomicLong streamedTextUtf8Bytes = new AtomicLong();
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
 
     promptSpec
         .stream()
         .chatResponse()
         .subscribe(
-            chunk -> handleStreamChunk(chunk, fullText, lastUsage, emitter),
+            chunk -> handleStreamChunk(chunk, fullText, streamedTextUtf8Bytes, lastUsage, emitter),
             error ->
                 handleStreamError(
                     userId,
@@ -445,7 +446,7 @@ public class ChatService {
                     billingMode,
                     chatId,
                     error,
-                    fullText,
+                    streamedTextUtf8Bytes.get(),
                     lastUsage,
                     emitter,
                     clientHolder),
@@ -469,6 +470,7 @@ public class ChatService {
 
   private void handleStreamChunk(
       ChatResponse chunk, StringBuilder fullText,
+      AtomicLong streamedTextUtf8Bytes,
       AtomicReference<Usage> lastUsage, SseEmitter emitter) {
     try {
       String text =
@@ -480,6 +482,7 @@ public class ChatService {
 
       if (text != null && !text.isEmpty()) {
         fullText.append(text);
+        streamedTextUtf8Bytes.addAndGet(utf8Length(text));
         emitter.send(
             SseEmitter.event()
                 .name("text")
@@ -524,12 +527,12 @@ public class ChatService {
       BillingMode billingMode,
       UUID chatId,
       Throwable error,
-      StringBuilder fullText,
+      long streamedTextUtf8Bytes,
       AtomicReference<Usage> lastUsage,
       SseEmitter emitter,
       ClientHolder clientHolder) {
     StreamErrorDetails streamErrorDetails =
-        describeStreamError(provider, modelId, fullText, error);
+        describeStreamError(provider, modelId, streamedTextUtf8Bytes, error);
     logStreamingError(chatId, streamErrorDetails, error);
     TokenUsage tokenUsage = toTokenUsage(lastUsage.get());
       try (clientHolder) {
@@ -900,14 +903,36 @@ public class ChatService {
   private static final ObjectMapper ERROR_MAPPER = new ObjectMapper();
 
   private static StreamErrorDetails describeStreamError(
-      Provider provider, String modelId, StringBuilder fullText, Throwable error) {
+      Provider provider, String modelId, long streamedTextUtf8Bytes, Throwable error) {
     Integer statusCode = extractStatusCode(error);
     return new StreamErrorDetails(
         provider,
         modelId,
         statusCode,
         classifyStreamError(error, statusCode),
-        (long) fullText.toString().getBytes(StandardCharsets.UTF_8).length);
+        streamedTextUtf8Bytes);
+  }
+
+  private static long utf8Length(CharSequence value) {
+    long byteLength = 0;
+    for (int i = 0; i < value.length(); i++) {
+      char current = value.charAt(i);
+      if (current <= 0x7F) {
+        byteLength++;
+      } else if (current <= 0x7FF) {
+        byteLength += 2;
+      } else if (Character.isHighSurrogate(current)) {
+        if (i + 1 < value.length() && Character.isLowSurrogate(value.charAt(i + 1))) {
+          byteLength += 4;
+          i++;
+        } else {
+          byteLength += 3;
+        }
+      } else {
+        byteLength += 3;
+      }
+    }
+    return byteLength;
   }
 
   private static Integer extractStatusCode(Throwable error) {
