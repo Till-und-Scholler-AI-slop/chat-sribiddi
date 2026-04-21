@@ -41,9 +41,11 @@ onMounted(async () => {
   try {
     const ok = await ensureAuthenticated()
     if (!ok) return
-    await loadChatsFromBackend()
-    // Load entitlements so the plan badge reflects the current tier.
-    await ensureEntitlementsLoaded()
+    await Promise.all([
+      loadChatsFromBackend(),
+      // Load entitlements so the plan badge reflects the current tier.
+      ensureEntitlementsLoaded()
+    ])
   } catch (err) {
     console.error(err)
     toast.add({

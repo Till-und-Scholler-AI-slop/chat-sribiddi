@@ -106,8 +106,8 @@ const showUpgradeBanner = computed(() => {
 // so the banner reappears after subsequent quota-hit attempts.
 watch(
   () => [activeChatId.value, activeConversation.value?.error] as const,
-  ([, err], [, prevErr]) => {
-    if (err !== prevErr) {
+  ([chatId, err], [prevChatId, prevErr]) => {
+    if (chatId !== prevChatId || err !== prevErr) {
       upgradeBannerDismissed.value = false
     }
   }
