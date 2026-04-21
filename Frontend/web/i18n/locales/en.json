@@ -288,6 +288,18 @@
       "incomplete": "Incomplete",
       "incomplete_expired": "Expired",
       "paused": "Paused"
+    },
+    "planBadge": {
+      "ariaLabel": "Current plan",
+      "free": "Free",
+      "premium": "Premium",
+      "max": "Max"
+    },
+    "upgradeBanner": {
+      "title": "Daily limit reached",
+      "description": "You've hit your daily message cap on the Free plan. Upgrade to Premium or Max for higher limits and premium models.",
+      "cta": "Upgrade plan",
+      "dismiss": "Dismiss"
     }
   },
   "pricing": {
