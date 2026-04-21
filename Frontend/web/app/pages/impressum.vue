@@ -31,11 +31,22 @@ definePageMeta({
           {{ t('legal.impressum.responsibleHeading') }}<br>
           {{ t('legal.impressum.responsibleAddress') }}
         </p>
+
+        <p>
+          <strong>{{ t('legal.impressum.vatIdHeading') }}</strong><br>
+          {{ t('legal.impressum.vatId') }}
+        </p>
+
+        <p>
+          <strong>{{ t('legal.impressum.registerCourtHeading') }}</strong><br>
+          {{ t('legal.impressum.registerCourt') }}
+        </p>
       </div>
 
       <div class="flex flex-wrap gap-3">
         <UButton to="/login" variant="outline" color="neutral" :label="t('legal.backToLogin')" />
         <UButton to="/datenschutz" variant="ghost" color="neutral" :label="t('legal.datenschutz.title')" />
+        <UButton to="/agb" variant="ghost" color="neutral" :label="t('legal.agb.title')" />
       </div>
     </div>
   </UCard>

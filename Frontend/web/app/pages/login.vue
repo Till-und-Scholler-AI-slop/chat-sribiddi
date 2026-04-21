@@ -128,6 +128,8 @@ onMounted(async () => {
         <NuxtLink to="/impressum">{{ t('legal.impressum.title') }}</NuxtLink>
         <span class="login-legal-dot">&middot;</span>
         <NuxtLink to="/datenschutz">{{ t('legal.datenschutz.title') }}</NuxtLink>
+        <span class="login-legal-dot">&middot;</span>
+        <NuxtLink to="/agb">{{ t('legal.agb.title') }}</NuxtLink>
       </p>
     </div>
   </div>

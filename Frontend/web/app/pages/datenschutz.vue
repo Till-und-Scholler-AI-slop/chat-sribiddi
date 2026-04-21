@@ -56,11 +56,32 @@ definePageMeta({
           <strong>{{ t('legal.datenschutz.rightsHeading') }}</strong><br>
           {{ t('legal.datenschutz.rightsBody') }}
         </p>
+
+        <p>
+          <strong>{{ t('legal.datenschutz.stripeHeading') }}</strong><br>
+          {{ t('legal.datenschutz.stripeBody') }}
+        </p>
+
+        <p>
+          <strong>{{ t('legal.datenschutz.adSenseHeading') }}</strong><br>
+          {{ t('legal.datenschutz.adSenseBody') }}
+        </p>
+
+        <p>
+          <strong>{{ t('legal.datenschutz.aiProvidersHeading') }}</strong><br>
+          {{ t('legal.datenschutz.aiProvidersBody') }}
+        </p>
+
+        <p>
+          <strong>{{ t('legal.datenschutz.dpaHeading') }}</strong><br>
+          {{ t('legal.datenschutz.dpaBody') }}
+        </p>
       </div>
 
       <div class="flex flex-wrap gap-3">
         <UButton to="/login" variant="outline" color="neutral" :label="t('legal.backToLogin')" />
         <UButton to="/impressum" variant="ghost" color="neutral" :label="t('legal.impressum.title')" />
+        <UButton to="/agb" variant="ghost" color="neutral" :label="t('legal.agb.title')" />
       </div>
     </div>
   </UCard>

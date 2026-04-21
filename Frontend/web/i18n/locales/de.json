@@ -355,7 +355,11 @@
       "contactHeading": "Kontakt:",
       "email": "E-Mail: tillrafael{'@'}icloud.com",
       "responsibleHeading": "Verantwortlich für die Inhalte dieser Website:",
-      "responsibleAddress": "Rafael Till, Anschrift wie oben"
+      "responsibleAddress": "Rafael Till, Anschrift wie oben",
+      "vatIdHeading": "Umsatzsteuer-Identifikationsnummer",
+      "vatId": "[TODO: Juristischer Text — USt-IdNr gemäß § 27a UStG]",
+      "registerCourtHeading": "Registergericht und Registernummer",
+      "registerCourt": "[TODO: Juristischer Text — Registergericht, Registernummer bzw. Hinweis, dass keine Eintragung besteht]"
     },
     "datenschutz": {
       "title": "Datenschutz",
@@ -373,7 +377,35 @@
       "retentionHeading": "Speicherdauer",
       "retentionBody": "Personenbezogene Daten werden nur so lange gespeichert, wie dies für die genannten Zwecke erforderlich ist oder gesetzliche Aufbewahrungspflichten bestehen. Chat-Inhalte und hinterlegte API-Schlüssel bleiben gespeichert, bis sie über die Einstellungsseite entfernt werden oder bei Löschung Ihres Kontos zusammen mit den zugehörigen Chat-Daten entfernt werden.",
       "rightsHeading": "Ihre Rechte",
-      "rightsBody": "Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit sowie Beschwerde bei einer Datenschutz-Aufsichtsbehörde."
+      "rightsBody": "Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit sowie Beschwerde bei einer Datenschutz-Aufsichtsbehörde.",
+      "stripeHeading": "Zahlungsabwicklung (Stripe)",
+      "stripeBody": "[TODO: Juristischer Text — Für kostenpflichtige Abonnements wird der Zahlungsdienstleister Stripe Payments Europe, Ltd. eingesetzt. Im Rahmen der Zahlungsabwicklung werden Zahlungsdaten (u.a. Name, Zahlungsmittel, Rechnungsadresse, Transaktionsdaten) an Stripe übermittelt. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Vertragserfüllung). Weitere Informationen unter https://stripe.com/de/privacy.]",
+      "adSenseHeading": "Werbung (Google AdSense)",
+      "adSenseBody": "[TODO: Juristischer Text — Diese Website nutzt Google AdSense, einen Dienst der Google Ireland Limited, zur Einbindung von Werbung. Dabei werden Cookies und ähnliche Technologien eingesetzt, um personalisierte oder nicht-personalisierte Anzeigen auszuliefern. Rechtsgrundlage ist Art. 6 Abs. 1 lit. a DSGVO (Einwilligung über das Cookie-Banner). Weitere Informationen unter https://policies.google.com/privacy.]",
+      "aiProvidersHeading": "KI-Dienstleister",
+      "aiProvidersBody": "[TODO: Juristischer Text — Zur Bereitstellung der Chat-Funktion werden Ihre Eingaben an den jeweils gewählten KI-Anbieter übermittelt: OpenRouter Inc. (Routing-Dienst), OpenAI, LLC (GPT-Modelle), Google LLC/Google Ireland Ltd. (Gemini-Modelle), Anthropic PBC (Claude-Modelle). Je nach Anbieter kann eine Übermittlung in Drittländer (insbesondere USA) erfolgen; Grundlage sind EU-Standardvertragsklauseln und ggf. zusätzliche Schutzmaßnahmen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Vertragserfüllung).]",
+      "dpaHeading": "Verzeichnis von Verarbeitungstätigkeiten / Auftragsverarbeitung",
+      "dpaBody": "[TODO: Juristischer Text — Ein Verzeichnis der Verarbeitungstätigkeiten gemäß Art. 30 DSGVO sowie Auftragsverarbeitungsverträge mit den eingesetzten Dienstleistern (Hosting, Authentifizierung, Zahlungsdienstleister, KI-Anbieter) werden geführt und können auf Anfrage unter den oben genannten Kontaktdaten eingesehen werden.]"
+    },
+    "agb": {
+      "title": "AGB",
+      "subtitle": "Allgemeine Geschäftsbedingungen",
+      "placeholderNotice": "[TODO: Juristischer Text — Dieser Text ist ein Platzhalter und muss vor Veröffentlichung durch einen Rechtsbeistand geprüft und finalisiert werden.]",
+      "intro": "[TODO: Juristischer Text — Diese Allgemeinen Geschäftsbedingungen (AGB) regeln die Nutzung des Dienstes Chat Sribiddi, bereitgestellt durch den im Impressum genannten Anbieter. Mit der Registrierung bzw. Nutzung erkennen Sie diese AGB an.]",
+      "scopeHeading": "1. Geltungsbereich",
+      "scopeBody": "[TODO: Juristischer Text — Diese AGB gelten für alle Nutzerinnen und Nutzer des Dienstes Chat Sribiddi, unabhängig von der gewählten Tarifstufe (Free, Premium, Max). Abweichende Bedingungen werden nur wirksam, wenn sie ausdrücklich schriftlich bestätigt wurden.]",
+      "servicesHeading": "2. Leistungen",
+      "servicesBody": "[TODO: Juristischer Text — Chat Sribiddi stellt eine Weboberfläche zur Nutzung von KI-Modellen verschiedener Anbieter zur Verfügung. Der Leistungsumfang hängt von der gewählten Tarifstufe ab. Ein Anspruch auf ständige Verfügbarkeit besteht nicht.]",
+      "pricesHeading": "3. Preise und Zahlungsbedingungen",
+      "pricesBody": "[TODO: Juristischer Text — Kostenpflichtige Tarife werden zu den zum Zeitpunkt der Bestellung geltenden Preisen abgerechnet. Die Abrechnung erfolgt monatlich oder jährlich im Voraus über den Zahlungsdienstleister Stripe. Alle Preise verstehen sich inkl. gesetzlicher Umsatzsteuer, soweit anwendbar.]",
+      "termHeading": "4. Laufzeit und Kündigung",
+      "termBody": "[TODO: Juristischer Text — Kostenpflichtige Abonnements verlängern sich automatisch um die zuvor gewählte Laufzeit, sofern sie nicht vor Ablauf über das Kundenportal gekündigt werden. Free-Konten können jederzeit ohne Angabe von Gründen gelöscht werden.]",
+      "withdrawalHeading": "5. Widerrufsrecht",
+      "withdrawalBody": "[TODO: Juristischer Text — Verbrauchern steht grundsätzlich ein gesetzliches Widerrufsrecht von 14 Tagen zu. Mit dem ausdrücklichen Beginn der Leistungserbringung vor Ablauf der Widerrufsfrist erlischt das Widerrufsrecht nach § 356 Abs. 5 BGB. Details zum Widerrufsrecht und ein Muster-Widerrufsformular werden separat bereitgestellt.]",
+      "liabilityHeading": "6. Haftung",
+      "liabilityBody": "[TODO: Juristischer Text — Der Anbieter haftet unbeschränkt bei Vorsatz und grober Fahrlässigkeit sowie für Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit. Im Übrigen ist die Haftung auf den vertragstypischen, vorhersehbaren Schaden begrenzt. Für Inhalte, die durch KI-Modelle erzeugt werden, wird keine Gewähr übernommen.]",
+      "miscHeading": "7. Schlussbestimmungen",
+      "miscBody": "[TODO: Juristischer Text — Es gilt das Recht der Bundesrepublik Deutschland. Gerichtsstand ist, soweit gesetzlich zulässig, der Sitz des Anbieters. Sollten einzelne Bestimmungen unwirksam sein, bleibt die Wirksamkeit der übrigen Bestimmungen unberührt.]"
     }
   }
 }
