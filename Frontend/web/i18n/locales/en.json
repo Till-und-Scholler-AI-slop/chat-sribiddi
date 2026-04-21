@@ -355,7 +355,11 @@
       "contactHeading": "Contact:",
       "email": "Email: tillrafael{'@'}icloud.com",
       "responsibleHeading": "Responsible for the content of this website:",
-      "responsibleAddress": "Rafael Till, address as above"
+      "responsibleAddress": "Rafael Till, address as above",
+      "vatIdHeading": "VAT identification number",
+      "vatId": "[TODO: Legal text — VAT ID pursuant to § 27a UStG]",
+      "registerCourtHeading": "Register court and register number",
+      "registerCourt": "[TODO: Legal text — Register court, register number or note that no registration exists]"
     },
     "datenschutz": {
       "title": "Privacy",
@@ -373,7 +377,35 @@
       "retentionHeading": "Retention period",
       "retentionBody": "Personal data is only retained for as long as necessary for the stated purposes or as long as legal retention obligations apply. Chat content and stored API keys remain saved until they are removed via the settings page or, when your account is deleted, removed together with the associated chat data.",
       "rightsHeading": "Your rights",
-      "rightsBody": "You have the right to information, rectification, erasure, restriction of processing, data portability and to lodge a complaint with a data protection authority."
+      "rightsBody": "You have the right to information, rectification, erasure, restriction of processing, data portability and to lodge a complaint with a data protection authority.",
+      "stripeHeading": "Payment processing (Stripe)",
+      "stripeBody": "[TODO: Legal text — For paid subscriptions the payment service provider Stripe Payments Europe, Ltd. is used. During payment processing, payment data (including name, payment method, billing address, transaction data) is transmitted to Stripe. The legal basis is Art. 6 (1) (b) GDPR (performance of contract). Further information at https://stripe.com/privacy.]",
+      "adSenseHeading": "Advertising (Google AdSense)",
+      "adSenseBody": "[TODO: Legal text — This website uses Google AdSense, a service of Google Ireland Limited, to display advertising. Cookies and similar technologies are used to deliver personalised or non-personalised ads. The legal basis is Art. 6 (1) (a) GDPR (consent via the cookie banner). Further information at https://policies.google.com/privacy.]",
+      "aiProvidersHeading": "AI service providers",
+      "aiProvidersBody": "[TODO: Legal text — To provide the chat feature, your inputs are transmitted to the AI provider you have selected: OpenRouter Inc. (routing service), OpenAI, LLC (GPT models), Google LLC / Google Ireland Ltd. (Gemini models), Anthropic PBC (Claude models). Depending on the provider, data may be transferred to third countries (in particular the USA) on the basis of EU standard contractual clauses and, where applicable, additional safeguards. The legal basis is Art. 6 (1) (b) GDPR (performance of contract).]",
+      "dpaHeading": "Record of processing activities / data processing agreements",
+      "dpaBody": "[TODO: Legal text — A record of processing activities pursuant to Art. 30 GDPR and data processing agreements with the service providers used (hosting, authentication, payment processor, AI providers) are maintained and may be reviewed on request via the contact details provided above.]"
+    },
+    "agb": {
+      "title": "Terms",
+      "subtitle": "General terms and conditions",
+      "placeholderNotice": "[TODO: Legal text — This text is a placeholder and must be reviewed and finalised by legal counsel before publication.]",
+      "intro": "[TODO: Legal text — These general terms and conditions (T&Cs) govern the use of the Chat Sribiddi service, provided by the operator listed in the legal notice. By registering or using the service you accept these terms.]",
+      "scopeHeading": "1. Scope",
+      "scopeBody": "[TODO: Legal text — These terms apply to all users of the Chat Sribiddi service, regardless of the selected plan (Free, Premium, Max). Deviating conditions are only effective if expressly confirmed in writing.]",
+      "servicesHeading": "2. Services",
+      "servicesBody": "[TODO: Legal text — Chat Sribiddi provides a web interface for using AI models from various providers. The scope of services depends on the selected plan. There is no claim to uninterrupted availability.]",
+      "pricesHeading": "3. Prices and payment terms",
+      "pricesBody": "[TODO: Legal text — Paid plans are billed at the prices applicable at the time of ordering. Billing is carried out monthly or yearly in advance via the payment processor Stripe. All prices include statutory VAT where applicable.]",
+      "termHeading": "4. Term and cancellation",
+      "termBody": "[TODO: Legal text — Paid subscriptions automatically renew for the previously selected term unless cancelled via the customer portal before the end of the current term. Free accounts may be deleted at any time without giving reasons.]",
+      "withdrawalHeading": "5. Right of withdrawal",
+      "withdrawalBody": "[TODO: Legal text — Consumers are in principle entitled to a statutory 14-day right of withdrawal. Upon express commencement of the service before the end of the withdrawal period, the right of withdrawal expires pursuant to § 356 (5) BGB. Details and a model withdrawal form are provided separately.]",
+      "liabilityHeading": "6. Liability",
+      "liabilityBody": "[TODO: Legal text — The operator is liable without limitation in cases of intent and gross negligence as well as for damages resulting from injury to life, body or health. Otherwise, liability is limited to foreseeable damage typical of the contract. No warranty is assumed for content generated by AI models.]",
+      "miscHeading": "7. Miscellaneous",
+      "miscBody": "[TODO: Legal text — German law applies. The place of jurisdiction is, to the extent legally permissible, the registered office of the operator. Should individual provisions be invalid, the validity of the remaining provisions shall remain unaffected.]"
     }
   }
 }
