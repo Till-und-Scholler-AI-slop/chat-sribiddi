@@ -5,7 +5,7 @@ import type { BillingPlan } from '~/composables/useBillingApi'
 const { t } = useI18n()
 const toast = useToast()
 const tt = useTranslatedError()
-const { status, checkAuth } = useAuth()
+const { status, checking, checkAuth } = useAuth()
 const { plan: currentPlan, ensureLoaded } = usePlan()
 const { createCheckout } = useBillingApi()
 
@@ -57,6 +57,21 @@ function isCurrentPlan(plan: PlanDef): boolean {
 const checkoutLoading = ref<PlanKey | null>(null)
 
 async function handleCta(plan: PlanDef) {
+  // The page is public, so on a fresh load `status` may still be `'unknown'`
+  // when the user clicks a CTA. Resolve the real session state first, otherwise
+  // a signed-in user could be incorrectly bounced to `/login`.
+  if (status.value === 'unknown') {
+    try {
+      const result = await checkAuth()
+      if (result === 'authenticated') {
+        await ensureLoaded()
+      }
+    } catch {
+      // Treat a failed probe as unauthenticated — the redirect to /login below
+      // still gives the user a path forward.
+    }
+  }
+
   // Unauthenticated users → send to /login regardless of which plan they clicked.
   if (!isAuthenticated.value) {
     await navigateTo('/login')
@@ -102,6 +117,10 @@ function ctaLabel(plan: PlanDef): string {
 function ctaDisabled(plan: PlanDef): boolean {
   // Free tier never has a checkout target.
   if (plan.key === 'free') return true
+  // While the initial auth probe is running we don't yet know whether the user
+  // is on this plan, so disable the CTA to avoid showing a clickable
+  // "Upgrade"/"Sign in" that might be wrong for a split second.
+  if (checking.value) return true
   return isCurrentPlan(plan)
 }
 
