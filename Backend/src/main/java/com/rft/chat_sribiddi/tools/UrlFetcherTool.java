@@ -12,6 +12,7 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -29,9 +30,13 @@ public class UrlFetcherTool implements ChatTool {
   private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
   private final HttpClient httpClient;
+  private final String userAgent;
 
-  public UrlFetcherTool(HttpClient httpClient) {
+  public UrlFetcherTool(
+      HttpClient httpClient,
+      @Value("${app.tools.user-agent:ChatSribiddi/1.0 (Tool)}") String userAgent) {
     this.httpClient = httpClient;
+    this.userAgent = userAgent;
   }
 
   @Override
@@ -93,7 +98,7 @@ public class UrlFetcherTool implements ChatTool {
       HttpRequest request =
           HttpRequest.newBuilder()
               .uri(uri)
-              .header("User-Agent", "ChatSribiddi/1.0 (Tool)")
+              .header("User-Agent", userAgent)
               .header("Accept", "text/html,text/plain,application/json")
               .timeout(TIMEOUT)
               .GET()

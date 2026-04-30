@@ -7,12 +7,14 @@ export const messageId = () =>
   globalThis.crypto?.randomUUID?.() ||
   `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`
 
-export function extractAssistantText(response: any): string {
-  const pick = (candidate: any): string | null => {
+function isRecord(candidate: unknown): candidate is Record<string, unknown> {
+  return typeof candidate === 'object' && candidate !== null
+}
+
+export function extractAssistantText(response: unknown): string {
+  const pick = (candidate: unknown): string | null => {
     if (!candidate) return null
     if (typeof candidate === 'string') return candidate
-    if (typeof candidate.text === 'string') return candidate.text
-    if (typeof candidate.content === 'string') return candidate.content
 
     if (Array.isArray(candidate)) {
       for (const item of candidate) {
@@ -21,6 +23,11 @@ export function extractAssistantText(response: any): string {
       }
       return null
     }
+
+    if (!isRecord(candidate)) return null
+
+    if (typeof candidate.text === 'string') return candidate.text
+    if (typeof candidate.content === 'string') return candidate.content
 
     if (Array.isArray(candidate.content)) {
       const found = pick(candidate.content)

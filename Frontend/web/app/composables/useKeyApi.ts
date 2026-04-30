@@ -26,14 +26,14 @@ export function useKeyApi() {
   }
 
   const saveKey = async (provider: Provider | 'BRAVE_SEARCH', apiKey: string) => {
-    return requestJson<void>(providerPath(provider), {
+    return requestJson<unknown>(providerPath(provider), {
       method: 'PUT',
       body: JSON.stringify({ apiKey })
     })
   }
 
   const deleteKey = async (provider: Provider | 'BRAVE_SEARCH') => {
-    return requestJson<void>(providerPath(provider), { method: 'DELETE' })
+    return requestJson<unknown>(providerPath(provider), { method: 'DELETE' })
   }
 
   return {

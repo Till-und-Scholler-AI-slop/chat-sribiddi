@@ -199,6 +199,24 @@ class ModelFetchServiceTest {
   }
 
   @Test
+  void fetchOpenRouterModels_blocksNonAllowlistedCatalogHost() {
+    openRouterProperties.setModelCatalogUrl("https://169.254.169.254/latest/meta-data");
+
+    var models = service.fetchOpenRouterModels("or-key");
+
+    assertThat(models).isEmpty();
+  }
+
+  @Test
+  void fetchOpenRouterModels_blocksNonHttpsCatalogUrl() {
+    openRouterProperties.setModelCatalogUrl("http://openrouter.ai/api/v1/models");
+
+    var models = service.fetchOpenRouterModels("or-key");
+
+    assertThat(models).isEmpty();
+  }
+
+  @Test
   void springContextInstantiatesServiceUsingInjectedPropertiesConstructor() {
     try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
       context.register(OpenRouterProviderProperties.class, ModelCatalogHttpProperties.class, ModelFetchService.class);

@@ -1,51 +1,16 @@
 import type { ChatStatus, UIMessage } from 'ai'
-import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, SendMessageResponse, StreamEvent, TokenUsage, ToolCallLog } from '~/composables/useChatApi'
+import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, StreamEvent, TokenUsage, ToolCallLog } from '~/composables/useChatApi'
+import type { MessagePricing } from '~/composables/chat-helpers'
 import { PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
 import {
   appendTextToMessage,
-  calculateMessageCost,
-  estimateAssistantOutputTokens,
-  estimateConversationTokens,
-  estimatePreSendCost,
-  estimateTextTokens,
-  extractAssistantText,
-  extractTokenUsage,
   favoriteModelKey,
-  filterToolCallLogs,
-  formatCost,
-  formatRatePerMillion,
   getFirstTextContent,
   messageId,
   parseAttachmentContext,
   parsePersistedMessageId,
   resolveStreamOutcome
-} from '~/composables/chat-helpers'
-
-// Re-export pure helpers so existing imports (and Vitest suites) keep working.
-export {
-  appendTextToMessage,
-  calculateMessageCost,
-  estimateAssistantOutputTokens,
-  estimateConversationTokens,
-  estimatePreSendCost,
-  estimateTextTokens,
-  extractAssistantText,
-  extractTokenUsage,
-  favoriteModelKey,
-  filterToolCallLogs,
-  formatCost,
-  formatRatePerMillion,
-  getFirstTextContent,
-  parseAttachmentContext,
-  parsePersistedMessageId,
-  resolveStreamOutcome
-}
-
-export type {
-  EstimatedCostBreakdown,
-  MessageCost,
-  MessagePricing
 } from '~/composables/chat-helpers'
 
 type Conversation = {
@@ -64,7 +29,6 @@ export function useChatStore() {
     fetchChats,
     fetchChatMessages,
     fetchMessageToolCalls,
-    sendMessage,
     streamMessage,
     editAndStreamMessage,
     fetchModels,
@@ -89,6 +53,16 @@ export function useChatStore() {
   const activeConversation = computed(() =>
     conversations.value.find(c => c.session.chatId === activeChatId.value) || null
   )
+
+  const clearMessageMetadata = (messageId: string) => {
+    Reflect.deleteProperty(tokenUsageMap.value, messageId)
+    Reflect.deleteProperty(messagePricingMap.value, messageId)
+    Reflect.deleteProperty(reasoningMap.value, messageId)
+    Reflect.deleteProperty(toolCallAvailabilityMap.value, messageId)
+    Reflect.deleteProperty(toolCallLogMap.value, messageId)
+    Reflect.deleteProperty(toolCallLoadingMap.value, messageId)
+    Reflect.deleteProperty(toolCallErrorMap.value, messageId)
+  }
 
   const defaultModel = computed<ModelOption | null>(() => {
     const saved = settings.value.lastUsedModel
@@ -318,13 +292,7 @@ export function useChatStore() {
     const conversation = conversations.value.find(c => c.session.chatId === chatId)
     if (conversation) {
       for (const msg of conversation.messages) {
-        delete tokenUsageMap.value[msg.id]
-        delete messagePricingMap.value[msg.id]
-        delete reasoningMap.value[msg.id]
-        delete toolCallAvailabilityMap.value[msg.id]
-        delete toolCallLogMap.value[msg.id]
-        delete toolCallLoadingMap.value[msg.id]
-        delete toolCallErrorMap.value[msg.id]
+        clearMessageMetadata(msg.id)
       }
     }
 
@@ -345,12 +313,6 @@ export function useChatStore() {
       conversation.activeRequest = undefined
       conversation.status = 'ready'
     }
-  }
-
-  const pushMessage = (chatId: string, message: UIMessage) => {
-    const conversation = conversations.value.find(c => c.session.chatId === chatId)
-    if (!conversation) return
-    conversation.messages.push(message)
   }
 
   /**
@@ -384,19 +346,13 @@ export function useChatStore() {
     }
 
     conversation.messages = conversation.messages.filter(existing => existing.id !== message.id)
-    delete tokenUsageMap.value[message.id]
-    delete messagePricingMap.value[message.id]
-    delete reasoningMap.value[message.id]
-    delete toolCallAvailabilityMap.value[message.id]
-    delete toolCallLogMap.value[message.id]
-    delete toolCallLoadingMap.value[message.id]
-    delete toolCallErrorMap.value[message.id]
+    clearMessageMetadata(message.id)
   }
 
   const rekeyStateEntry = <T>(map: Record<string, T>, oldId: string, newId: string) => {
     if (oldId === newId || !(oldId in map)) return
     map[newId] = map[oldId]
-    delete map[oldId]
+    Reflect.deleteProperty(map, oldId)
   }
 
   const rekeyMessageMetadata = (oldId: string, newId: string) => {
@@ -677,13 +633,7 @@ export function useChatStore() {
     // Update the message text in the UI and remove all subsequent messages
     const messagesToRemove = conversation.messages.slice(msgIndex + 1)
     for (const msg of messagesToRemove) {
-      delete tokenUsageMap.value[msg.id]
-      delete messagePricingMap.value[msg.id]
-      delete reasoningMap.value[msg.id]
-      delete toolCallAvailabilityMap.value[msg.id]
-      delete toolCallLogMap.value[msg.id]
-      delete toolCallLoadingMap.value[msg.id]
-      delete toolCallErrorMap.value[msg.id]
+      clearMessageMetadata(msg.id)
     }
     conversation.messages.splice(msgIndex + 1)
 
@@ -817,13 +767,7 @@ export function useChatStore() {
         conversation.lastPrompt = originalLastPrompt
         // Clean up any entries for removed messages we can no longer see
         for (const msg of messagesToRemove) {
-          delete tokenUsageMap.value[msg.id]
-          delete reasoningMap.value[msg.id]
-          delete messagePricingMap.value[msg.id]
-          delete toolCallAvailabilityMap.value[msg.id]
-          delete toolCallLogMap.value[msg.id]
-          delete toolCallLoadingMap.value[msg.id]
-          delete toolCallErrorMap.value[msg.id]
+          clearMessageMetadata(msg.id)
         }
       } else if (!streamedText) {
         // Aborted with no content — remove the empty assistant placeholder

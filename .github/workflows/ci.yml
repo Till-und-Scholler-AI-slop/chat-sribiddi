@@ -37,8 +37,31 @@ jobs:
       - name: Run tests
         run: bun run test
 
+      - name: Run lint
+        run: bun run lint
+
+      - name: Audit dependencies
+        run: bun run audit
+
       - name: Build
         run: bun run build
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
 
   backend:
     name: Backend CI

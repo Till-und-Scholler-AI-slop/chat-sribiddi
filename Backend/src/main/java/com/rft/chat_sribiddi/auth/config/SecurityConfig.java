@@ -52,17 +52,21 @@ public class SecurityConfig {
 
   @Bean
   SecurityFilterChain securityFilterChain(HttpSecurity http) {
+    CookieCsrfTokenRepository csrfTokenRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+    csrfTokenRepository.setCookieCustomizer(cookie -> cookie.sameSite("Lax"));
+
     return http.cors(Customizer.withDefaults())
         .csrf(
             csrf ->
-                csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                csrf.csrfTokenRepository(csrfTokenRepository)
                     .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler()))
         .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
         .authorizeHttpRequests(
             auth -> {
-              auth.requestMatchers(
-                      "/", "/login", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
-                  .permitAll();
+              auth.requestMatchers("/", "/login", "/actuator/health", "/actuator/info").permitAll();
+              auth.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
+                  .denyAll();
+              auth.requestMatchers("/actuator/**").denyAll();
               auth.anyRequest().authenticated();
             })
         .sessionManagement(

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
-import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/useChatStore'
+import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/chat-helpers'
 
 definePageMeta({
   layout: 'default'
@@ -17,7 +17,6 @@ const {
   loadChatsFromBackend,
   loadMessagesForChat,
   messagePricingMap,
-  models,
   modelsError,
   modelsLoading,
   reasoningMap,
@@ -80,13 +79,19 @@ const promptError = computed(() =>
   errorMessage.value ? new Error(errorMessage.value) : undefined
 )
 
-const firstText = (parts?: Array<{ type: string; text?: string }>) =>
+type ChatMessagePart = { type: string; text?: string; mediaType?: string; filename?: string }
+type ChatContentSlot = {
+  parts: ChatMessagePart[]
+  message: { role?: string; id?: string; createdAt?: string | Date }
+}
+
+const firstText = (parts?: ChatMessagePart[]) =>
   parts?.find(part => part.type === 'text' && typeof part.text === 'string')?.text || ''
 
 type FilePart = { type: 'file'; mediaType: string; filename?: string }
 
-const getFileParts = (parts?: Array<{ type: string }>): FilePart[] =>
-  (parts || []).filter((p): p is FilePart => p.type === 'file')
+const getFileParts = (parts?: ChatMessagePart[]): FilePart[] =>
+  (parts || []).filter((p): p is FilePart => p.type === 'file' && typeof p.mediaType === 'string')
 
 const formatMimeType = (mimeType: string): string => {
   const subType = mimeType.split('/').pop() || mimeType
@@ -543,7 +548,7 @@ const submitEditMessage = async () => {
                   :user="{ side: 'right', variant: 'naked' }"
                   :assistant="{ side: 'left', variant: 'naked' }"
                 >
-                  <template #content="{ parts, message }: { parts: any, message: any }">
+                  <template #content="{ parts, message }: ChatContentSlot">
                     <template v-if="message?.role === 'assistant' && getReasoning(message.id)">
                       <ChatMessageReasoning
                         :text="getReasoning(message.id) || ''"
@@ -608,15 +613,13 @@ const submitEditMessage = async () => {
                         >
                           <span /><span /><span />
                         </div>
-                        <template v-for="usage in [getTokenUsage(message.id)]" :key="message.id">
-                          <ChatMessageFooter
-                            :usage="usage"
-                            :cost="getMessageCost(message.id)"
-                            :timestamp="message?.createdAt ? formatTimestamp(message.createdAt) : null"
-                            :format-token-count="formatTokenCount"
-                            :format-cost="formatCost"
-                          />
-                        </template>
+                        <ChatMessageFooter
+                          :usage="getTokenUsage(message.id)"
+                          :cost="getMessageCost(message.id)"
+                          :timestamp="message?.createdAt ? formatTimestamp(message.createdAt) : null"
+                          :format-token-count="formatTokenCount"
+                          :format-cost="formatCost"
+                        />
                       </template>
                       <div
                         v-else-if="message?.createdAt && formatTimestamp(message.createdAt)"
@@ -706,14 +709,12 @@ const submitEditMessage = async () => {
                   <div class="flex items-center justify-between gap-2 w-full">
                     <span class="truncate">{{ option.label }}</span>
                     <div class="flex items-center gap-1 flex-shrink-0">
-                      <template v-for="priceLabel in [optionPriceLabel(option)]" :key="option.value">
-                        <span
-                          v-if="priceLabel"
-                          class="text-[10px] text-emerald-600 dark:text-emerald-400"
-                        >
-                          {{ priceLabel }}
-                        </span>
-                      </template>
+                      <span
+                        v-if="optionPriceLabel(option)"
+                        class="text-[10px] text-emerald-600 dark:text-emerald-400"
+                      >
+                        {{ optionPriceLabel(option) }}
+                      </span>
                       <UIcon
                         v-if="isFavorite(option)"
                         name="i-heroicons-star-solid"

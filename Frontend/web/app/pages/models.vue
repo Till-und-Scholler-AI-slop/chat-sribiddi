@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ModelOption, Provider } from '~/composables/useChatApi'
 import { PROVIDERS } from '~/composables/useChatApi'
-import { formatRatePerMillion } from '~/composables/useChatStore'
+import { formatRatePerMillion } from '~/composables/chat-helpers'
 
 definePageMeta({
   layout: 'default'

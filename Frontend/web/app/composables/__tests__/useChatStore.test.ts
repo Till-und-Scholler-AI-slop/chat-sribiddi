@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { appendTextToMessage, calculateMessageCost, estimateAssistantOutputTokens, estimateConversationTokens, estimatePreSendCost, estimateTextTokens, extractAssistantText, extractTokenUsage, favoriteModelKey, filterToolCallLogs, formatCost, formatRatePerMillion, parseAttachmentContext, parsePersistedMessageId, resolveStreamOutcome } from '../useChatStore'
+import type { UIMessage } from 'ai'
+import type { ModelOption, ToolCallLog } from '../useChatApi'
+import { appendTextToMessage, calculateMessageCost, estimateAssistantOutputTokens, estimateConversationTokens, estimatePreSendCost, estimateTextTokens, extractAssistantText, extractTokenUsage, favoriteModelKey, filterToolCallLogs, formatCost, formatRatePerMillion, parseAttachmentContext, parsePersistedMessageId, resolveStreamOutcome } from '../chat-helpers'
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {
@@ -91,10 +93,10 @@ describe('parsePersistedMessageId', () => {
 })
 
 describe('filterToolCallLogs', () => {
-  const logs = [
+  const logs: ToolCallLog[] = [
     { toolName: 'BraveSearchTool.searchWeb', messageId: 1, inputPayload: '{}', outputPayload: 'a' },
     { toolName: 'CurrentDateTimeTool.getCurrentDateTime', messageId: 1, inputPayload: '{}', outputPayload: 'b' }
-  ] as any
+  ]
 
   it('returns all logs for an empty filter', () => {
     expect(filterToolCallLogs(logs, '')).toEqual(logs)
@@ -126,7 +128,7 @@ describe('extractTokenUsage', () => {
   })
 
   it('returns null when all token fields are undefined', () => {
-    const response = { message: 'hello' } as any
+    const response = { message: 'hello' }
     expect(extractTokenUsage(response)).toBeNull()
   })
 
@@ -151,18 +153,18 @@ describe('extractTokenUsage', () => {
 
 describe('favoriteModelKey', () => {
   it('generates a key from provider and model value', () => {
-    expect(favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4o', label: 'GPT-4o' } as any)).toBe('OPENAI:gpt-4o')
+    expect(favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4o', label: 'GPT-4o' })).toBe('OPENAI:gpt-4o')
   })
 
   it('generates distinct keys for different providers', () => {
-    const openaiKey = favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4', label: 'GPT-4' } as any)
-    const claudeKey = favoriteModelKey({ provider: 'CLAUDE', value: 'gpt-4', label: 'GPT-4' } as any)
+    const openaiKey = favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4', label: 'GPT-4' })
+    const claudeKey = favoriteModelKey({ provider: 'CLAUDE', value: 'gpt-4', label: 'GPT-4' })
     expect(openaiKey).not.toBe(claudeKey)
   })
 
   it('generates distinct keys for different model values', () => {
-    const gpt4Key = favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4', label: 'GPT-4' } as any)
-    const gpt4oKey = favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4o', label: 'GPT-4o' } as any)
+    const gpt4Key = favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4', label: 'GPT-4' })
+    const gpt4oKey = favoriteModelKey({ provider: 'OPENAI', value: 'gpt-4o', label: 'GPT-4o' })
     expect(gpt4Key).not.toBe(gpt4oKey)
   })
 })
@@ -173,7 +175,7 @@ describe('appendTextToMessage', () => {
       id: 'msg-1',
       role: 'assistant',
       parts: [{ type: 'text', text: 'Hello' }]
-    } as any
+    } as unknown as UIMessage
 
     const updated = appendTextToMessage(original, ' world')
 
@@ -194,7 +196,7 @@ describe('appendTextToMessage', () => {
         { type: 'text', text: 'See' },
         { type: 'file', mediaType: 'image/png', url: '' }
       ]
-    } as any
+    } as unknown as UIMessage
 
     const updated = appendTextToMessage(original, ' attached image')
 
@@ -311,7 +313,7 @@ describe('estimateConversationTokens', () => {
     const messages = [
       { parts: [{ type: 'text', text: 'Hello there' }] },
       { parts: [{ type: 'text', text: 'General Kenobi' }] }
-    ] as any
+    ] as Array<Pick<UIMessage, 'parts'>>
 
     expect(estimateConversationTokens(messages, 'What now?', 2)).toBe(46)
   })
@@ -322,7 +324,7 @@ describe('estimateAssistantOutputTokens', () => {
     const messages = [
       { id: 'msg-1', role: 'assistant', parts: [{ type: 'text', text: 'First reply' }] },
       { id: 'msg-2', role: 'assistant', parts: [{ type: 'text', text: 'Second reply' }] }
-    ] as any
+    ] as Array<Pick<UIMessage, 'id' | 'role' | 'parts'>>
 
     expect(estimateAssistantOutputTokens(messages, {
       'msg-1': { promptTokens: 10, generationTokens: 120, totalTokens: 130 },
@@ -334,7 +336,7 @@ describe('estimateAssistantOutputTokens', () => {
     expect(estimateAssistantOutputTokens([], {})).toBe(256)
     expect(estimateAssistantOutputTokens([
       { id: 'msg-3', role: 'assistant', parts: [{ type: 'text', text: '12345678' }] }
-    ] as any)).toBe(2)
+    ] as Array<Pick<UIMessage, 'id' | 'role' | 'parts'>>)).toBe(2)
   })
 })
 
@@ -343,11 +345,11 @@ describe('estimatePreSendCost', () => {
     const messages = [
       { id: 'msg-1', role: 'user', parts: [{ type: 'text', text: 'Hello there' }] },
       { id: 'msg-2', role: 'assistant', parts: [{ type: 'text', text: 'General Kenobi' }] }
-    ] as any
+    ] as Array<Pick<UIMessage, 'id' | 'role' | 'parts'>>
     const estimate = estimatePreSendCost(
       messages,
       'What now?',
-      { promptPrice: '0.000005', completionPrice: '0.000015', requestPrice: '0.1' } as any,
+      { promptPrice: '0.000005', completionPrice: '0.000015', requestPrice: '0.1' } satisfies Pick<ModelOption, 'promptPrice' | 'completionPrice' | 'requestPrice'>,
       {
         'msg-2': { promptTokens: 10, generationTokens: 120, totalTokens: 130 }
       }

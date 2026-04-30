@@ -1,0 +1,17 @@
+{
+  "name": "chat-sribiddi",
+  "short_name": "chat-sribiddi",
+  "description": "A lightweight AI chat wrapper supporting multiple providers.",
+  "start_url": "/chat",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#b82e8e",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}
