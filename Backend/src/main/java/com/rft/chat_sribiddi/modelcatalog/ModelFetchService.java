@@ -144,12 +144,20 @@ public class ModelFetchService {
     try {
       String modelCatalogUrl = openRouterProperties.getModelCatalogUrl();
       validateOpenRouterModelCatalogUrl(modelCatalogUrl);
-      JsonNode response =
-          getJson(
-              restClient
-                  .get()
-                  .uri(modelCatalogUrl)
-                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey));
+      RestClient.RequestHeadersSpec<?> request =
+          restClient
+              .get()
+              .uri(modelCatalogUrl)
+              .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
+      String referrer = openRouterProperties.getReferrer();
+      if (referrer != null && !referrer.isBlank()) {
+        request = request.header("HTTP-Referer", referrer);
+      }
+      String appName = openRouterProperties.getAppName();
+      if (appName != null && !appName.isBlank()) {
+        request = request.header("X-Title", appName);
+      }
+      JsonNode response = getJson(request);
 
       if (response == null || !response.has("data")) {
         return List.of();

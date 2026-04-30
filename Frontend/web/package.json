@@ -17,6 +17,7 @@
   "dependencies": {
     "@ai-sdk/vue": "^3.0.169",
     "@nuxt/ui": "4.7.1",
+    "@nuxtjs/i18n": "^10.2.4",
     "isomorphic-dompurify": "^3.10.0",
     "markdown-it": "^14.1.1",
     "nuxt": "^4.4.2",

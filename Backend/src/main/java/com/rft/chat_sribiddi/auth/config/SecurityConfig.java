@@ -20,9 +20,13 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfToken;
@@ -51,7 +55,8 @@ public class SecurityConfig {
   private String frontendUrl;
 
   @Bean
-  SecurityFilterChain securityFilterChain(HttpSecurity http) {
+  SecurityFilterChain securityFilterChain(
+      HttpSecurity http, OAuth2AuthorizationRequestResolver authorizationRequestResolver) {
     CookieCsrfTokenRepository csrfTokenRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
     csrfTokenRepository.setCookieCustomizer(cookie -> cookie.sameSite("Lax"));
 
@@ -59,11 +64,17 @@ public class SecurityConfig {
         .csrf(
             csrf ->
                 csrf.csrfTokenRepository(csrfTokenRepository)
-                    .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler()))
+                    .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
+                    // Stripe authenticates webhook calls via the Stripe-Signature header, not a
+                    // CSRF token; the endpoint is also called from outside the browser so there
+                    // is no XSRF-TOKEN cookie available.
+                    .ignoringRequestMatchers("/billing/webhook"))
         .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
         .authorizeHttpRequests(
             auth -> {
-              auth.requestMatchers("/", "/login", "/actuator/health", "/actuator/info").permitAll();
+              auth.requestMatchers(
+                      "/", "/login", "/billing/webhook", "/actuator/health", "/actuator/info")
+                  .permitAll();
               auth.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
                   .denyAll();
               auth.requestMatchers("/actuator/**").denyAll();
@@ -78,11 +89,40 @@ public class SecurityConfig {
         .oauth2Login(
             oauth2 ->
                 oauth2
+                    .authorizationEndpoint(
+                        endpoint ->
+                            endpoint.authorizationRequestResolver(authorizationRequestResolver))
                     .userInfoEndpoint(
                         userInfo -> userInfo.oidcUserService(customOAuth2UserService))
                     .successHandler(new SimpleUrlAuthenticationSuccessHandler(frontendUrl)))
-        .logout(logout -> logout.logoutSuccessUrl(frontendUrl))
+        .logout(
+            logout ->
+                logout
+                    .logoutUrl("/logout")
+                    .invalidateHttpSession(true)
+                    .clearAuthentication(true)
+                    .deleteCookies("JSESSIONID", "XSRF-TOKEN")
+                    .logoutSuccessHandler(
+                        new HttpStatusReturningLogoutSuccessHandler(HttpStatus.NO_CONTENT)))
         .build();
+  }
+
+  /**
+   * Authorization request resolver that forces Google's account chooser by adding {@code
+   * prompt=select_account} to every authorization request. This allows users to pick a different
+   * Google account when logging in again (e.g. after clicking "switch account"), without needing to
+   * clear browser data.
+   */
+  @Bean
+  OAuth2AuthorizationRequestResolver authorizationRequestResolver(
+      ClientRegistrationRepository clientRegistrationRepository) {
+    DefaultOAuth2AuthorizationRequestResolver resolver =
+        new DefaultOAuth2AuthorizationRequestResolver(
+            clientRegistrationRepository, "/oauth2/authorization");
+    resolver.setAuthorizationRequestCustomizer(
+        customizer ->
+            customizer.additionalParameters(params -> params.put("prompt", "select_account")));
+    return resolver;
   }
 
   @Bean

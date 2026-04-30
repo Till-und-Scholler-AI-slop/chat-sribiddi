@@ -5,6 +5,8 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.genai.Client;
+import com.google.genai.types.HttpOptions;
+import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import java.net.http.HttpClient;
 import java.util.concurrent.TimeUnit;
@@ -20,6 +22,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -30,6 +33,7 @@ import org.springframework.web.client.RestClient;
 public class DefaultProviderClientFactory implements ProviderClientFactory {
 
   private final OpenAiProviderProperties openAiProperties;
+  private final GoogleProviderProperties googleProperties;
   private final OpenRouterProviderProperties openRouterProperties;
   private final Cache<String, ChatService.ClientHolder> openAiCache;
   private final Cache<String, ChatService.ClientHolder> googleCache;
@@ -37,8 +41,11 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
   private final Cache<String, ChatService.ClientHolder> openRouterCache;
 
   public DefaultProviderClientFactory(
-      OpenAiProviderProperties openAiProperties, OpenRouterProviderProperties openRouterProperties) {
+      OpenAiProviderProperties openAiProperties,
+      GoogleProviderProperties googleProperties,
+      OpenRouterProviderProperties openRouterProperties) {
     this.openAiProperties = openAiProperties;
+    this.googleProperties = googleProperties;
     this.openRouterProperties = openRouterProperties;
     this.openAiCache = buildCache();
     this.googleCache = buildCache();
@@ -62,16 +69,23 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
   }
 
   @Override
-  public ChatService.ClientHolder getClient(Provider provider, String apiKey) {
+  public ChatService.ClientHolder getClient(
+      Provider provider, String apiKey, BillingMode billingMode) {
     if (apiKey == null || apiKey.isBlank()) {
       throw new IllegalArgumentException("API key is required for provider %s".formatted(provider));
     }
+    if (billingMode == null) {
+      throw new IllegalArgumentException("billingMode must not be null");
+    }
+    // Prefix the cache key with the billing mode so that user-supplied (BYOK) keys and
+    // server-managed (MANAGED) keys never share cache entries, even if their raw values collide.
+    String cacheKey = billingMode.name() + ":" + apiKey;
 
     return switch (provider) {
       case OPENAI ->
           openAiCache.get(
-              apiKey,
-              key -> {
+              cacheKey,
+              _ -> {
                 HttpClient httpClient =
                     HttpClient.newBuilder()
                         .connectTimeout(openAiProperties.getConnectTimeout())
@@ -82,7 +96,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
 
                 OpenAiApi openAiApi =
                     OpenAiApi.builder()
-                        .apiKey(key)
+                        .apiKey(apiKey)
                         .restClientBuilder(RestClient.builder().requestFactory(requestFactory))
                         .build();
                 ChatClient client =
@@ -91,9 +105,10 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
               });
       case GOOGLE ->
           googleCache.get(
-              apiKey,
-              key -> {
-                Client googleClient = Client.builder().apiKey(key).build();
+              cacheKey,
+              _ -> {
+                Client googleClient =
+                    Client.builder().apiKey(apiKey).httpOptions(buildGoogleHttpOptions()).build();
                 GoogleGenAiChatModel model =
                     GoogleGenAiChatModel.builder().genAiClient(googleClient).build();
                 ChatClient chatClient = ChatClient.create(model);
@@ -101,10 +116,10 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
               });
       case CLAUDE ->
           claudeCache.get(
-              apiKey,
-              key -> {
+              cacheKey,
+              _ -> {
                 AnthropicClient anthropicClient =
-                    AnthropicSetup.setupSyncClient(key, null, null, null, null, null);
+                    AnthropicSetup.setupSyncClient(apiKey, null, null, null, null, null);
                 ChatClient chatClient =
                     ChatClient.create(
                         AnthropicChatModel.builder().anthropicClient(anthropicClient).build());
@@ -112,8 +127,8 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
               });
       case OPENROUTER ->
           openRouterCache.get(
-              apiKey,
-              key -> {
+              cacheKey,
+              _ -> {
                 HttpClient httpClient =
                     HttpClient.newBuilder()
                         .connectTimeout(openAiProperties.getConnectTimeout())
@@ -124,9 +139,10 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
 
                 OpenAiApi openRouterApi =
                     OpenAiApi.builder()
-                        .apiKey(key)
+                        .apiKey(apiKey)
                         .baseUrl(openRouterProperties.getBaseUrl())
                         .completionsPath(openRouterProperties.getCompletionsPath())
+                        .headers(buildOpenRouterAttributionHeaders())
                         .restClientBuilder(RestClient.builder().requestFactory(requestFactory))
                         .build();
                 ChatClient chatClient =
@@ -152,5 +168,29 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
       case BRAVE_SEARCH ->
           throw new UnsupportedOperationException("BRAVE_SEARCH is not a chat model provider");
     };
+  }
+
+  HttpOptions buildGoogleHttpOptions() {
+    return HttpOptions.builder()
+        .timeout(Math.toIntExact(googleProperties.getTimeout().toMillis()))
+        .build();
+  }
+
+  /**
+   * Builds the OpenRouter attribution headers ({@code HTTP-Referer}, {@code X-Title}) from the
+   * configured {@link OpenRouterProviderProperties}. Blank values are omitted so the resulting
+   * {@link HttpHeaders} is always safe to attach to the {@link OpenAiApi} builder.
+   */
+  HttpHeaders buildOpenRouterAttributionHeaders() {
+    HttpHeaders headers = new HttpHeaders();
+    String referrer = openRouterProperties.getReferrer();
+    if (referrer != null && !referrer.isBlank()) {
+      headers.set("HTTP-Referer", referrer);
+    }
+    String appName = openRouterProperties.getAppName();
+    if (appName != null && !appName.isBlank()) {
+      headers.set("X-Title", appName);
+    }
+    return headers;
   }
 }

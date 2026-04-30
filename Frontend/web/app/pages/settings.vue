@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import type {Provider} from '~/composables/useChatApi'
 
+const { t, locale, locales, setLocale } = useI18n()
+const tt = useTranslatedError()
+
 definePageMeta({
   layout: 'default'
 })
@@ -25,46 +28,90 @@ type KeyProviderStatus = {
 type ProviderCard = {
   provider: Provider
   key: keyof KeyProviderStatus
-  title: string
-  label: string
+  titleKey: string
+  labelKey: string
   placeholder: string
-  description: string
+  descriptionKey: string
 }
 
 const providerCards: ProviderCard[] = [
   {
     provider: 'OPENAI',
     key: 'openai',
-    title: 'OpenAI',
-    label: 'OpenAI API key',
+    titleKey: 'settings.openaiTitle',
+    labelKey: 'settings.openaiLabel',
     placeholder: 'sk-...',
-    description: 'Used for OpenAI models.'
+    descriptionKey: 'settings.openaiDescription'
   },
   {
     provider: 'GOOGLE',
     key: 'google',
-    title: 'Google Gemini',
-    label: 'Google API key',
+    titleKey: 'settings.googleTitle',
+    labelKey: 'settings.googleLabel',
     placeholder: 'AIza...',
-    description: 'Used for Google Gemini models.'
+    descriptionKey: 'settings.googleDescription'
   },
   {
     provider: 'CLAUDE',
     key: 'claude',
-    title: 'Claude (Anthropic)',
-    label: 'Claude API key',
+    titleKey: 'settings.claudeTitle',
+    labelKey: 'settings.claudeLabel',
     placeholder: 'sk-ant-...',
-    description: 'Used for Claude models.'
+    descriptionKey: 'settings.claudeDescription'
   },
   {
     provider: 'OPENROUTER',
     key: 'openrouter',
-    title: 'OpenRouter',
-    label: 'OpenRouter API key',
+    titleKey: 'settings.openrouterTitle',
+    labelKey: 'settings.openrouterLabel',
     placeholder: 'sk-or-...',
-    description: 'Used to access the full OpenRouter model catalog.'
+    descriptionKey: 'settings.openrouterDescription'
   }
 ]
+
+const localeItems = computed(() =>
+  (locales.value as Array<{ code: string; name?: string }>).map(l => ({
+    label: l.name || l.code,
+    value: l.code
+  }))
+)
+
+type SettingsTab = 'keys' | 'instructions' | 'interface' | 'account'
+const activeTab = ref<SettingsTab>('keys')
+const tabItems = computed(() => [
+  { label: t('settings.tabs.keys'), value: 'keys', icon: 'i-heroicons-key' },
+  { label: t('settings.tabs.instructions'), value: 'instructions', icon: 'i-heroicons-document-text' },
+  { label: t('settings.tabs.interface'), value: 'interface', icon: 'i-heroicons-paint-brush' },
+  { label: t('settings.tabs.account'), value: 'account', icon: 'i-heroicons-user-circle' }
+])
+
+const handleLocaleChange = async (next: string) => {
+  if (!next || next === locale.value) return
+  await setLocale(next as 'de' | 'en')
+}
+
+// ── Color mode (light / dark / system) ─────────────────────────────────
+const colorMode = useColorMode()
+
+type ColorModePreference = 'light' | 'dark' | 'system'
+
+const colorModePreference = computed<ColorModePreference>({
+  get: () => (colorMode.preference as ColorModePreference) || 'system',
+  set: (value: ColorModePreference) => {
+    colorMode.preference = value
+  }
+})
+
+const colorModeItems = computed(() => [
+  { label: t('settings.colorModeLight'), value: 'light' as const },
+  { label: t('settings.colorModeDark'), value: 'dark' as const },
+  { label: t('settings.colorModeSystem'), value: 'system' as const }
+])
+
+const handleColorModeChange = (next: ColorModePreference) => {
+  if (!next) return
+  colorModePreference.value = next
+}
 
 const loadingStatus = ref(true)
 const status = ref<KeyProviderStatus | null>(null)
@@ -124,15 +171,6 @@ const statusByProvider = (provider: Provider) => {
             : status.value.openrouter
 }
 
-const statusLabel = (provider: Provider) => {
-  if (loadingStatus.value) {
-    return `${providerDisplay(provider)} status loading...`
-  }
-  return statusByProvider(provider)
-      ? `${providerDisplay(provider)} key set`
-      : `${providerDisplay(provider)} key missing`
-}
-
 const keyPresent = (provider: Provider) => form[provider].trim().length > 0
 
 const isProviderBusy = (provider: Provider) => {
@@ -153,8 +191,8 @@ onMounted(async () => {
     refreshStatus().catch(err => {
       console.error(err)
       toast.add({
-        title: 'Could not load key status',
-        description: err instanceof Error ? err.message : 'Backend not reachable.',
+        title: t('settings.loadKeyStatusFailed'),
+        description: tt(err),
         color: 'error'
       })
     }),
@@ -166,8 +204,8 @@ async function handleSave(provider: Provider) {
   const key = form[provider].trim()
   if (!key) {
     toast.add({
-      title: 'Missing API key',
-      description: `Enter a ${providerDisplay(provider)} API key first.`,
+      title: t('settings.missingKeyTitle'),
+      description: t('settings.missingKeyDescription', { provider: providerDisplay(provider) }),
       color: 'warning'
     })
     return
@@ -180,14 +218,14 @@ async function handleSave(provider: Provider) {
     models.value = []
     await refreshStatus()
     toast.add({
-      title: `${providerDisplay(provider)} key saved`,
-      description: 'The key is now stored in the backend for your account.',
+      title: t('settings.keySavedTitle', { provider: providerDisplay(provider) }),
+      description: t('settings.keySavedDescription'),
       color: 'primary'
     })
   } catch (err) {
     toast.add({
-      title: `Could not save ${providerDisplay(provider)} key`,
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      title: t('settings.keySaveFailed', { provider: providerDisplay(provider) }),
+      description: tt(err),
       color: 'error'
     })
   } finally {
@@ -202,13 +240,13 @@ async function handleDelete(provider: Provider) {
     models.value = []
     await refreshStatus()
     toast.add({
-      title: `${providerDisplay(provider)} key removed`,
+      title: t('settings.keyRemovedTitle', { provider: providerDisplay(provider) }),
       color: 'neutral'
     })
   } catch (err) {
     toast.add({
-      title: `Could not remove ${providerDisplay(provider)} key`,
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      title: t('settings.keyRemoveFailed', { provider: providerDisplay(provider) }),
+      description: tt(err),
       color: 'error'
     })
   } finally {
@@ -220,8 +258,8 @@ async function handleSaveBraveSearch() {
   const key = braveSearchKey.value.trim()
   if (!key) {
     toast.add({
-      title: 'Missing API key',
-      description: 'Enter a Brave Search API key first.',
+      title: t('settings.missingKeyTitle'),
+      description: t('settings.missingBraveKeyDescription'),
       color: 'warning'
     })
     return
@@ -233,14 +271,14 @@ async function handleSaveBraveSearch() {
     braveSearchKey.value = ''
     await refreshStatus()
     toast.add({
-      title: 'Brave Search key saved',
-      description: 'The key is now stored in the backend for your account.',
+      title: t('settings.braveSavedTitle'),
+      description: t('settings.keySavedDescription'),
       color: 'primary'
     })
   } catch (err) {
     toast.add({
-      title: 'Could not save Brave Search key',
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      title: t('settings.braveSaveFailed'),
+      description: tt(err),
       color: 'error'
     })
   } finally {
@@ -254,13 +292,13 @@ async function handleDeleteBraveSearch() {
     await deleteKey('BRAVE_SEARCH')
     await refreshStatus()
     toast.add({
-      title: 'Brave Search key removed',
+      title: t('settings.braveRemovedTitle'),
       color: 'neutral'
     })
   } catch (err) {
     toast.add({
-      title: 'Could not remove Brave Search key',
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      title: t('settings.braveRemoveFailed'),
+      description: tt(err),
       color: 'error'
     })
   } finally {
@@ -292,14 +330,14 @@ async function handleSaveInstructions() {
   try {
     await saveCustomInstructions(customInstructions.value.trim() || null)
     toast.add({
-      title: 'Custom instructions saved',
-      description: 'Your instructions will be appended to the system prompt.',
+      title: t('settings.customInstructionsSavedTitle'),
+      description: t('settings.customInstructionsSavedDescription'),
       color: 'primary'
     })
   } catch (err) {
     toast.add({
-      title: 'Could not save custom instructions',
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      title: t('settings.customInstructionsSaveFailed'),
+      description: tt(err),
       color: 'error'
     })
   } finally {
@@ -315,15 +353,15 @@ async function handleDeleteAccount() {
     authStatus.value = 'unauthenticated'
     models.value = []
     toast.add({
-      title: 'Account deleted',
-      description: 'Your account and all associated data have been permanently deleted.',
+      title: t('settings.accountDeletedTitle'),
+      description: t('settings.accountDeletedDescription'),
       color: 'neutral'
     })
     await router.push('/login')
   } catch (err) {
     toast.add({
-      title: 'Could not delete account',
-      description: err instanceof Error ? err.message : 'Backend not reachable.',
+      title: t('settings.deleteAccountFailed'),
+      description: tt(err),
       color: 'error'
     })
   } finally {
@@ -335,12 +373,18 @@ async function handleDeleteAccount() {
 <template>
   <div>
   <UDashboardPanel>
-    <template #header>
-      <UDashboardNavbar title="Settings"/>
-    </template>
-
     <template #body>
-      <UContainer class="py-8 space-y-8">
+      <UContainer class="py-10 max-w-4xl space-y-10">
+
+        <!-- Page heading -->
+        <header class="space-y-3">
+          <h1 class="font-serif-display text-4xl sm:text-5xl text-gray-900 dark:text-gray-50">
+            {{ t('settings.title') }}
+          </h1>
+          <p class="text-base text-gray-500 dark:text-gray-400 max-w-2xl">
+            {{ t('settings.pageIntro') }}
+          </p>
+        </header>
 
         <div v-if="!hydrated" class="space-y-4">
           <div class="skeleton-shimmer h-14"/>
@@ -348,52 +392,54 @@ async function handleDeleteAccount() {
           <div class="skeleton-shimmer h-14"/>
         </div>
 
-        <div v-else class="space-y-8">
-          <UCard class="card-elevated">
-            <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+        <div v-else>
+          <UTabs
+            v-model="activeTab"
+            :items="tabItems"
+            :content="false"
+            color="primary"
+            variant="link"
+            class="w-full"
+          />
+
+          <div class="space-y-8 mt-8">
+            <template v-if="activeTab === 'keys'">
+              <UCard class="card-elevated">
+            <div class="flex items-start justify-between gap-4 mb-8 flex-wrap">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">Model API keys</div>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
-                  Save keys per provider. Each key is stored encrypted in the backend.
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.modelKeysHeading') }}</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-xl">
+                  {{ t('settings.modelKeysDescription') }}
                 </p>
               </div>
-              <div class="flex items-center gap-2 flex-wrap">
-                <UButton
-                    to="/models"
-                    color="neutral"
-                    variant="outline"
-                    size="sm"
-                    icon="i-heroicons-cpu-chip"
-                    label="Browse models"
-                />
-                <UBadge
-                    v-for="item in providerCards"
-                    :key="item.provider"
-                    color="primary"
-                    variant="soft"
-                    :label="statusLabel(item.provider)"
-                />
-              </div>
+              <UButton
+                  to="/models"
+                  color="neutral"
+                  variant="outline"
+                  size="sm"
+                  icon="i-heroicons-cpu-chip"
+                  :label="t('settings.browseModels')"
+              />
             </div>
 
-            <div class="grid grid-cols-1 gap-6 xl:grid-cols-2 stagger-children">
+            <div class="grid grid-cols-1 gap-6 stagger-children">
               <UCard v-for="item in providerCards" :key="item.provider" class="flex flex-col card-elevated">
                 <div class="flex flex-col gap-5 h-full">
-                  <div class="flex items-center justify-between gap-3">
+                  <div class="flex items-center justify-between gap-3 flex-wrap">
                     <div class="flex items-center gap-2">
                       <span class="status-dot" :class="statusByProvider(item.provider) ? 'status-dot-active' : 'status-dot-inactive'" />
-                      <div class="text-base font-semibold">{{ item.title }}</div>
+                      <div class="text-base font-semibold">{{ t(item.titleKey) }}</div>
                     </div>
                     <UBadge
                         variant="soft"
                         :color="statusByProvider(item.provider) ? 'primary' : 'neutral'"
-                        :label="statusByProvider(item.provider) ? 'Stored' : 'Not stored'"
+                        :label="statusByProvider(item.provider) ? t('settings.stored') : t('settings.notStored')"
                     />
                   </div>
 
                   <UFormGroup
-                      :label="item.label"
-                      :description="item.description"
+                      :label="t(item.labelKey)"
+                      :description="t(item.descriptionKey)"
                       :name="item.provider.toLowerCase()"
                   >
                     <UInput
@@ -402,29 +448,20 @@ async function handleDeleteAccount() {
                         :placeholder="item.placeholder"
                         icon="i-heroicons-lock-closed"
                         autocomplete="off"
+                        class="w-full"
                     />
                   </UFormGroup>
 
-                  <div v-if="item.provider === 'GOOGLE'">
-                    <UAlert
-                        color="neutral"
-                        variant="soft"
-                        icon="i-heroicons-information-circle"
-                        title="Google Project ID"
-                        description="Configured in backend env (`GOOGLE_PROJECT_ID`). It is not part of the per-user key API contract."
-                    />
-                  </div>
-
                   <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="flex items-center gap-3">
+                    <div class="flex items-center justify-between gap-3 flex-wrap">
+                      <div class="flex items-center gap-3 flex-wrap">
                         <UButton
                             type="button"
                             variant="ghost"
                             color="neutral"
                             size="sm"
                             :icon="reveal[item.provider] ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
-                            :label="reveal[item.provider] ? 'Verbergen' : 'Anzeigen'"
+                            :label="reveal[item.provider] ? t('common.hide') : t('common.show')"
                             @click="reveal[item.provider] = !reveal[item.provider]"
                         />
                         <UButton
@@ -432,7 +469,7 @@ async function handleDeleteAccount() {
                             color="primary"
                             size="sm"
                             icon="i-heroicons-check-circle"
-                            label="Schlüssel speichern"
+                            :label="t('settings.saveKey')"
                             class="btn-interactive"
                             :loading="savingProvider[item.provider]"
                             :disabled="!keyPresent(item.provider) || isProviderBusy(item.provider)"
@@ -445,7 +482,7 @@ async function handleDeleteAccount() {
                           color="error"
                           size="sm"
                           icon="i-heroicons-trash"
-                          label="Entfernen"
+                          :label="t('common.remove')"
                           :loading="deletingProvider[item.provider]"
                           :disabled="isProviderBusy(item.provider)"
                           @click="handleDelete(item.provider)"
@@ -456,135 +493,181 @@ async function handleDeleteAccount() {
               </UCard>
             </div>
           </UCard>
-        
+
 
           <UCard class="card-elevated">
-            <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+            <div class="flex items-start justify-between gap-4 mb-8 flex-wrap">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">Web Search</div>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
-                  Configure the Brave Search API to enable web search in chat.
-                  The AI can search the web when the toggle is activated in the chat prompt.
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.webSearchHeading') }}</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-xl">
+                  {{ t('settings.webSearchDescription') }}
                 </p>
               </div>
               <UBadge
                   color="primary"
                   variant="soft"
-                  :label="braveSearchStatus ? 'Brave Search key set' : 'Brave Search key missing'"
+                  :label="braveSearchStatus ? t('settings.braveStatusKeySet') : t('settings.braveStatusKeyMissing')"
               />
             </div>
 
-            <UCard class="flex flex-col card-elevated">
-              <div class="flex flex-col gap-5 h-full">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="flex items-center gap-2">
-                    <span class="status-dot" :class="braveSearchStatus ? 'status-dot-active' : 'status-dot-inactive'" />
-                    <div class="text-base font-semibold">Brave Search</div>
-                  </div>
-                  <UBadge
-                      variant="soft"
-                      :color="braveSearchStatus ? 'primary' : 'neutral'"
-                      :label="braveSearchStatus ? 'Stored' : 'Not stored'"
-                  />
+            <div class="flex flex-col gap-5">
+              <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div class="flex items-center gap-2">
+                  <span class="status-dot" :class="braveSearchStatus ? 'status-dot-active' : 'status-dot-inactive'" />
+                  <div class="text-base font-semibold">{{ t('settings.braveTitle') }}</div>
                 </div>
+                <UBadge
+                    variant="soft"
+                    :color="braveSearchStatus ? 'primary' : 'neutral'"
+                    :label="braveSearchStatus ? t('settings.stored') : t('settings.notStored')"
+                />
+              </div>
 
-                <UFormGroup
-                    label="Brave Search API key"
-                    description="Used for web search within chat conversations. Get your key at https://brave.com/search/api/."
-                    name="brave_search"
-                >
-                  <UInput
-                      v-model="braveSearchKey"
-                      :type="braveSearchReveal ? 'text' : 'password'"
-                      placeholder="BSA..."
-                      icon="i-heroicons-lock-closed"
-                      autocomplete="off"
-                  />
-                </UFormGroup>
+              <UFormGroup
+                  :label="t('settings.braveLabel')"
+                  :description="t('settings.braveDescription')"
+                  name="brave_search"
+              >
+                <UInput
+                    v-model="braveSearchKey"
+                    :type="braveSearchReveal ? 'text' : 'password'"
+                    placeholder="BSA..."
+                    icon="i-heroicons-lock-closed"
+                    autocomplete="off"
+                    class="w-full"
+                />
+              </UFormGroup>
 
-                <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
-                  <div class="flex items-center justify-between gap-3">
-                    <div class="flex items-center gap-3">
-                      <UButton
-                          type="button"
-                          variant="ghost"
-                          color="neutral"
-                          size="sm"
-                          :icon="braveSearchReveal ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
-                          :label="braveSearchReveal ? 'Verbergen' : 'Anzeigen'"
-                          @click="braveSearchReveal = !braveSearchReveal"
-                      />
-                      <UButton
-                          type="button"
-                          color="primary"
-                          size="sm"
-                          icon="i-heroicons-check-circle"
-                          label="Schlüssel speichern"
-                          class="btn-interactive"
-                          :loading="savingBraveSearch"
-                          :disabled="!braveSearchKey.trim() || savingBraveSearch || deletingBraveSearch"
-                          @click="handleSaveBraveSearch"
-                      />
-                    </div>
+              <div class="pt-4 border-t border-gray-200 dark:border-gray-800">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                  <div class="flex items-center gap-3 flex-wrap">
                     <UButton
                         type="button"
-                        variant="outline"
-                        color="error"
+                        variant="ghost"
+                        color="neutral"
                         size="sm"
-                        icon="i-heroicons-trash"
-                        label="Entfernen"
-                        :loading="deletingBraveSearch"
-                        :disabled="savingBraveSearch || deletingBraveSearch"
-                        @click="handleDeleteBraveSearch"
+                        :icon="braveSearchReveal ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
+                        :label="braveSearchReveal ? t('common.hide') : t('common.show')"
+                        @click="braveSearchReveal = !braveSearchReveal"
+                    />
+                    <UButton
+                        type="button"
+                        color="primary"
+                        size="sm"
+                        icon="i-heroicons-check-circle"
+                        :label="t('settings.saveKey')"
+                        class="btn-interactive"
+                        :loading="savingBraveSearch"
+                        :disabled="!braveSearchKey.trim() || savingBraveSearch || deletingBraveSearch"
+                        @click="handleSaveBraveSearch"
                     />
                   </div>
+                  <UButton
+                      type="button"
+                      variant="outline"
+                      color="error"
+                      size="sm"
+                      icon="i-heroicons-trash"
+                      :label="t('common.remove')"
+                      :loading="deletingBraveSearch"
+                      :disabled="savingBraveSearch || deletingBraveSearch"
+                      @click="handleDeleteBraveSearch"
+                  />
                 </div>
               </div>
-            </UCard>
+            </div>
+          </UCard>
+            </template>
+
+            <template v-if="activeTab === 'interface'">
+          <UCard class="card-elevated">
+            <div class="space-y-4">
+              <div class="space-y-1">
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.colorModeHeading') }}</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  {{ t('settings.colorModeDescription') }}
+                </p>
+              </div>
+              <USelect
+                :model-value="colorModePreference"
+                :items="colorModeItems"
+                value-key="value"
+                label-key="label"
+                icon="i-heroicons-swatch"
+                class="max-w-xs"
+                :aria-label="t('settings.colorModeAria')"
+                @update:model-value="handleColorModeChange"
+              />
+            </div>
           </UCard>
 
           <UCard class="card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">Chat UI</div>
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.languageHeading') }}</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
-                  Customize optional chat helpers shown before you send a message.
+                  {{ t('settings.languageDescription') }}
+                </p>
+              </div>
+              <USelect
+                :model-value="locale"
+                :items="localeItems"
+                value-key="value"
+                label-key="label"
+                icon="i-heroicons-language"
+                class="max-w-xs"
+                :aria-label="t('language.switchAria')"
+                @update:model-value="handleLocaleChange"
+              />
+            </div>
+          </UCard>
+
+          <UCard class="card-elevated">
+            <div class="space-y-4">
+              <div class="space-y-1">
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.chatUiHeading') }}</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  {{ t('settings.chatUiDescription') }}
                 </p>
               </div>
 
               <UCheckbox
                 v-model="settings.showPreSendCostEstimate"
-                label="Show pre-send cost estimate"
-                description="Displays a small estimated request cost next to the send button using the current chat context and model pricing."
+                :label="t('settings.preSendCostLabel')"
+                :description="t('settings.preSendCostDescription')"
               />
             </div>
           </UCard>
+            </template>
 
+            <template v-if="activeTab === 'instructions'">
           <UCard class="card-elevated">
-            <div class="space-y-4">
+            <div class="space-y-6">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight">Custom instructions</div>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
-                  Add personal instructions that will be appended to the system prompt in every conversation. The base system prompt is always preserved.
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.customInstructionsHeading') }}</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-2xl">
+                  {{ t('settings.customInstructionsDescription') }}
                 </p>
               </div>
-              <div v-if="loadingInstructions" class="skeleton-shimmer h-28" />
-              <div v-else class="space-y-3">
+              <div v-if="loadingInstructions" class="skeleton-shimmer h-64" />
+              <div v-else class="space-y-4">
                 <UTextarea
                     v-model="customInstructions"
-                    placeholder="e.g. Always reply in German. Prefer concise bullet-point answers."
-                    :rows="5"
+                    :placeholder="t('settings.customInstructionsPlaceholder')"
+                    :rows="14"
                     :maxlength="4000"
                     autoresize
+                    class="w-full"
+                    :ui="{ base: 'w-full min-h-[20rem] resize-y leading-relaxed' }"
                 />
-                <div class="flex items-center justify-between gap-3">
-                  <span class="text-xs text-gray-400">{{ customInstructions.length }}&thinsp;/&thinsp;4000</span>
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                  <span class="text-xs text-gray-400 tabular-nums">{{ customInstructions.length }}&thinsp;/&thinsp;4000</span>
                   <UButton
                       type="button"
                       color="primary"
                       size="sm"
                       icon="i-heroicons-check-circle"
-                      label="Save instructions"
+                      :label="t('settings.customInstructionsSave')"
                       class="btn-interactive"
                       :loading="savingInstructions"
                       @click="handleSaveInstructions"
@@ -593,13 +676,15 @@ async function handleDeleteAccount() {
               </div>
             </div>
           </UCard>
+            </template>
 
+            <template v-if="activeTab === 'account'">
           <UCard class="border border-red-500/30 card-elevated">
             <div class="space-y-4">
               <div class="space-y-1">
-                <div class="text-lg font-semibold tracking-tight text-red-500">Danger Zone</div>
+                <h2 class="font-serif-display text-2xl text-red-500">{{ t('settings.dangerZone') }}</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
-                  Permanently delete your account and all associated data including chats, messages, and stored API keys. This action cannot be undone.
+                  {{ t('settings.dangerZoneDescription') }}
                 </p>
               </div>
               <UButton
@@ -607,16 +692,19 @@ async function handleDeleteAccount() {
                   color="error"
                   variant="outline"
                   icon="i-heroicons-trash"
-                  label="Delete my account"
+                  :label="t('settings.deleteAccount')"
                   @click="showDeleteAccountModal = true"
               />
             </div>
           </UCard>
+            </template>
 
-          <UModal v-model:open="showDeleteAccountModal" title="Delete account" description="This action is permanent and cannot be undone.">
+          </div>
+
+          <UModal v-model:open="showDeleteAccountModal" :title="t('settings.deleteAccountModalTitle')" :description="t('settings.deleteAccountModalDescription')">
             <template #body>
               <p class="text-sm text-gray-600 dark:text-gray-300">
-                Are you sure you want to permanently delete your account? All your chats, messages, and stored API keys will be erased immediately.
+                {{ t('settings.deleteAccountConfirm') }}
               </p>
             </template>
             <template #footer>
@@ -625,7 +713,7 @@ async function handleDeleteAccount() {
                     type="button"
                     variant="ghost"
                     color="neutral"
-                    label="Cancel"
+                    :label="t('common.cancel')"
                     :disabled="deletingAccount"
                     @click="showDeleteAccountModal = false"
                 />
@@ -633,7 +721,7 @@ async function handleDeleteAccount() {
                     type="button"
                     color="error"
                     icon="i-heroicons-trash"
-                    label="Yes, delete my account"
+                    :label="t('settings.deleteAccountConfirmAction')"
                     :loading="deletingAccount"
                     @click="handleDeleteAccount"
                 />

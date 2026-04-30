@@ -1,10 +1,15 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
+import { computed, ref } from 'vue'
 import {
+  isModelLocked,
   isTerminalStreamEvent,
   modelEndpointPath,
+  normalizeAvailability,
   normalizeBaseUrl,
+  normalizeRequiredPlan,
   parseSseEvents,
   REQUEST_USER_ID_HEADER,
+  useChatApi,
   withRequestUserId
 } from '../useChatApi'
 
@@ -85,6 +90,26 @@ describe('parseSseEvents', () => {
     expect(events).toEqual([{ type: 'error', content: 'Something went wrong' }])
   })
 
+  it('parses stream error metadata fields', () => {
+    const raw = 'event: error\ndata: {"type":"error","provider":"GOOGLE","modelId":"gemma-4-31b-it","statusCode":"503","errorType":"server_error","receivedBytes":"128","incomplete":true}\n\n'
+    const events = parseSseEvents(raw)
+    expect(events).toEqual([{
+      type: 'error',
+      provider: 'GOOGLE',
+      modelId: 'gemma-4-31b-it',
+      statusCode: 503,
+      errorType: 'SERVER_ERROR',
+      receivedBytes: 128,
+      incomplete: true
+    }])
+  })
+
+  it('parses string boolean metadata for incomplete strictly', () => {
+    const raw = 'event: error\ndata: {"type":"error","incomplete":"false"}\n\n'
+    const events = parseSseEvents(raw)
+    expect(events).toEqual([{ type: 'error', incomplete: false }])
+  })
+
   it('parses multiple events in one chunk', () => {
     const raw = 'event: text\ndata: {"type":"text","content":"Hello"}\n\nevent: text\ndata: {"type":"text","content":" world"}\n\n'
     const events = parseSseEvents(raw)
@@ -151,5 +176,120 @@ describe('isTerminalStreamEvent', () => {
   it('keeps text and reasoning events non-terminal', () => {
     expect(isTerminalStreamEvent({ type: 'text', content: 'Hello' })).toBe(false)
     expect(isTerminalStreamEvent({ type: 'reasoning', content: 'Thinking' })).toBe(false)
+  })
+})
+
+describe('useChatApi.logout', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    // Minimal Nuxt/Vue auto-import stubs so useChatApi() can be invoked in a
+    // plain Vitest (Node) environment.
+    vi.stubGlobal('useRuntimeConfig', () => ({
+      public: { backendBaseUrl: 'http://localhost:8080' }
+    }))
+    vi.stubGlobal('useUserSettings', () => ({
+      settings: ref({ backendBaseUrl: '' })
+    }))
+    vi.stubGlobal('useState', (_key: string, init: () => unknown) => ref(init()))
+    vi.stubGlobal('computed', computed)
+
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    // Stub a minimal `document` so getCsrfToken() can read XSRF-TOKEN.
+    vi.stubGlobal('document', { cookie: '' } as unknown as Document)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('returns true on a 204 response and POSTs to /logout with the CSRF header', async () => {
+    ;(globalThis as unknown as { document: { cookie: string } }).document.cookie =
+      'XSRF-TOKEN=csrf-token-value'
+    fetchMock.mockResolvedValueOnce(
+      new Response(null, { status: 204 })
+    )
+
+    const { logout } = useChatApi()
+    const ok = await logout()
+
+    expect(ok).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('http://localhost:8080/logout')
+    expect(init.method).toBe('POST')
+    expect(init.credentials).toBe('include')
+    expect(init.headers['X-XSRF-TOKEN']).toBe('csrf-token-value')
+  })
+
+  it('omits X-XSRF-TOKEN when no CSRF cookie is set', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    const { logout } = useChatApi()
+    await logout()
+
+    const [, init] = fetchMock.mock.calls[0]!
+    expect(init.headers['X-XSRF-TOKEN']).toBeUndefined()
+  })
+
+  it('returns false for a non-2xx response', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('Forbidden', { status: 403 })
+    )
+
+    const { logout } = useChatApi()
+    expect(await logout()).toBe(false)
+  })
+
+  it('returns false when fetch rejects', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('network error'))
+
+    const { logout } = useChatApi()
+    expect(await logout()).toBe(false)
+  })
+})
+
+describe('normalizeAvailability', () => {
+  it('accepts the three known availability flags', () => {
+    expect(normalizeAvailability('ALWAYS')).toBe('ALWAYS')
+    expect(normalizeAvailability('BYOK_ONLY')).toBe('BYOK_ONLY')
+    expect(normalizeAvailability('UPGRADE_REQUIRED')).toBe('UPGRADE_REQUIRED')
+  })
+
+  it('is case-insensitive', () => {
+    expect(normalizeAvailability('upgrade_required')).toBe('UPGRADE_REQUIRED')
+  })
+
+  it('falls back to ALWAYS for unknown / null / missing values', () => {
+    expect(normalizeAvailability(null)).toBe('ALWAYS')
+    expect(normalizeAvailability(undefined)).toBe('ALWAYS')
+    expect(normalizeAvailability('')).toBe('ALWAYS')
+    expect(normalizeAvailability('something_else')).toBe('ALWAYS')
+    expect(normalizeAvailability(42)).toBe('ALWAYS')
+  })
+})
+
+describe('normalizeRequiredPlan', () => {
+  it('accepts PREMIUM and MAX (any case)', () => {
+    expect(normalizeRequiredPlan('PREMIUM')).toBe('PREMIUM')
+    expect(normalizeRequiredPlan('max')).toBe('MAX')
+  })
+
+  it('returns null for unknown or missing values', () => {
+    expect(normalizeRequiredPlan(null)).toBeNull()
+    expect(normalizeRequiredPlan(undefined)).toBeNull()
+    expect(normalizeRequiredPlan('FREE')).toBeNull()
+    expect(normalizeRequiredPlan(123)).toBeNull()
+  })
+})
+
+describe('isModelLocked', () => {
+  it('returns true only for UPGRADE_REQUIRED models', () => {
+    expect(isModelLocked({ availability: 'UPGRADE_REQUIRED' })).toBe(true)
+    expect(isModelLocked({ availability: 'ALWAYS' })).toBe(false)
+    expect(isModelLocked({ availability: 'BYOK_ONLY' })).toBe(false)
+    expect(isModelLocked({ availability: null })).toBe(false)
+    expect(isModelLocked({})).toBe(false)
   })
 })

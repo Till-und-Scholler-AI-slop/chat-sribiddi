@@ -5,6 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import com.rft.chat_sribiddi.auth.BillingMode;
+import com.rft.chat_sribiddi.auth.Plan;
+import com.rft.chat_sribiddi.billing.EntitlementService;
+import com.rft.chat_sribiddi.billing.PlanRestrictionException;
+import com.rft.chat_sribiddi.billing.UsageEventService;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
@@ -55,6 +60,8 @@ class ChatServiceTest {
   @Mock private ApiKeyService apiKeyService;
   @Mock private ProviderClientFactory providerClientFactory;
   @Mock private com.rft.chat_sribiddi.auth.UserSettingsService userSettingsService;
+  @Mock private EntitlementService entitlementService;
+  @Mock private UsageEventService usageEventService;
   @Mock private HttpClient webSearchHttpClient;
   @Mock private ToolRegistry toolRegistry;
   @Mock private CalculatorTool calculatorTool;
@@ -75,7 +82,7 @@ class ChatServiceTest {
         apiKeyService, providerClientFactory, chatProperties, userSettingsService,
         new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
         toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
-        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool());
+        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), entitlementService, usageEventService);
   }
 
   @BeforeEach
@@ -85,6 +92,9 @@ class ChatServiceTest {
     userId = "user-123";
 
     lenient().when(userSettingsService.getCustomInstructions(any())).thenReturn(java.util.Optional.empty());
+    lenient()
+        .when(entitlementService.resolveBillingMode(anyString()))
+        .thenReturn(BillingMode.BYOK);
     lenient().when(chatToolRepository.findByChatId(any())).thenReturn(List.of());
     lenient().when(toolRegistry.getAll()).thenReturn(List.of());
     lenient()
@@ -152,6 +162,68 @@ class ChatServiceTest {
     assertThat(savedMessages.getAllValues())
         .extracting(MessageEntity::getRole)
         .containsExactly(Role.USER, Role.ASSISTANT);
+  }
+
+  @Test
+  void sendMessage_freeUserWithPremiumModel_throwsPlanRestriction() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.BYOK);
+    doThrow(
+            new PlanRestrictionException(
+                PlanRestrictionException.Reason.MODEL_NOT_ALLOWED, Plan.FREE, "Premium model"))
+        .when(entitlementService)
+        .assertCanUseModel(
+            userId, RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", BillingMode.BYOK);
+
+    assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
+        .isInstanceOfSatisfying(
+            PlanRestrictionException.class,
+            ex ->
+                assertThat(ex.getReason())
+                    .isEqualTo(PlanRestrictionException.Reason.MODEL_NOT_ALLOWED));
+
+    verify(entitlementService, never()).assertWithinDailyCap(anyString());
+    verifyNoInteractions(providerClientFactory);
+    verifyNoInteractions(usageEventService);
+  }
+
+  @Test
+  void sendMessage_freeUserOverDailyCap_throwsPlanRestriction() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-4.1-mini", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+    doThrow(
+            new PlanRestrictionException(
+                PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED,
+                Plan.FREE,
+                "Daily cap exceeded"))
+        .when(entitlementService)
+        .assertWithinDailyCap(userId);
+
+    assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
+        .isInstanceOfSatisfying(
+            PlanRestrictionException.class,
+            ex ->
+                assertThat(ex.getReason())
+                    .isEqualTo(PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED));
+
+    verify(entitlementService)
+        .assertCanUseModel(
+            userId, RequestDTO.Provider.OPENAI, "gpt-4.1-mini", BillingMode.MANAGED);
+    verifyNoInteractions(providerClientFactory);
+    verifyNoInteractions(usageEventService);
+    verify(entitlementService, never()).incrementCounter(anyString());
   }
 
   @Test
@@ -657,6 +729,107 @@ class ChatServiceTest {
   }
 
   @Test
+  void streamMessage_managedMode_providerError_recordsUsageButDoesNotIncrementCounter() {
+    // BILL-14 refund path: when a managed-mode stream fails with a provider error
+    // (e.g. WebClientResponseException 500), the daily counter must NOT be incremented
+    // (so the user does not lose a cap slot for a failed call), but the usage event
+    // MUST still be recorded for analytics/auditing.
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of("stored-key"));
+    when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.stream()).thenReturn(streamResponseSpec);
+
+    when(streamResponseSpec.chatResponse())
+        .thenReturn(reactor.core.publisher.Flux.error(
+            new org.springframework.web.reactive.function.client.WebClientResponseException(
+                500, "Internal Server Error", null, null, null)));
+
+    chatService.streamMessage(chatId, userId, request);
+
+    // Usage event is recorded for analytics even on provider errors.
+    verify(usageEventService)
+        .record(
+            eq(userId),
+            eq(RequestDTO.Provider.OPENAI),
+            eq("gpt-5.2"),
+            any(),
+            any(),
+            any(),
+            any(),
+            eq(BillingMode.MANAGED));
+    // Counter is NOT incremented — failed call does not consume a daily cap slot.
+    verify(entitlementService, never()).incrementCounter(anyString());
+  }
+
+  @Test
+  void streamMessage_managedMode_successfulStream_recordsUsageAndIncrementsCounter() {
+    // BILL-14 refund path: on a successful managed-mode stream, both record() and
+    // incrementCounter() must be invoked (user consumes exactly one daily cap slot).
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(chatRepository.existsById(chatId)).thenReturn(true);
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of("stored-key"));
+    when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.stream()).thenReturn(streamResponseSpec);
+
+    ChatResponseMetadata metadata =
+        ChatResponseMetadata.builder().usage(new DefaultUsage(10, 5)).build();
+    ChatResponse chunk =
+        new ChatResponse(List.of(new Generation(new AssistantMessage("ok"))), metadata);
+    when(streamResponseSpec.chatResponse())
+        .thenReturn(reactor.core.publisher.Flux.just(chunk));
+
+    chatService.streamMessage(chatId, userId, request);
+
+    verify(usageEventService)
+        .record(
+            eq(userId),
+            eq(RequestDTO.Provider.OPENAI),
+            eq("gpt-5.2"),
+            eq(10L),
+            eq(5L),
+            eq(15L),
+            any(),
+            eq(BillingMode.MANAGED));
+    verify(entitlementService).incrementCounter(userId);
+  }
+
+  @Test
   void streamMessage_missingChat_throwsNotFound() {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.empty());
 
@@ -734,6 +907,45 @@ class ChatServiceTest {
     String result = ChatService.extractProviderErrorMessage(ex);
 
     assertThat(result).isEqualTo("An error occurred while streaming the response.");
+  }
+
+  @Test
+  void classifyStreamError_detectsTimeoutWithoutHttpStatus() {
+    String result =
+        ChatService.classifyStreamError(
+            new RuntimeException("response timeout while streaming"), null);
+
+    assertThat(result).isEqualTo("TIMEOUT");
+  }
+
+  @Test
+  void classifyStreamError_detectsRateLimitFromHttpStatus() {
+    String result = ChatService.classifyStreamError(new RuntimeException("any"), 429);
+
+    assertThat(result).isEqualTo("RATE_LIMIT");
+  }
+
+  @Test
+  void buildClientStreamErrorMessage_includesProviderModelStatusAndPartialHint() {
+    String message =
+        ChatService.buildClientStreamErrorMessage(
+            new ChatService.StreamErrorDetails(
+                RequestDTO.Provider.GOOGLE,
+                "gemma-4-31b-it",
+                503,
+                "SERVER_ERROR",
+                128L));
+
+    assertThat(message)
+        .isEqualTo(
+            "Response from Google (gemma-4-31b-it) was interrupted (HTTP 503). The provider returned a server error. Partial response shown.");
+  }
+
+  @Test
+  void expectedStreamFailures_includeProviderAndTimeoutKinds() {
+    assertThat(ChatService.isExpectedStreamFailure("TIMEOUT")).isTrue();
+    assertThat(ChatService.isExpectedStreamFailure("PROVIDER_ERROR")).isTrue();
+    assertThat(ChatService.isExpectedStreamFailure("UNKNOWN")).isFalse();
   }
 
   // ── Auto-title tests ────────────────────────────────────────────────────────

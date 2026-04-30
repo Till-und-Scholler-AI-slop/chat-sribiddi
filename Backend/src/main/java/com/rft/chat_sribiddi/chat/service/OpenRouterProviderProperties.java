@@ -13,6 +13,16 @@ public class OpenRouterProviderProperties {
   private String modelCatalogUrl = "https://openrouter.ai/api/v1/models";
   private Set<String> allowedModelCatalogHosts = Set.of("openrouter.ai");
 
+  /**
+   * OpenRouter request-attribution fields. OpenRouter requires/recommends callers to identify
+   * themselves via the {@code HTTP-Referer} and {@code X-Title} headers so that requests are
+   * correctly associated with the integrating app in their dashboard. Blank values disable the
+   * corresponding header.
+   */
+  private String appName = "chat-sribiddi";
+
+  private String referrer = "https://chat-sribiddi.local";
+
   public String getBaseUrl() {
     return baseUrl;
   }
@@ -43,5 +53,21 @@ public class OpenRouterProviderProperties {
 
   public void setAllowedModelCatalogHosts(Set<String> allowedModelCatalogHosts) {
     this.allowedModelCatalogHosts = allowedModelCatalogHosts;
+  }
+
+  public String getAppName() {
+    return appName;
+  }
+
+  public void setAppName(String appName) {
+    this.appName = appName;
+  }
+
+  public String getReferrer() {
+    return referrer;
+  }
+
+  public void setReferrer(String referrer) {
+    this.referrer = referrer;
   }
 }

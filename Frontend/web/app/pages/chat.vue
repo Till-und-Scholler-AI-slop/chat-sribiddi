@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
+import { isModelLocked } from '~/composables/useChatApi'
 import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/chat-helpers'
+
+const { t } = useI18n()
+const tt = useTranslatedError()
 
 definePageMeta({
   layout: 'default'
@@ -66,6 +70,12 @@ const selectedModel = computed<ModelOption | null>({
     return defaultModel.value
   },
   set: value => {
+    if (value && isModelLocked(value)) {
+      // Do not assign the locked model — route the user to the upgrade page
+      // instead (see FE-5). Keep the current selection untouched.
+      void navigateTo('/pricing')
+      return
+    }
     if (value && activeConversation.value) {
       setModelForChat(activeConversation.value.session.chatId, value)
       saveLastUsedModel(value)
@@ -83,6 +93,37 @@ type ChatMessagePart = { type: string; text?: string; mediaType?: string; filena
 type ChatContentSlot = {
   parts: ChatMessagePart[]
   message: { role?: string; id?: string; createdAt?: string | Date }
+}
+
+// Up-sell banner (FE-6): shown when the backend rejects a send/stream request
+// with a DAILY_CAP_EXCEEDED reason (HTTP 402, see GlobalExceptionHandler). The
+// JSON body from the backend is surfaced verbatim in `conversation.error`, so
+// we look for the reason token substring — this keeps the trigger stable even
+// if the localized `message` text changes.
+const upgradeBannerDismissed = ref(false)
+const showUpgradeBanner = computed(() => {
+  if (upgradeBannerDismissed.value) return false
+  const err = activeConversation.value?.error
+  return typeof err === 'string' && err.includes('DAILY_CAP_EXCEEDED')
+})
+
+// Reset dismissal whenever the active chat changes or a new error is surfaced
+// so the banner reappears after subsequent quota-hit attempts.
+watch(
+  () => [activeChatId.value, activeConversation.value?.error] as const,
+  ([chatId, err], [prevChatId, prevErr]) => {
+    if (chatId !== prevChatId || err !== prevErr) {
+      upgradeBannerDismissed.value = false
+    }
+  }
+)
+
+const dismissUpgradeBanner = () => {
+  upgradeBannerDismissed.value = true
+}
+
+const goToPricing = () => {
+  void navigateTo('/pricing')
 }
 
 const firstText = (parts?: ChatMessagePart[]) =>
@@ -158,10 +199,10 @@ const modelPricingSummary = computed(() => {
   const c = formatRatePerMillion(model?.completionPrice)
   if (!p && !c) return null
 
-  const parts: string[] = []
-  if (p != null) parts.push(`${p} in`)
-  if (c != null) parts.push(`${c} out`)
-  return parts.length ? `${parts.join(' / ')} pro 1M Tokens` : null
+  if (p != null && c != null) {
+    return t('chat.pricingPerMillionInOut', { input: p, output: c })
+  }
+  return t('chat.pricingPerMillion', { prompt: p ?? c })
 })
 
 const optionPriceLabel = (option: ModelOption): string | null =>
@@ -170,7 +211,7 @@ const optionPriceLabel = (option: ModelOption): string | null =>
 const pendingPromptText = computed(() => {
   const trimmed = input.value.trim()
   if (trimmed) return trimmed
-  return attachments.value.length ? 'Bitte analysiere den Anhang.' : ''
+  return attachments.value.length ? t('chat.analyzeAttachment') : ''
 })
 
 const preSendCostEstimate = computed(() => {
@@ -203,7 +244,7 @@ const toDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-    reader.onerror = () => reject(new Error(`Datei ${file.name} konnte nicht gelesen werden.`))
+    reader.onerror = () => reject(new Error(t('chat.fileReadFailed', { name: file.name })))
     reader.readAsDataURL(file)
   })
 
@@ -234,8 +275,8 @@ const processFileList = async (files: File[]) => {
       attachments.value.push(result.value)
     } else {
       toast.add({
-        title: 'Upload fehlgeschlagen',
-        description: friendlyErrorMessage(result.reason, 'Anhang konnte nicht gelesen werden.'),
+        title: t('chat.uploadFailedTitle'),
+        description: tt(result.reason, 'chat.attachmentReadFallback'),
         color: 'error'
       })
     }
@@ -301,8 +342,8 @@ onMounted(async () => {
   } catch (err) {
     console.error(err)
     toast.add({
-      title: 'Chat konnte nicht gestartet werden',
-      description: friendlyErrorMessage(err, 'Läuft das Backend?'),
+      title: t('chat.startFailedTitle'),
+      description: tt(err, 'chat.startFailedDescription'),
       color: 'error'
     })
   } finally {
@@ -393,23 +434,23 @@ watch(
   },
 )
 
-const welcomeSuggestions = [
+const welcomeSuggestions = computed(() => [
   {
-    label: '💡 Quantencomputing erklären',
-    prompt: 'Erkläre Quantencomputing in einfachen Worten',
-    aria: 'Quantencomputing erklären lassen'
+    label: t('chat.suggestionQuantum'),
+    prompt: t('chat.suggestionQuantumPrompt'),
+    aria: t('chat.suggestionQuantumAria')
   },
   {
-    label: '🐍 Python-Funktion schreiben',
-    prompt: 'Schreibe eine Python-Funktion, die eine Liste sortiert',
-    aria: 'Python-Funktion schreiben lassen'
+    label: t('chat.suggestionPython'),
+    prompt: t('chat.suggestionPythonPrompt'),
+    aria: t('chat.suggestionPythonAria')
   },
   {
-    label: '🤖 Aktuelle KI-Trends',
-    prompt: 'Welche aktuellen Trends gibt es im Bereich KI?',
-    aria: 'Aktuelle KI-Trends erfahren'
+    label: t('chat.suggestionAi'),
+    prompt: t('chat.suggestionAiPrompt'),
+    aria: t('chat.suggestionAiAria')
   }
-]
+])
 
 const applyAndSubmit = (prompt: string) => {
   input.value = prompt
@@ -426,7 +467,7 @@ async function handleSubmit() {
   const model = selectedModel.value
   if (!conversation || !model) return
 
-  const text = input.value.trim() || 'Bitte analysiere den Anhang.'
+  const text = input.value.trim() || t('chat.analyzeAttachment')
   const media = [...attachments.value]
   input.value = ''
   clearAttachments()
@@ -437,8 +478,8 @@ async function handleSubmit() {
     })
   } catch (err) {
     toast.add({
-      title: 'Nachricht fehlgeschlagen',
-      description: friendlyErrorMessage(err),
+      title: t('chat.messageFailedTitle'),
+      description: tt(err),
       color: 'error'
     })
   }
@@ -459,8 +500,8 @@ const handleReload = async () => {
     await retryLastPrompt(conversation.session.chatId, model)
   } catch (err) {
     toast.add({
-      title: 'Wiederholen fehlgeschlagen',
-      description: friendlyErrorMessage(err, 'Anfrage konnte nicht wiederholt werden.'),
+      title: t('chat.retryFailedTitle'),
+      description: tt(err, 'chat.retryFailedDescription'),
       color: 'error'
     })
   }
@@ -492,8 +533,8 @@ const submitEditMessage = async () => {
     await editMessage(conversation.session.chatId, msgId, newText, model)
   } catch (err) {
     toast.add({
-      title: 'Bearbeitung fehlgeschlagen',
-      description: friendlyErrorMessage(err, 'Nachricht konnte nicht bearbeitet werden.'),
+      title: t('chat.editFailedTitle'),
+      description: tt(err, 'chat.editFailedDescription'),
       color: 'error'
     })
   }
@@ -501,10 +542,28 @@ const submitEditMessage = async () => {
 </script>
 
 <template>
-  <div class="h-full">
-  <UDashboardPanel class="h-full flex flex-col">
+  <div class="h-full min-h-0 flex flex-col">
+  <UDashboardPanel class="h-full min-h-0 flex flex-col">
     <template #body>
-      <UContainer class="py-4 space-y-4 flex-1 overflow-hidden flex flex-col">
+      <UContainer class="py-4 space-y-4 flex-1 min-h-0 overflow-hidden flex flex-col">
+        <UAlert
+          v-if="showUpgradeBanner"
+          color="primary"
+          variant="subtle"
+          icon="i-heroicons-sparkles"
+          :title="t('billing.upgradeBanner.title')"
+          :description="t('billing.upgradeBanner.description')"
+          :close="{ 'aria-label': t('billing.upgradeBanner.dismiss') }"
+          :actions="[
+            {
+              label: t('billing.upgradeBanner.cta'),
+              color: 'primary',
+              variant: 'solid',
+              onClick: goToPricing
+            }
+          ]"
+          @close="dismissUpgradeBanner"
+        />
         <UAlert
           v-if="errorMessage"
           color="error"
@@ -527,15 +586,25 @@ const submitEditMessage = async () => {
           </div>
 
         <div v-else class="space-y-4 flex-1 min-h-0 flex flex-col">
-          <div class="flex items-center justify-end gap-2">
-            <UBadge
-              v-if="selectedModel"
-              color="primary"
-              variant="soft"
-              :label="selectedModel.label"
-              :ui="{ rounded: 'rounded-full' }"
-            />
-          </div>
+          <header class="chat-page-header">
+            <div class="chat-page-header__titles">
+              <h1 class="chat-page-header__title">
+                {{ activeConversation.session.title || 'Neuer Chat' }}
+              </h1>
+              <span v-if="selectedModel" class="chat-page-header__subtitle">
+                {{ providerLabel(selectedModel.provider) }} · {{ selectedModel.label }}
+              </span>
+            </div>
+            <div class="chat-page-header__meta">
+              <UBadge
+                v-if="selectedModel"
+                color="primary"
+                variant="soft"
+                :label="selectedModel.label"
+                :ui="{ rounded: 'rounded-full' }"
+              />
+            </div>
+          </header>
 
           <div class="flex-1 min-h-0">
             <UCard class="h-full card-elevated" :ui="{ body: 'h-full overflow-hidden' }">
@@ -575,7 +644,7 @@ const submitEditMessage = async () => {
                             variant="ghost"
                             icon="i-heroicons-pencil-square"
                             :padded="false"
-                            aria-label="Nachricht bearbeiten"
+                            :aria-label="t('chat.editMessage')"
                             class="btn-interactive"
                               @click="startEditMessage(message.id, firstText(parts))"
                             />
@@ -641,34 +710,13 @@ const submitEditMessage = async () => {
       <div class="relative glass-surface-light border-t border-gray-200/60 dark:border-white/[0.06]">
 
         <UContainer class="pb-4 sm:pb-6 space-y-2">
-          <div class="flex items-center gap-2 flex-wrap">
-            <input
-              ref="fileInput"
-              type="file"
-              class="hidden"
-              multiple
-              @change="handleFiles"
-            >
-            <UButton
-              size="xs"
-              variant="ghost"
-              color="neutral"
-              icon="i-heroicons-paper-clip"
-              label="Anhänge hinzufügen"
-              class="btn-interactive"
-              @click="fileInput?.click()"
-            />
-            <UButton
-              v-if="attachments.length"
-              size="xs"
-              variant="ghost"
-              color="neutral"
-              icon="i-heroicons-x-mark"
-              label="Leeren"
-              class="btn-interactive"
-              @click="clearAttachments"
-            />
-          </div>
+          <input
+            ref="fileInput"
+            type="file"
+            class="hidden"
+            multiple
+            @change="handleFiles"
+          >
 
           <div v-if="attachments.length" class="flex flex-wrap gap-2">
             <div
@@ -680,8 +728,8 @@ const submitEditMessage = async () => {
               <span class="truncate max-w-[150px]">{{ item.name || item.mimeType }}</span>
               <button
                 class="inline-flex text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                :aria-label="`Remove attachment ${item.name || item.mimeType}`"
-                :title="`Remove attachment ${item.name || item.mimeType}`"
+                :aria-label="t('chat.removeAttachment', { name: item.name || item.mimeType })"
+                :title="t('chat.removeAttachment', { name: item.name || item.mimeType })"
                 @click="removeAttachment(index)"
               >
                 <UIcon name="i-heroicons-x-mark" class="size-3.5" />
@@ -691,6 +739,27 @@ const submitEditMessage = async () => {
 
           <UChatPrompt v-model="input" :error="promptError" @submit="handleSubmit">
             <template #header>
+              <UTooltip text="Anhänge hinzufügen">
+                <UButton
+                  icon="i-heroicons-paper-clip"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Anhänge hinzufügen"
+                  class="btn-interactive"
+                  @click="fileInput?.click()"
+                />
+              </UTooltip>
+              <UButton
+                v-if="attachments.length"
+                icon="i-heroicons-x-mark"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Anhänge entfernen"
+                class="btn-interactive"
+                @click="clearAttachments"
+              />
               <USelectMenu
                 v-model="selectedModel"
                 :items="sortedModels"
@@ -698,7 +767,7 @@ const submitEditMessage = async () => {
                 :loading="modelsLoading"
                 label-key="label"
                 by="value"
-                placeholder="Modell auswählen"
+                :placeholder="t('chat.modelPlaceholder')"
                 variant="subtle"
                 color="neutral"
               >
@@ -706,7 +775,10 @@ const submitEditMessage = async () => {
                   <UIcon name="i-heroicons-cpu-chip" />
                 </template>
                 <template #option="{ option }">
-                  <div class="flex items-center justify-between gap-2 w-full">
+                  <div
+                    class="flex items-center justify-between gap-2 w-full"
+                    :class="{ 'opacity-60': isModelLocked(option) }"
+                  >
                     <span class="truncate">{{ option.label }}</span>
                     <div class="flex items-center gap-1 flex-shrink-0">
                       <span
@@ -720,18 +792,28 @@ const submitEditMessage = async () => {
                         name="i-heroicons-star-solid"
                         class="size-3 text-yellow-400"
                       />
+                      <UTooltip v-if="isModelLocked(option)" :text="t('models.premiumRequired')">
+                        <UIcon
+                          name="i-heroicons-lock-closed"
+                          class="size-3.5 text-gray-500 dark:text-gray-400"
+                          :aria-label="t('models.premiumRequired')"
+                        />
+                      </UTooltip>
                       <UBadge :label="providerLabel(option.provider)" variant="soft" color="neutral" />
                     </div>
                   </div>
                 </template>
               </USelectMenu>
-              <UTooltip :text="webSearchEnabled ? 'Web-Suche aktiv' : 'Web-Suche deaktiviert'">
+              <UTooltip :text="webSearchEnabled ? t('chat.webSearchDisable') : t('chat.webSearchEnable')">
                 <UButton
                   :icon="webSearchEnabled ? 'i-heroicons-globe-alt-solid' : 'i-heroicons-globe-alt'"
                   :color="webSearchEnabled ? 'primary' : 'neutral'"
-                  :variant="webSearchEnabled ? 'soft' : 'ghost'"
-                  size="sm"
-                  :aria-label="webSearchEnabled ? 'Web-Suche deaktivieren' : 'Web-Suche aktivieren'"
+                  :variant="webSearchEnabled ? 'soft' : 'outline'"
+                  size="md"
+                  label="Web"
+                  :aria-pressed="webSearchEnabled"
+                  :aria-label="webSearchEnabled ? t('chat.webSearchDisable') : t('chat.webSearchEnable')"
+                  class="btn-interactive web-toggle"
                   @click="webSearchEnabled = !webSearchEnabled"
                 />
               </UTooltip>
@@ -752,7 +834,7 @@ const submitEditMessage = async () => {
                 <button
                   type="button"
                   class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                  :aria-label="`Geschätzte Kosten ${formatCost(preSendCostEstimate.totalCost)}`"
+                  :aria-label="t('chat.estimatedCostAria', { amount: formatCost(preSendCostEstimate.totalCost) })"
                 >
                   <UIcon name="i-heroicons-banknotes" class="size-3" />
                   ~{{ formatCost(preSendCostEstimate.totalCost) }}
@@ -760,22 +842,22 @@ const submitEditMessage = async () => {
                 <template #content>
                   <div class="space-y-2 text-xs">
                     <div class="font-medium text-gray-900 dark:text-gray-100">
-                      Geschätzte Anfragekosten
+                      {{ t('chat.estimatedRequestCost') }}
                     </div>
                     <div class="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 whitespace-nowrap">
-                      <span class="text-gray-500 dark:text-gray-400">Eingabe-Tokens</span>
+                      <span class="text-gray-500 dark:text-gray-400">{{ t('chat.inputTokens') }}</span>
                       <span class="text-right text-gray-900 dark:text-gray-100">
                         {{ formatTokenCount(preSendCostEstimate.inputTokens) }}
                       </span>
-                      <span class="text-gray-500 dark:text-gray-400">Geschätzte Ausgabe</span>
+                      <span class="text-gray-500 dark:text-gray-400">{{ t('chat.estimatedOutput') }}</span>
                       <span class="text-right text-gray-900 dark:text-gray-100">
                         {{ formatTokenCount(preSendCostEstimate.estimatedOutputTokens) }}
                       </span>
-                      <span class="text-gray-500 dark:text-gray-400">Preis Eingabe / 1M</span>
+                      <span class="text-gray-500 dark:text-gray-400">{{ t('chat.priceInputPerMillion') }}</span>
                       <span class="text-right text-gray-900 dark:text-gray-100">
                         {{ preSendPromptRateLabel || '—' }}
                       </span>
-                      <span class="text-gray-500 dark:text-gray-400">Preis Ausgabe / 1M</span>
+                      <span class="text-gray-500 dark:text-gray-400">{{ t('chat.priceOutputPerMillion') }}</span>
                       <span class="text-right text-gray-900 dark:text-gray-100">
                         {{ preSendCompletionRateLabel || '—' }}
                       </span>
@@ -803,7 +885,7 @@ const submitEditMessage = async () => {
     >
       <div class="animate-scale-in flex flex-col items-center gap-3 text-primary glass-surface rounded-2xl px-10 py-8 ring-2 ring-primary/50 ring-inset shadow-2xl">
         <UIcon name="i-heroicons-arrow-down-tray" class="size-12" />
-        <span class="text-lg font-semibold tracking-tight">Dateien zum Anhängen loslassen</span>
+        <span class="text-lg font-semibold tracking-tight">{{ t('chat.dropToAttach') }}</span>
       </div>
     </div>
   </Transition>
@@ -811,6 +893,49 @@ const submitEditMessage = async () => {
 </template>
 
 <style scoped>
+.chat-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.875rem;
+  border: 1px solid var(--hair);
+  background: var(--paper-2);
+}
+.chat-page-header__titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.chat-page-header__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-page-header__subtitle {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-family: var(--font-mono, monospace);
+  margin-top: 0.125rem;
+}
+.chat-page-header__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Larger Web toggle inside the prompt header */
+.web-toggle {
+  font-weight: 500;
+}
+
 .drag-overlay-enter-active,
 .drag-overlay-leave-active {
   transition: opacity 0.2s ease;

@@ -2,6 +2,8 @@
 import type { ToolCallLog } from '~/composables/useChatApi'
 import { filterToolCallLogs } from '~/composables/chat-helpers'
 
+const { t } = useI18n()
+
 const props = defineProps<{
   toolCalls: ToolCallLog[]
   loading: boolean
@@ -17,11 +19,11 @@ const filteredToolCalls = computed(() => filterToolCallLogs(props.toolCalls, fil
 const formattedToolCallsJson = computed(() => JSON.stringify(props.toolCalls, null, 2))
 
 const toolTriggerLabel = computed(() => {
-  if (props.loading) return 'Tools werden ausgeführt'
+  if (props.loading) return t('tools.running')
   const count = props.toolCalls.length
-  if (count === 0) return 'Tool-Aktivität'
+  if (count === 0) return t('tools.activity')
   if (count === 1) return formatToolNameForDisplay(props.toolCalls[0].toolName)
-  return `${count} Tool-Aufrufe`
+  return t('tools.callsCount', { count })
 })
 
 function toggle() {
@@ -103,7 +105,7 @@ function statusIcon(tc: ToolCallLog) {
 
           <div v-else-if="loading && toolCalls.length === 0" class="tool-call-alert">
             <UIcon name="i-heroicons-arrow-path" class="size-4 shrink-0 animate-spin" />
-            <span>Warte auf Ergebnisse…</span>
+            <span>{{ t('tools.waitingResults') }}</span>
           </div>
 
           <template v-else>
@@ -113,14 +115,14 @@ function statusIcon(tc: ToolCallLog) {
                 <input
                   v-model="filterQuery"
                   type="search"
-                  placeholder="Nach Tool-Namen filtern"
+                  :placeholder="t('tools.filterByName')"
                   class="search-input"
                 >
               </label>
             </div>
 
             <div v-if="filteredToolCalls.length === 0" class="tool-call-empty">
-              Kein Tool entspricht „{{ filterQuery.trim() }}“.
+              {{ t('tools.noToolMatches', { query: filterQuery.trim() }) }}
             </div>
 
             <div v-else class="tool-call-list">
@@ -161,7 +163,7 @@ function statusIcon(tc: ToolCallLog) {
                   <div class="payload-block">
                     <div class="payload-label">
                       <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
-                      Input
+                      {{ t('tools.input') }}
                     </div>
                     <pre>{{ formatPayload(tc.inputPayload) }}</pre>
                   </div>
@@ -169,7 +171,7 @@ function statusIcon(tc: ToolCallLog) {
                   <div class="payload-block">
                     <div class="payload-label">
                       <UIcon name="i-heroicons-arrow-down-tray" class="size-3" />
-                      Output
+                      {{ t('tools.output') }}
                     </div>
                     <pre>{{ formatPayload(tc.outputPayload) }}</pre>
                   </div>
@@ -177,7 +179,7 @@ function statusIcon(tc: ToolCallLog) {
                   <div v-if="tc.contextExcerpt" class="payload-block">
                     <div class="payload-label">
                       <UIcon name="i-heroicons-document-text" class="size-3" />
-                      Kontextauszug
+                      {{ t('tools.contextExcerpt') }}
                     </div>
                     <pre>{{ formatPayload(tc.contextExcerpt) }}</pre>
                   </div>
@@ -188,7 +190,7 @@ function statusIcon(tc: ToolCallLog) {
             <div class="raw-json-toggle">
               <button type="button" class="raw-json-button" @click="showRawJson = !showRawJson">
                 <UIcon :name="showRawJson ? 'i-heroicons-eye-slash' : 'i-heroicons-code-bracket'" class="size-3" />
-                {{ showRawJson ? 'Roh-JSON ausblenden' : 'Roh-JSON anzeigen' }}
+                {{ showRawJson ? t('tools.hideRawJson') : t('tools.showRawJson') }}
               </button>
               <div v-if="showRawJson" class="payload-block raw-json-block">
                 <pre>{{ formattedToolCallsJson }}</pre>
@@ -214,29 +216,18 @@ function statusIcon(tc: ToolCallLog) {
   gap: 0.625rem;
   padding: 0.5rem 0.875rem;
   border-radius: 0.75rem;
-  border: 1px solid rgba(184, 46, 142, 0.18);
-  background: rgba(184, 46, 142, 0.06);
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
   font-size: 0.8125rem;
   line-height: 1.1rem;
-  color: rgb(75 85 99);
+  color: var(--accent-ink);
   text-align: left;
   transition: all 160ms ease;
 }
 
 .tool-call-trigger:hover {
-  background: rgba(184, 46, 142, 0.1);
-  border-color: rgba(184, 46, 142, 0.3);
-}
-
-.dark .tool-call-trigger {
-  background: rgba(229, 51, 138, 0.08);
-  border-color: rgba(229, 51, 138, 0.22);
-  color: rgb(203 213 225);
-}
-
-.dark .tool-call-trigger:hover {
-  background: rgba(229, 51, 138, 0.14);
-  border-color: rgba(229, 51, 138, 0.36);
+  background: color-mix(in oklab, var(--accent) 14%, var(--accent-soft));
+  border-color: var(--accent);
 }
 
 .trigger-icon {
@@ -246,14 +237,9 @@ function statusIcon(tc: ToolCallLog) {
   width: 1.5rem;
   height: 1.5rem;
   border-radius: 0.5rem;
-  background: rgba(184, 46, 142, 0.14);
-  color: #B82E8E;
+  background: color-mix(in oklab, var(--accent) 22%, transparent);
+  color: var(--accent-ink);
   flex-shrink: 0;
-}
-
-.dark .trigger-icon {
-  background: rgba(229, 51, 138, 0.18);
-  color: #E5338A;
 }
 
 .trigger-label {
@@ -282,15 +268,10 @@ function statusIcon(tc: ToolCallLog) {
   height: 1.25rem;
   padding: 0 0.375rem;
   border-radius: 999px;
-  background: rgba(184, 46, 142, 0.18);
-  color: #B82E8E;
+  background: color-mix(in oklab, var(--accent) 25%, transparent);
+  color: var(--accent-ink);
   font-size: 0.6875rem;
   font-weight: 600;
-}
-
-.dark .tool-call-count {
-  background: rgba(229, 51, 138, 0.22);
-  color: #F472B6;
 }
 
 /* ── Collapsible ───────────────────────────────────────────────────── */
@@ -312,17 +293,12 @@ function statusIcon(tc: ToolCallLog) {
 .tool-call-panel {
   margin-top: 0.5rem;
   border-radius: 0.875rem;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--hair);
+  background: var(--paper-2);
   padding: 0.875rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-}
-
-.dark .tool-call-panel {
-  background: rgba(20, 10, 33, 0.4);
-  border-color: rgba(255, 255, 255, 0.06);
 }
 
 .tool-call-alert,
@@ -331,20 +307,14 @@ function statusIcon(tc: ToolCallLog) {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.8125rem;
-  color: rgb(107 114 128);
+  color: var(--ink-2);
 }
 
 .tool-call-alert.is-error {
-  color: rgb(220 38 38);
-}
-
-.dark .tool-call-alert,
-.dark .tool-call-empty {
-  color: rgb(156 163 175);
-}
-
-.dark .tool-call-alert.is-error {
-  color: rgb(252 165 165);
+  color: oklch(55% 0.18 25);
+  background: var(--danger-soft);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
 }
 
 /* ── Search ───────────────────────────────────────────────────────── */
@@ -354,16 +324,10 @@ function statusIcon(tc: ToolCallLog) {
   gap: 0.5rem;
   width: 100%;
   border-radius: 0.625rem;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--hair);
+  background: var(--paper);
   padding: 0.4rem 0.625rem;
-  color: rgb(107 114 128);
-}
-
-.dark .search-field {
-  background: rgba(0, 0, 0, 0.2);
-  border-color: rgba(255, 255, 255, 0.08);
-  color: rgb(156 163 175);
+  color: var(--ink-2);
 }
 
 .search-input {
@@ -384,23 +348,14 @@ function statusIcon(tc: ToolCallLog) {
 
 .tool-call-entry {
   border-radius: 0.75rem;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--hair);
+  background: var(--paper);
   overflow: hidden;
   transition: border-color 150ms ease;
 }
 
 .tool-call-entry[open] {
-  border-color: rgba(184, 46, 142, 0.25);
-}
-
-.dark .tool-call-entry {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.06);
-}
-
-.dark .tool-call-entry[open] {
-  border-color: rgba(229, 51, 138, 0.35);
+  border-color: var(--accent-line);
 }
 
 .tool-call-entry-summary {
@@ -424,14 +379,9 @@ function statusIcon(tc: ToolCallLog) {
   width: 1.5rem;
   height: 1.5rem;
   border-radius: 0.5rem;
-  background: rgba(34, 197, 94, 0.12);
-  color: rgb(22 163 74);
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
+  color: var(--accent-ink);
   flex-shrink: 0;
-}
-
-.dark .entry-status {
-  background: rgba(34, 197, 94, 0.18);
-  color: rgb(74 222 128);
 }
 
 .entry-titles {
@@ -444,19 +394,15 @@ function statusIcon(tc: ToolCallLog) {
 .entry-title {
   font-size: 0.8125rem;
   font-weight: 500;
-  color: rgb(31 41 55);
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.dark .entry-title {
-  color: rgb(229 231 235);
-}
-
 .entry-subtitle {
   font-size: 0.6875rem;
-  color: rgb(156 163 175);
+  color: var(--ink-2);
   font-family: var(--font-mono, monospace);
   white-space: nowrap;
   overflow: hidden;
@@ -476,25 +422,20 @@ function statusIcon(tc: ToolCallLog) {
   gap: 0.25rem;
   padding: 0.125rem 0.4rem;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.05);
-  color: rgb(107 114 128);
+  background: color-mix(in oklab, var(--ink) 8%, transparent);
+  color: var(--ink-2);
   font-size: 0.6875rem;
   font-variant-numeric: tabular-nums;
-}
-
-.dark .meta-pill {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgb(156 163 175);
 }
 
 .meta-time {
   font-size: 0.6875rem;
-  color: rgb(156 163 175);
+  color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
 
 .entry-chevron {
-  color: rgb(156 163 175);
+  color: var(--ink-2);
   flex-shrink: 0;
   transition: transform 200ms ease;
 }
@@ -513,12 +454,8 @@ function statusIcon(tc: ToolCallLog) {
 
 .payload-block {
   border-radius: 0.625rem;
-  background: rgba(0, 0, 0, 0.03);
+  background: color-mix(in oklab, var(--ink) 5%, transparent);
   padding: 0.5rem 0.625rem;
-}
-
-.dark .payload-block {
-  background: rgba(0, 0, 0, 0.25);
 }
 
 .payload-label {
@@ -530,11 +467,7 @@ function statusIcon(tc: ToolCallLog) {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: rgb(107 114 128);
-}
-
-.dark .payload-label {
-  color: rgb(156 163 175);
+  color: var(--ink-2);
 }
 
 .payload-block pre {
@@ -543,14 +476,10 @@ function statusIcon(tc: ToolCallLog) {
   word-break: break-word;
   font-size: 0.75rem;
   line-height: 1.25rem;
-  color: rgb(55 65 81);
+  color: var(--ink);
   font-family: var(--font-mono, monospace);
   max-height: 18rem;
   overflow: auto;
-}
-
-.dark .payload-block pre {
-  color: rgb(224 225 221);
 }
 
 /* ── Raw JSON toggle ──────────────────────────────────────────────── */
@@ -568,24 +497,15 @@ function statusIcon(tc: ToolCallLog) {
   padding: 0.25rem 0.5rem;
   border-radius: 0.5rem;
   background: transparent;
-  color: rgb(107 114 128);
+  color: var(--ink-2);
   font-size: 0.6875rem;
   font-weight: 500;
   transition: background-color 150ms ease;
 }
 
 .raw-json-button:hover {
-  background: rgba(0, 0, 0, 0.05);
-  color: rgb(55 65 81);
-}
-
-.dark .raw-json-button {
-  color: rgb(156 163 175);
-}
-
-.dark .raw-json-button:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgb(229 231 235);
+  background: color-mix(in oklab, var(--ink) 6%, transparent);
+  color: var(--ink);
 }
 
 .raw-json-block pre {

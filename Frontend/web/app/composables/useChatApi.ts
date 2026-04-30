@@ -11,6 +11,13 @@ export const MODEL_ENDPOINTS: Record<Provider, string> = {
 
 export const REQUEST_USER_ID_HEADER = 'X-Chat-User-Id'
 
+/**
+ * Plan-awareness flag returned by {@code GET /models/*}. Mirrors the Java enum
+ * {@code com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag}. Consumers should treat
+ * unknown values as {@code 'ALWAYS'} for forward compatibility.
+ */
+export type AvailabilityFlag = 'ALWAYS' | 'BYOK_ONLY' | 'UPGRADE_REQUIRED'
+
 export type ModelOption = {
   label: string
   value: string
@@ -28,6 +35,10 @@ export type ModelOption = {
   inputModalities?: string[]
   outputModalities?: string[]
   supportedParameters?: string[]
+  /** Plan-awareness hint set by the backend (see {@link AvailabilityFlag}). */
+  availability?: AvailabilityFlag | null
+  /** Minimum plan required to unlock this model when {@code availability === 'UPGRADE_REQUIRED'}. */
+  requiredPlan?: 'PREMIUM' | 'MAX' | null
 }
 
 export type MediaAttachment = {
@@ -89,6 +100,52 @@ export type StreamEvent = {
   chatTitle?: string | null
   messageId?: number | null
   hasToolCalls?: boolean | null
+  provider?: Provider | null
+  modelId?: string | null
+  statusCode?: number | null
+  errorType?: string | null
+  receivedBytes?: number | null
+  incomplete?: boolean | null
+}
+
+function parseOptionalBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true') return true
+    if (normalized === 'false') return false
+  }
+  return null
+}
+
+function normalizeParsedStreamEvent(event: StreamEvent): StreamEvent {
+  if (event.statusCode != null) {
+    const parsed =
+      typeof event.statusCode === 'number'
+        ? event.statusCode
+        : Number.parseInt(String(event.statusCode), 10)
+    event.statusCode = Number.isFinite(parsed) ? parsed : null
+  }
+
+  if (event.errorType != null) {
+    event.errorType = String(event.errorType).toUpperCase()
+  }
+
+  if (event.receivedBytes != null) {
+    const parsed =
+      typeof event.receivedBytes === 'number'
+        ? event.receivedBytes
+        : Number.parseInt(String(event.receivedBytes), 10)
+    event.receivedBytes = Number.isFinite(parsed) ? parsed : null
+  }
+
+  if (event.incomplete != null) {
+    event.incomplete = parseOptionalBoolean(event.incomplete)
+  }
+
+  return event
 }
 
 function normalizeSsePayload(raw: string) {
@@ -119,7 +176,7 @@ export function parseSseEvents(raw: string): StreamEvent[] {
     if (!dataLine) continue
 
     try {
-      const parsed = JSON.parse(dataLine) as StreamEvent
+      const parsed = normalizeParsedStreamEvent(JSON.parse(dataLine) as StreamEvent)
       if (parsed && parsed.type) {
         events.push(parsed)
       }
@@ -163,6 +220,41 @@ export function normalizeBaseUrl(value: string) {
 
 export function modelEndpointPath(provider: Provider) {
   return MODEL_ENDPOINTS[provider]
+}
+
+/**
+ * Normalises the {@link AvailabilityFlag} value returned by the backend.
+ * Unknown or missing values are treated as {@code 'ALWAYS'} for forward
+ * compatibility (see {@link AvailabilityFlag}).
+ */
+export function normalizeAvailability(value: unknown): AvailabilityFlag {
+  if (typeof value === 'string') {
+    const upper = value.toUpperCase()
+    if (upper === 'ALWAYS' || upper === 'BYOK_ONLY' || upper === 'UPGRADE_REQUIRED') {
+      return upper
+    }
+  }
+  return 'ALWAYS'
+}
+
+/** Normalises the backend {@code requiredPlan} field to the allowed plan values. */
+export function normalizeRequiredPlan(value: unknown): 'PREMIUM' | 'MAX' | null {
+  if (typeof value === 'string') {
+    const upper = value.toUpperCase()
+    if (upper === 'PREMIUM' || upper === 'MAX') {
+      return upper
+    }
+  }
+  return null
+}
+
+/**
+ * Returns true when the given model is plan-locked for the current user —
+ * i.e. the backend flagged it as {@code UPGRADE_REQUIRED}. UI consumers should
+ * show a lock icon and route clicks to {@code /pricing}.
+ */
+export function isModelLocked(model: Pick<ModelOption, 'availability'>): boolean {
+  return model.availability === 'UPGRADE_REQUIRED'
 }
 
 export function withRequestUserId(
@@ -478,6 +570,22 @@ export function useChatApi() {
   }
 
   /**
+   * Terminates the current server session (Spring Security `/logout`) and
+   * instructs the backend to clear the `JSESSIONID` and `XSRF-TOKEN` cookies.
+   * Returns true on success, false on any network / non-2xx response. Callers
+   * typically follow up by resetting local auth state and redirecting to
+   * `/login`.
+   */
+  const logout = async (): Promise<boolean> => {
+    try {
+      await requestJson<unknown>('/logout', { method: 'POST' })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * Probes a backend endpoint that requires authentication. Returns true if
    * the current session is valid, false for any non-2xx response or network
    * errors. Used by useAuth – we deliberately do NOT throw, because the auth
@@ -518,6 +626,8 @@ export function useChatApi() {
       inputModalities?: string[] | null
       outputModalities?: string[] | null
       supportedParameters?: string[] | null
+      availability?: string | null
+      requiredPlan?: string | null
     }>>(modelEndpointPath(provider), {
       method: 'GET'
     })
@@ -540,7 +650,9 @@ export function useChatApi() {
       modality: model.modality ?? null,
       inputModalities: model.inputModalities ?? [],
       outputModalities: model.outputModalities ?? [],
-      supportedParameters: model.supportedParameters ?? []
+      supportedParameters: model.supportedParameters ?? [],
+      availability: normalizeAvailability(model.availability),
+      requiredPlan: normalizeRequiredPlan(model.requiredPlan)
     }))
   }
 
@@ -558,6 +670,7 @@ export function useChatApi() {
     updateChat,
     deleteChat,
     deleteAccount,
+    logout,
     checkSession,
     fetchModels
   }
