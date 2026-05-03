@@ -1,15 +1,13 @@
 import type { ChatStatus, UIMessage } from 'ai'
-import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, StreamEvent, TokenUsage, ToolCallLog } from '~/composables/useChatApi'
+import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, StreamEvent, TokenUsage } from '~/composables/useChatApi'
 import type { MessagePricing } from '~/composables/chat-helpers'
-import { PROVIDERS, useChatApi } from '~/composables/useChatApi'
+import { useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
 import {
   appendTextToMessage,
-  favoriteModelKey,
   getFirstTextContent,
   messageId,
   parseAttachmentContext,
-  parsePersistedMessageId,
   resolveStreamOutcome
 } from '~/composables/chat-helpers'
 
@@ -28,27 +26,41 @@ export function useChatStore() {
     createChat,
     fetchChats,
     fetchChatMessages,
-    fetchMessageToolCalls,
     streamMessage,
     editAndStreamMessage,
-    fetchModels,
     updateChat,
     deleteChat
   } = useChatApi()
   const { settings } = useUserSettings()
+  const {
+    models,
+    sortedModels,
+    modelsLoading,
+    modelsError,
+    defaultModel,
+    isFavorite,
+    toggleFavorite,
+    ensureModels,
+    saveLastUsedModel,
+    resetModels
+  } = useModelStore()
+  const {
+    clearToolCallMetadata,
+    resetToolCallState,
+    rekeyToolCallMetadata,
+    setToolCallAvailability,
+    hasToolCalls,
+    getToolCalls,
+    getToolCallError,
+    isToolCallLoading,
+    ensureToolCalls
+  } = useToolCallStore()
 
   const conversations = useState<Conversation[]>('chat-conversations', () => [])
   const activeChatId = useState<string | null>('chat-active-id', () => null)
-  const models = useState<ModelOption[]>('chat-models', () => [])
-  const modelsLoading = useState<boolean>('chat-models-loading', () => false)
-  const modelsError = useState<string | null>('chat-models-error', () => null)
   const tokenUsageMap = useState<Record<string, TokenUsage>>('chat-token-usage', () => ({}))
   const messagePricingMap = useState<Record<string, MessagePricing>>('chat-message-pricing', () => ({}))
   const reasoningMap = useState<Record<string, string>>('chat-reasoning', () => ({}))
-  const toolCallAvailabilityMap = useState<Record<string, boolean>>('chat-tool-call-availability', () => ({}))
-  const toolCallLogMap = useState<Record<string, ToolCallLog[]>>('chat-tool-call-logs', () => ({}))
-  const toolCallLoadingMap = useState<Record<string, boolean>>('chat-tool-call-loading', () => ({}))
-  const toolCallErrorMap = useState<Record<string, string | null>>('chat-tool-call-errors', () => ({}))
   const webSearchEnabled = useState<boolean>('chat-web-search-enabled', () => false)
   const activeConversation = computed(() =>
     conversations.value.find(c => c.session.chatId === activeChatId.value) || null
@@ -58,45 +70,8 @@ export function useChatStore() {
     Reflect.deleteProperty(tokenUsageMap.value, messageId)
     Reflect.deleteProperty(messagePricingMap.value, messageId)
     Reflect.deleteProperty(reasoningMap.value, messageId)
-    Reflect.deleteProperty(toolCallAvailabilityMap.value, messageId)
-    Reflect.deleteProperty(toolCallLogMap.value, messageId)
-    Reflect.deleteProperty(toolCallLoadingMap.value, messageId)
-    Reflect.deleteProperty(toolCallErrorMap.value, messageId)
+    clearToolCallMetadata(messageId)
   }
-
-  const defaultModel = computed<ModelOption | null>(() => {
-    const saved = settings.value.lastUsedModel
-    if (saved) {
-      const match = models.value.find(m => m.value === saved.value && m.provider === saved.provider)
-      if (match) return match
-    }
-    return models.value[0] || null
-  })
-
-  const isFavorite = (model: ModelOption): boolean =>
-    settings.value.favoriteModels.includes(favoriteModelKey(model))
-
-  const toggleFavorite = (model: ModelOption) => {
-    const key = favoriteModelKey(model)
-    const favorites = settings.value.favoriteModels
-    if (favorites.includes(key)) {
-      settings.value.favoriteModels = favorites.filter(k => k !== key)
-    } else {
-      settings.value.favoriteModels = [...favorites, key]
-    }
-  }
-
-  const sortedModels = computed<ModelOption[]>(() =>
-    [...models.value].sort((a, b) => {
-      const aFav = isFavorite(a) ? 0 : 1
-      const bFav = isFavorite(b) ? 0 : 1
-      if (aFav !== bFav) return aFav - bFav
-      if (a.provider !== b.provider) {
-        return PROVIDERS.indexOf(a.provider) - PROVIDERS.indexOf(b.provider)
-      }
-      return a.label.localeCompare(b.label)
-    })
-  )
 
   const toUiMessage = (message: BackendMessage): UIMessage => {
     const role =
@@ -126,7 +101,7 @@ export function useChatStore() {
     }
 
     if (role === 'assistant') {
-      toolCallAvailabilityMap.value[id] = message.hasToolCalls === true
+      setToolCallAvailability(id, message.hasToolCalls === true)
     }
 
     const createdAt = message.createdAt ? new Date(message.createdAt) : undefined
@@ -138,53 +113,15 @@ export function useChatStore() {
     () => settings.value.backendBaseUrl,
     () => {
       // Reset cached data when the backend changes
-      models.value = []
+      resetModels()
       conversations.value = []
       activeChatId.value = null
       tokenUsageMap.value = {}
       messagePricingMap.value = {}
       reasoningMap.value = {}
-      toolCallAvailabilityMap.value = {}
-      toolCallLogMap.value = {}
-      toolCallLoadingMap.value = {}
-      toolCallErrorMap.value = {}
+      resetToolCallState()
     }
   )
-
-  const ensureModels = async () => {
-    modelsLoading.value = true
-    try {
-      const results = await Promise.allSettled([
-        ...PROVIDERS.map(provider => fetchModels(provider))
-      ])
-
-      const loaded: ModelOption[] = []
-      const errors: string[] = []
-
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          loaded.push(...result.value)
-        } else {
-          const msg = result.reason instanceof Error ? result.reason.message : String(result.reason)
-          errors.push(msg)
-          console.error('Failed to load models for a provider:', msg)
-        }
-      }
-
-      models.value = loaded
-      modelsError.value = loaded.length === 0 && errors.length > 0
-        ? errors[0]
-        : null
-    } catch (err) {
-      console.error(err)
-      modelsError.value =
-        err instanceof Error ? err.message : 'Unable to load models from backend.'
-    } finally {
-      modelsLoading.value = false
-    }
-
-    return models.value
-  }
 
   const loadMessagesForChat = async (chatId: string) => {
     const conversation = conversations.value.find(c => c.session.chatId === chatId)
@@ -359,10 +296,7 @@ export function useChatStore() {
     rekeyStateEntry(tokenUsageMap.value, oldId, newId)
     rekeyStateEntry(messagePricingMap.value, oldId, newId)
     rekeyStateEntry(reasoningMap.value, oldId, newId)
-    rekeyStateEntry(toolCallAvailabilityMap.value, oldId, newId)
-    rekeyStateEntry(toolCallLogMap.value, oldId, newId)
-    rekeyStateEntry(toolCallLoadingMap.value, oldId, newId)
-    rekeyStateEntry(toolCallErrorMap.value, oldId, newId)
+    rekeyToolCallMetadata(oldId, newId)
   }
 
   const finalizeAssistantMessage = (
@@ -378,48 +312,9 @@ export function useChatStore() {
       rekeyMessageMetadata(currentMessage.id, nextId)
     }
     if (event.hasToolCalls != null) {
-      toolCallAvailabilityMap.value[nextId] = event.hasToolCalls
+      setToolCallAvailability(nextId, event.hasToolCalls)
     }
     return updatedMessage
-  }
-
-  const hasToolCalls = (messageId: string) => toolCallAvailabilityMap.value[messageId] === true
-
-  const getToolCalls = (messageId: string) => toolCallLogMap.value[messageId] ?? []
-
-  const getToolCallError = (messageId: string) => toolCallErrorMap.value[messageId] ?? null
-
-  const isToolCallLoading = (messageId: string) => toolCallLoadingMap.value[messageId] === true
-
-  const ensureToolCalls = async (messageId: string) => {
-    if (!hasToolCalls(messageId)) {
-      toolCallLogMap.value[messageId] = []
-      return []
-    }
-
-    if (toolCallLogMap.value[messageId]) {
-      return toolCallLogMap.value[messageId]
-    }
-
-    const backendId = parsePersistedMessageId(messageId)
-    if (backendId == null) {
-      throw new Error('Tool call logs are only available for persisted messages.')
-    }
-
-    toolCallLoadingMap.value[messageId] = true
-    toolCallErrorMap.value[messageId] = null
-
-    try {
-      const logs = await fetchMessageToolCalls(backendId)
-      toolCallLogMap.value[messageId] = logs
-      return logs
-    } catch (err) {
-      toolCallErrorMap.value[messageId] =
-        err instanceof Error ? err.message : 'Unable to load tool call logs.'
-      throw err
-    } finally {
-      toolCallLoadingMap.value[messageId] = false
-    }
   }
 
   const sendPrompt = async (
@@ -596,10 +491,6 @@ export function useChatStore() {
     }
 
     return sendPrompt(chatId, lastPrompt, model, { appendUserMessage: false })
-  }
-
-  const saveLastUsedModel = (model: ModelOption) => {
-    settings.value.lastUsedModel = model
   }
 
   /**
