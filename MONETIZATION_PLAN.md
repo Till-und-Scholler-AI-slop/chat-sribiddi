@@ -59,3 +59,27 @@ Entscheidung: **keine hardcodierte Modell-ID-Whitelist**. Zugriff wird ausschlie
   - Keine hardcodierte Whitelist
   - Paid-Grenze: `input > 2.0 USD / 1M` oder `output > 5.0 USD / 1M`
   - Quelle: Issue-Anweisung zu #149 (BILL-1)
+
+## 5) Advertising policy (#247)
+
+Stand: 2026-05-03
+
+The monetization decision from #247 and #251 is a hybrid subscription, BYOK, and advertising
+model:
+
+- Free-tier and BYOK users may see third-party advertising.
+- Google AdSense is the expected first provider unless the privacy/vendor follow-up chooses a
+  different approved vendor.
+- Free-tier and BYOK users may also see internal upgrade promotion.
+- Paid tiers must never see third-party ads.
+- Paid tiers may see internal feature hints or upgrade promotion when those messages do not rely on
+  third-party tracking.
+- DSGVO/privacy constraints, the approved vendor list, consent requirements, and placement rules
+  must be completed before provider integration ships.
+
+Follow-up implementation tickets:
+
+- #264 — define privacy constraints and approved ad vendor list.
+- #265 — add consent and entitlement model for ad visibility.
+- #266 — integrate the third-party ad provider for eligible Free/BYOK users.
+- #267 — implement internal upgrade promotion placements.
