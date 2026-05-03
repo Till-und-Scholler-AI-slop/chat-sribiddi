@@ -32,6 +32,7 @@ import com.rft.chat_sribiddi.billing.UsageEventService;
 import com.rft.chat_sribiddi.tools.CalculatorTool;
 import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
 import com.rft.chat_sribiddi.tools.UrlFetcherTool;
+import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
@@ -253,6 +254,7 @@ public class ChatService {
           requestDTO.provider(),
           requestDTO.modelId(),
           requestDTO.webSearchEnabled(),
+          requestDTO.toolConsents(),
           toolExecutionCollector,
           promptSpec);
       chatResponse = promptSpec.call().chatResponse();
@@ -436,6 +438,7 @@ public class ChatService {
           requestDTO.provider(),
           requestDTO.modelId(),
           requestDTO.webSearchEnabled(),
+          requestDTO.toolConsents(),
           toolExecutionCollector,
           promptSpec);
       String assistantContext =
@@ -1561,14 +1564,21 @@ public class ChatService {
       RequestDTO.Provider provider,
       String modelId,
       Boolean webSearchEnabled,
+      List<RequestDTO.ToolConsent> toolConsents,
       ToolExecutionCollector collector,
       ChatClient.ChatClientRequestSpec promptSpec) {
     if (!supportsTools(provider, modelId)) {
       log.debug("Skipping tool wiring for provider={} model={} due to app.chat tool gating", provider, modelId);
       return;
     }
-    for (com.rft.chat_sribiddi.tools.api.ChatTool tool : toolRegistry.getAll()) {
+    for (ChatTool tool : toolRegistry.getAll()) {
       if (!isToolEnabledForChat(chatId, tool.getName())) {
+        continue;
+      }
+      if (tool.requiresPerCallConsent() && !hasToolConsent(tool, toolConsents)) {
+        log.info(
+            "Skipping high-risk tool '{}' because request did not include explicit consent",
+            tool.getName());
         continue;
       }
       switch (tool.getName()) {
@@ -1594,6 +1604,21 @@ public class ChatService {
             promptSpec.tools(tool);
       }
     }
+  }
+
+  boolean hasToolConsent(ChatTool tool, List<RequestDTO.ToolConsent> toolConsents) {
+    if (!tool.requiresPerCallConsent()) {
+      return true;
+    }
+    if (toolConsents == null || toolConsents.isEmpty()) {
+      return false;
+    }
+    return toolConsents.stream()
+        .filter(Objects::nonNull)
+        .anyMatch(
+            consent ->
+                tool.getName().equals(consent.toolName())
+                    && tool.riskLevel().name().equalsIgnoreCase(consent.riskLevel()));
   }
 
   private boolean isToolEnabledForChat(UUID chatId, String toolName) {

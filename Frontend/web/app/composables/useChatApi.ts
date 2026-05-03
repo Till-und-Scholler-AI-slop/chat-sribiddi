@@ -47,6 +47,12 @@ export type MediaAttachment = {
   name?: string
 }
 
+export type ToolConsent = {
+  toolName: string
+  riskLevel: 'LOW' | 'HIGH'
+  args?: Record<string, unknown>
+}
+
 export type ChatSession = {
   chatId: string
   title?: string | null
@@ -215,6 +221,7 @@ type SendMessageInput = {
   modelId: string
   media?: Array<Pick<MediaAttachment, 'mimeType' | 'data'>>
   webSearchEnabled?: boolean
+  toolConsents?: ToolConsent[]
 }
 
 export const DEFAULT_BACKEND_BASE_URL = 'http://localhost:8080'

@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Payload for sending a chat message.
@@ -22,11 +23,27 @@ public record RequestDTO(
     @Deprecated @JsonIgnore String apiKey,
     @Size(max = 5, message = "media supports up to 5 attachments")
         List<@NotNull(message = "media items must not be null") @Valid MediaAttachment> media,
-    Boolean webSearchEnabled) {
+    Boolean webSearchEnabled,
+    List<@Valid ToolConsent> toolConsents) {
+
+  public RequestDTO(
+      String content,
+      Provider provider,
+      String modelId,
+      String apiKey,
+      List<MediaAttachment> media,
+      Boolean webSearchEnabled) {
+    this(content, provider, modelId, apiKey, media, webSearchEnabled, null);
+  }
 
   public record MediaAttachment(
       @NotBlank(message = "mimeType must not be blank") String mimeType,
       @NotBlank(message = "data must not be blank") String data) {}
+
+  public record ToolConsent(
+      @NotBlank(message = "toolName must not be blank") String toolName,
+      @NotBlank(message = "riskLevel must not be blank") String riskLevel,
+      Map<String, Object> args) {}
 
   public enum Provider {
     OPENAI,

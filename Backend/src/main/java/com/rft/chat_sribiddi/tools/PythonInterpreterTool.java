@@ -2,6 +2,7 @@ package com.rft.chat_sribiddi.tools;
 
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolResult;
+import com.rft.chat_sribiddi.tools.api.ToolRiskLevel;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -66,6 +67,11 @@ public class PythonInterpreterTool implements ChatTool {
     return "Execute Python code and return stdout/stderr output. "
         + "Useful for calculations, data processing, string manipulation, etc. "
         + "Runs inside an ephemeral Docker sandbox.";
+  }
+
+  @Override
+  public ToolRiskLevel riskLevel() {
+    return ToolRiskLevel.HIGH;
   }
 
   @Override

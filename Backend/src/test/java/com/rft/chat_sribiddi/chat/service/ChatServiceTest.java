@@ -15,6 +15,7 @@ import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
+import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.model.ToolCallLogEntity;
@@ -27,12 +28,14 @@ import com.rft.chat_sribiddi.observability.ChatMetrics;
 import com.rft.chat_sribiddi.tools.CalculatorTool;
 import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
 import com.rft.chat_sribiddi.tools.UrlFetcherTool;
+import com.rft.chat_sribiddi.tools.api.ToolRiskLevel;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.http.HttpClient;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -412,6 +415,76 @@ class ChatServiceTest {
     chatService.sendMessage(chatId, userId, request);
 
     verify(requestSpec, never()).tools(any());
+  }
+
+  @Test
+  void sendMessage_highRiskToolWithoutConsentSkipsToolDefinition() {
+    RequestDTO request =
+        new RequestDTO("run code", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(RequestDTO.Provider.OPENAI, "gpt-5.2", "key"))
+        .thenReturn(org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("ok")))));
+    when(toolRegistry.getAll()).thenReturn(List.of(pythonInterpreterTool));
+    when(pythonInterpreterTool.getName()).thenReturn("python-interpreter");
+    when(pythonInterpreterTool.requiresPerCallConsent()).thenReturn(true);
+    when(chatToolRepository.findByChatIdAndToolName(chatId, "python-interpreter"))
+        .thenReturn(Optional.of(enabledTool("python-interpreter")));
+
+    chatService.sendMessage(chatId, userId, request);
+
+    verify(requestSpec, never()).tools(any());
+  }
+
+  @Test
+  void sendMessage_highRiskToolWithConsentWiresToolDefinition() {
+    RequestDTO request =
+        new RequestDTO(
+            "run code",
+            RequestDTO.Provider.OPENAI,
+            "gpt-5.2",
+            null,
+            null,
+            null,
+            List.of(new RequestDTO.ToolConsent("python-interpreter", "HIGH", Map.of())));
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(RequestDTO.Provider.OPENAI, "gpt-5.2", "key"))
+        .thenReturn(org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("ok")))));
+    when(toolRegistry.getAll()).thenReturn(List.of(pythonInterpreterTool));
+    when(pythonInterpreterTool.getName()).thenReturn("python-interpreter");
+    when(pythonInterpreterTool.requiresPerCallConsent()).thenReturn(true);
+    when(pythonInterpreterTool.riskLevel()).thenReturn(ToolRiskLevel.HIGH);
+    when(chatToolRepository.findByChatIdAndToolName(chatId, "python-interpreter"))
+        .thenReturn(Optional.of(enabledTool("python-interpreter")));
+
+    chatService.sendMessage(chatId, userId, request);
+
+    verify(requestSpec).tools(any());
   }
 
   @Test
@@ -1561,6 +1634,14 @@ class ChatServiceTest {
     message.setMessage("message-" + id);
     message.setRole(Role.USER);
     return message;
+  }
+
+  private ChatToolEntity enabledTool(String toolName) {
+    ChatToolEntity entity = new ChatToolEntity();
+    entity.setChatId(chatId);
+    entity.setToolName(toolName);
+    entity.setEnabled(true);
+    return entity;
   }
 
   private static Entitlements entitlements(Plan plan) {

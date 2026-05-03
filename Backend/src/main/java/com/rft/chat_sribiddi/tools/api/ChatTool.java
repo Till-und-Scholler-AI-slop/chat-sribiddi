@@ -22,6 +22,16 @@ public interface ChatTool {
     return false;
   }
 
+  /** Risk classification used by the chat consent gate. */
+  default ToolRiskLevel riskLevel() {
+    return ToolRiskLevel.LOW;
+  }
+
+  /** Whether this tool must receive explicit per-request consent before model wiring. */
+  default boolean requiresPerCallConsent() {
+    return riskLevel() == ToolRiskLevel.HIGH;
+  }
+
   /**
    * Execute the tool with the given parameters.
    *
