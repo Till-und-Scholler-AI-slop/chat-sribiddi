@@ -3,6 +3,7 @@ package com.rft.chat_sribiddi.chat.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rft.chat_sribiddi.auth.BillingMode;
+import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.chat.dto.MessageResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
@@ -34,6 +35,7 @@ import com.rft.chat_sribiddi.tools.UrlFetcherTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import com.rft.chat_sribiddi.observability.ChatMetrics;
 import com.rft.chat_sribiddi.websearch.BraveSearchTool;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.transaction.Transactional;
@@ -115,6 +117,7 @@ public class ChatService {
   private final com.rft.chat_sribiddi.tools.CurrentDateTimeTool currentDateTimeTool;
   private final EntitlementService entitlementService;
   private final UsageEventService usageEventService;
+  private final ChatMetrics chatMetrics;
 
   @Transactional
   public void deleteChat(UUID chatId, String userId) {
@@ -232,6 +235,7 @@ public class ChatService {
     }
 
     String resolvedKey = resolveApiKey(userId, requestDTO);
+    Plan plan = resolvePlanForMetrics(userId);
 
     ChatResponse chatResponse;
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
@@ -253,6 +257,9 @@ public class ChatService {
           promptSpec);
       chatResponse = promptSpec.call().chatResponse();
       providerCallSucceeded = true;
+    } catch (RuntimeException | Error error) {
+      chatMetrics.recordRequest(requestDTO.provider(), requestDTO.modelId(), plan, "error");
+      throw error;
     }
 
     if (log.isTraceEnabled()) {
@@ -301,6 +308,7 @@ public class ChatService {
         totalTokens,
         assistantMessage.getId(),
         billingMode,
+        plan,
         providerCallSucceeded);
 
     log.debug("Message persisted successfully");
@@ -319,10 +327,11 @@ public class ChatService {
             .orElseThrow(() -> new ChatNotFoundException(chatId));
 
     BillingMode billingMode = assertEntitlementsForCall(userId, requestDTO);
+    Plan plan = resolvePlanForMetrics(userId);
     MessagePreparation prep = prepareUserMessage(chatId, chat, userId, requestDTO);
 
     return createAndSubscribeStream(
-        userId, requestDTO, prep.promptMessages(), chatId, prep.updatedTitle(), billingMode);
+        userId, requestDTO, prep.promptMessages(), chatId, prep.updatedTitle(), billingMode, plan);
   }
 
   /**
@@ -354,6 +363,7 @@ public class ChatService {
     // Run entitlement checks before mutating chat history so that a rejected request
     // never leaves the database in a half-edited state.
     BillingMode billingMode = assertEntitlementsForCall(userId, requestDTO);
+    Plan plan = resolvePlanForMetrics(userId);
 
     userMessage.setMessage(requestDTO.content());
     userMessage.setContext(userContext);
@@ -367,7 +377,8 @@ public class ChatService {
         buildPromptMessages(chatId, validatedMedia, messageId, customInstructions,
             requestDTO.provider(), requestDTO.modelId());
 
-    return createAndSubscribeStream(userId, requestDTO, promptMessages, chatId, null, billingMode);
+    return createAndSubscribeStream(
+        userId, requestDTO, promptMessages, chatId, null, billingMode, plan);
   }
 
   private record MessagePreparation(
@@ -407,7 +418,7 @@ public class ChatService {
 
   private SseEmitter createAndSubscribeStream(
       String userId, RequestDTO requestDTO, List<Message> promptMessages,
-      UUID chatId, String updatedTitle, BillingMode billingMode) {
+      UUID chatId, String updatedTitle, BillingMode billingMode, Plan plan) {
     String resolvedKey = resolveApiKey(userId, requestDTO);
     SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
     ClientHolder clientHolder =
@@ -439,6 +450,7 @@ public class ChatService {
           requestDTO.provider(),
           requestDTO.modelId(),
           billingMode,
+          plan,
           chatId,
           assistantContext,
           updatedTitle,
@@ -462,6 +474,7 @@ public class ChatService {
       Provider provider,
       String modelId,
       BillingMode billingMode,
+      Plan plan,
       UUID chatId,
       String assistantContext,
       String updatedTitle,
@@ -470,40 +483,59 @@ public class ChatService {
     StringBuilder fullText = new StringBuilder();
     AtomicLong streamedTextUtf8Bytes = new AtomicLong();
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
+    ChatMetrics.StreamSample streamSample = chatMetrics.startStream(provider, modelId);
 
-    promptSpec
-        .stream()
-        .chatResponse()
-        .subscribe(
-            chunk -> handleStreamChunk(chunk, fullText, streamedTextUtf8Bytes, lastUsage, emitter),
-            error ->
-                handleStreamError(
-                    userId,
-                    provider,
-                    modelId,
-                    billingMode,
-                    chatId,
-                    error,
-                    streamedTextUtf8Bytes.get(),
-                    lastUsage,
-                    emitter,
-                    clientHolder),
-            () -> handleStreamCompletion(
-                userId,
-                provider,
-                modelId,
-                billingMode,
-                fullText,
-                lastUsage,
-                chatId,
-                assistantContext,
-                updatedTitle,
-                toolExecutionCollector,
-                emitter,
-                clientHolder));
+    try {
+      promptSpec
+          .stream()
+          .chatResponse()
+          .subscribe(
+              chunk -> handleStreamChunk(chunk, fullText, streamedTextUtf8Bytes, lastUsage, emitter),
+              error ->
+                  handleStreamError(
+                      userId,
+                      provider,
+                      modelId,
+                      billingMode,
+                      plan,
+                      chatId,
+                      error,
+                      streamedTextUtf8Bytes.get(),
+                      lastUsage,
+                      emitter,
+                      clientHolder,
+                      streamSample),
+              () -> handleStreamCompletion(
+                  userId,
+                  provider,
+                  modelId,
+                  billingMode,
+                  plan,
+                  fullText,
+                  lastUsage,
+                  chatId,
+                  assistantContext,
+                  updatedTitle,
+                  toolExecutionCollector,
+                  emitter,
+                  clientHolder,
+                  streamSample));
+    } catch (RuntimeException | Error error) {
+      chatMetrics.recordStreamEnd(streamSample);
+      throw error;
+    }
 
-    emitter.onTimeout(clientHolder::close);
-    emitter.onError(_ -> clientHolder.close());
+    emitter.onTimeout(
+        () -> {
+          chatMetrics.recordStreamEnd(streamSample);
+          clientHolder.close();
+        });
+    emitter.onError(
+        _ -> {
+          chatMetrics.recordStreamEnd(streamSample);
+          clientHolder.close();
+        });
+    emitter.onCompletion(() -> chatMetrics.recordStreamEnd(streamSample));
   }
 
   private void handleStreamChunk(
@@ -563,12 +595,14 @@ public class ChatService {
       Provider provider,
       String modelId,
       BillingMode billingMode,
+      Plan plan,
       UUID chatId,
       Throwable error,
       long streamedTextUtf8Bytes,
       AtomicReference<Usage> lastUsage,
       SseEmitter emitter,
-      ClientHolder clientHolder) {
+      ClientHolder clientHolder,
+      ChatMetrics.StreamSample streamSample) {
     StreamErrorDetails streamErrorDetails =
         describeStreamError(provider, modelId, streamedTextUtf8Bytes, error);
     logStreamingError(chatId, streamErrorDetails, error);
@@ -603,7 +637,9 @@ public class ChatService {
               tokenUsage.totalTokens(),
               null,
               billingMode,
+              plan,
               false);
+          chatMetrics.recordStreamEnd(streamSample);
           emitter.complete();
       }
   }
@@ -613,10 +649,11 @@ public class ChatService {
       Provider provider,
       String modelId,
       BillingMode billingMode,
+      Plan plan,
       StringBuilder fullText, AtomicReference<Usage> lastUsage,
       UUID chatId, String assistantContext, String updatedTitle,
       ToolExecutionCollector toolExecutionCollector,
-      SseEmitter emitter, ClientHolder clientHolder) {
+      SseEmitter emitter, ClientHolder clientHolder, ChatMetrics.StreamSample streamSample) {
       AtomicReference<Long> savedMessageId = new AtomicReference<>();
       try (clientHolder) {
           String assistantResponse = fullText.toString();
@@ -685,7 +722,9 @@ public class ChatService {
                tokenUsage.totalTokens(),
                savedMessageId.get(),
                billingMode,
+               plan,
                true);
+           chatMetrics.recordStreamEnd(streamSample);
        }
   }
 
@@ -699,6 +738,16 @@ public class ChatService {
     return billingMode;
   }
 
+  private Plan resolvePlanForMetrics(String userId) {
+    try {
+      var entitlements = entitlementService.get(userId);
+      return entitlements == null ? null : entitlements.plan();
+    } catch (Exception ex) {
+      log.debug("Unable to resolve plan for chat metrics user={}", userId, ex);
+      return null;
+    }
+  }
+
   private void recordUsageAndMaybeIncrementCounter(
       String userId,
       Provider provider,
@@ -708,7 +757,11 @@ public class ChatService {
       Long totalTokens,
       Long messageId,
       BillingMode billingMode,
+      Plan plan,
       boolean providerCallSucceeded) {
+    chatMetrics.recordRequest(provider, modelId, plan, providerCallSucceeded ? "success" : "error");
+    chatMetrics.recordTokens(provider, modelId, "prompt", promptTokens);
+    chatMetrics.recordTokens(provider, modelId, "completion", generationTokens);
     try {
       usageEventService.record(
           userId,

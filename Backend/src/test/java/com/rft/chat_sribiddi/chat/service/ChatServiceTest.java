@@ -8,6 +8,7 @@ import static org.mockito.Mockito.*;
 import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.billing.EntitlementService;
+import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.billing.UsageEventService;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
@@ -22,6 +23,7 @@ import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
+import com.rft.chat_sribiddi.observability.ChatMetrics;
 import com.rft.chat_sribiddi.tools.CalculatorTool;
 import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
 import com.rft.chat_sribiddi.tools.UrlFetcherTool;
@@ -32,6 +34,7 @@ import java.net.http.HttpClient;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -64,6 +67,7 @@ class ChatServiceTest {
   @Mock private com.rft.chat_sribiddi.auth.UserSettingsService userSettingsService;
   @Mock private EntitlementService entitlementService;
   @Mock private UsageEventService usageEventService;
+  @Mock private ChatMetrics chatMetrics;
   @Mock private HttpClient webSearchHttpClient;
   @Mock private ToolRegistry toolRegistry;
   @Mock private CalculatorTool calculatorTool;
@@ -84,7 +88,8 @@ class ChatServiceTest {
         apiKeyService, providerClientFactory, chatProperties, userSettingsService,
         new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
         toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
-        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), entitlementService, usageEventService);
+        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), entitlementService, usageEventService,
+        chatMetrics);
   }
 
   @BeforeEach
@@ -97,6 +102,7 @@ class ChatServiceTest {
     lenient()
         .when(entitlementService.resolveBillingMode(anyString()))
         .thenReturn(BillingMode.BYOK);
+    lenient().when(entitlementService.get(anyString())).thenReturn(entitlements(Plan.FREE));
     lenient().when(chatToolRepository.findByChatId(any())).thenReturn(List.of());
     lenient().when(toolRegistry.getAll()).thenReturn(List.of());
     lenient()
@@ -223,7 +229,8 @@ class ChatServiceTest {
             List.class,
             UUID.class,
             String.class,
-            BillingMode.class);
+            BillingMode.class,
+            Plan.class);
     method.setAccessible(true);
 
     assertThatThrownBy(
@@ -235,7 +242,8 @@ class ChatServiceTest {
                     List.<Message>of(new UserMessage("hi")),
                     chatId,
                     null,
-                    BillingMode.BYOK))
+                    BillingMode.BYOK,
+                    Plan.FREE))
         .isInstanceOf(InvocationTargetException.class)
         .hasCauseInstanceOf(RuntimeException.class);
     verify(closeable).close();
@@ -720,6 +728,10 @@ class ChatServiceTest {
     assertThat(assistantMsg.getPromptTokens()).isEqualTo(50L);
     assertThat(assistantMsg.getGenerationTokens()).isEqualTo(20L);
     assertThat(assistantMsg.getTotalTokens()).isEqualTo(70L);
+    verify(chatMetrics)
+        .recordRequest(RequestDTO.Provider.OPENAI, "gpt-5.2", Plan.FREE, "success");
+    verify(chatMetrics).recordTokens(RequestDTO.Provider.OPENAI, "gpt-5.2", "prompt", 50L);
+    verify(chatMetrics).recordTokens(RequestDTO.Provider.OPENAI, "gpt-5.2", "completion", 20L);
   }
 
   @Test
@@ -1549,5 +1561,9 @@ class ChatServiceTest {
     message.setMessage("message-" + id);
     message.setRole(Role.USER);
     return message;
+  }
+
+  private static Entitlements entitlements(Plan plan) {
+    return new Entitlements(plan, 5, 5_242_880, 20_971_520, 20, Set.of("*"), 100, 1, null, null);
   }
 }
