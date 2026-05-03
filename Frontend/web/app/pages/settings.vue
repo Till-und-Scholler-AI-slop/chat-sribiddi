@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {Provider} from '~/composables/useChatApi'
+import type { BillingMode } from '~/composables/useEntitlements'
 
 const { t, locale, locales, setLocale } = useI18n()
 const tt = useTranslatedError()
@@ -8,10 +9,11 @@ definePageMeta({
   layout: 'default'
 })
 
-const { settings, hydrated} = useUserSettings()
+const { settings, hydrated, saveBillingMode} = useUserSettings()
 const {getStatus, saveKey, deleteKey} = useKeyApi()
 const {getCustomInstructions, saveCustomInstructions} = useInstructionsApi()
 const {deleteAccount} = useChatApi()
+const {entitlements, plan, ensureLoaded, load: loadEntitlements} = useEntitlements()
 const {models} = useChatStore()
 const {status: authStatus} = useAuth()
 const toast = useToast()
@@ -116,6 +118,32 @@ const handleColorModeChange = (next: ColorModePreference) => {
 const loadingStatus = ref(true)
 const status = ref<KeyProviderStatus | null>(null)
 
+const billingMode = ref<BillingMode>('AUTO')
+const loadingBillingMode = ref(true)
+const savingBillingMode = ref(false)
+
+const isPaidPlan = computed(() => plan.value === 'PREMIUM' || plan.value === 'MAX')
+const billingModeItems = computed(() => [
+  {
+    label: t('settings.billingModeAutoLabel'),
+    value: 'AUTO' as BillingMode,
+    description: t('settings.billingModeAutoDescription')
+  },
+  {
+    label: t('settings.billingModeByokLabel'),
+    value: 'BYOK' as BillingMode,
+    description: t('settings.billingModeByokDescription')
+  },
+  {
+    label: t('settings.billingModeManagedLabel'),
+    value: 'MANAGED' as BillingMode,
+    disabled: !isPaidPlan.value,
+    description: isPaidPlan.value
+      ? t('settings.billingModeManagedDescription')
+      : t('settings.billingModeManagedUpgradeDescription')
+  }
+])
+
 const form = reactive<Record<Provider, string>>({
   OPENAI: '',
   GOOGLE: '',
@@ -196,9 +224,63 @@ onMounted(async () => {
         color: 'error'
       })
     }),
+    loadBillingModePreference(),
     loadCustomInstructions()
   ])
 })
+
+function isBillingMode(value: unknown): value is BillingMode {
+  return value === 'AUTO' || value === 'BYOK' || value === 'MANAGED'
+}
+
+async function loadBillingModePreference() {
+  loadingBillingMode.value = true
+  try {
+    const loaded = await ensureLoaded()
+    billingMode.value = loaded?.billingModePreference ?? entitlements.value.billingModePreference
+  } catch (err) {
+    console.error(err)
+  } finally {
+    loadingBillingMode.value = false
+  }
+}
+
+async function handleBillingModeChange(next: unknown) {
+  if (!isBillingMode(next) || next === billingMode.value) return
+
+  if (next === 'MANAGED' && !isPaidPlan.value) {
+    toast.add({
+      title: t('settings.billingModeManagedUnavailableTitle'),
+      description: t('settings.billingModeManagedUpgradeDescription'),
+      color: 'warning'
+    })
+    return
+  }
+
+  const previous = billingMode.value
+  billingMode.value = next
+  savingBillingMode.value = true
+  try {
+    const result = await saveBillingMode(next)
+    billingMode.value = result.billingMode
+    models.value = []
+    await loadEntitlements({ force: true })
+    toast.add({
+      title: t('settings.billingModeSavedTitle'),
+      description: t('settings.billingModeSavedDescription'),
+      color: 'primary'
+    })
+  } catch (err) {
+    billingMode.value = previous
+    toast.add({
+      title: t('settings.billingModeSaveFailed'),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    savingBillingMode.value = false
+  }
+}
 
 async function handleSave(provider: Provider) {
   const key = form[provider].trim()
@@ -404,6 +486,29 @@ async function handleDeleteAccount() {
 
           <div class="space-y-8 mt-8">
             <template v-if="activeTab === 'keys'">
+              <UCard class="card-elevated">
+                <div class="space-y-4">
+                  <div class="space-y-1">
+                    <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.billingModeHeading') }}</h2>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 max-w-2xl">
+                      {{ t('settings.billingModeDescription') }}
+                    </p>
+                  </div>
+                  <div v-if="loadingBillingMode" class="skeleton-shimmer h-24" />
+                  <URadioGroup
+                    v-else
+                    :model-value="billingMode"
+                    :items="billingModeItems"
+                    value-key="value"
+                    label-key="label"
+                    description-key="description"
+                    color="primary"
+                    :disabled="savingBillingMode"
+                    @update:model-value="handleBillingModeChange"
+                  />
+                </div>
+              </UCard>
+
               <UCard class="card-elevated">
             <div class="flex items-start justify-between gap-4 mb-8 flex-wrap">
               <div class="space-y-1">

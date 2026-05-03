@@ -35,7 +35,8 @@ describe('normalizeEntitlements', () => {
       caps: {},
       status: null,
       periodEnd: null,
-      cancelAtPeriodEnd: false
+      cancelAtPeriodEnd: false,
+      billingModePreference: 'AUTO'
     })
     expect(normalizeEntitlements(undefined)).toEqual({
       plan: 'FREE',
@@ -44,7 +45,8 @@ describe('normalizeEntitlements', () => {
       caps: {},
       status: null,
       periodEnd: null,
-      cancelAtPeriodEnd: false
+      cancelAtPeriodEnd: false,
+      billingModePreference: 'AUTO'
     })
   })
 
@@ -141,6 +143,12 @@ describe('normalizeEntitlements', () => {
     expect(normalized.status).toBeNull()
     expect(normalized.periodEnd).toBeNull()
     expect(normalized.cancelAtPeriodEnd).toBe(false)
+  })
+
+  it('normalizes the billing mode preference from the backend response', () => {
+    expect(normalizeEntitlements({ billingModePreference: 'MANAGED' }).billingModePreference).toBe('MANAGED')
+    expect(normalizeEntitlements({ billingModePreference: 'byok' }).billingModePreference).toBe('BYOK')
+    expect(normalizeEntitlements({ billingModePreference: 'invalid' }).billingModePreference).toBe('AUTO')
   })
 })
 

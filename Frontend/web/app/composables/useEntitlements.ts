@@ -7,6 +7,12 @@ import { computed } from 'vue'
 export type Plan = 'FREE' | 'PREMIUM' | 'MAX'
 
 /**
+ * Preferred billing mode stored on the user profile. AUTO lets the backend pick
+ * BYOK when a user key exists, otherwise a managed key when the plan allows it.
+ */
+export type BillingMode = 'AUTO' | 'BYOK' | 'MANAGED'
+
+/**
  * Per-plan limits ("caps"). Fields are optional so the shape can grow with the
  * backend without breaking consumers. Values mirror the Java record
  * {@code com.rft.chat_sribiddi.billing.Entitlements} (aside from the
@@ -57,6 +63,7 @@ export interface Entitlements {
    * Customer Portal).
    */
   cancelAtPeriodEnd: boolean
+  billingModePreference: BillingMode
 }
 
 /** Default entitlements used before {@code /billing/me} has loaded. Frozen so
@@ -69,7 +76,8 @@ const DEFAULT_ENTITLEMENTS: Entitlements = Object.freeze({
   caps: Object.freeze({}) as EntitlementCaps,
   status: null,
   periodEnd: null,
-  cancelAtPeriodEnd: false
+  cancelAtPeriodEnd: false,
+  billingModePreference: 'AUTO'
 }) as Entitlements
 
 type RawEntitlementsResponse = Partial<Entitlements & EntitlementCaps> & {
@@ -79,6 +87,7 @@ type RawEntitlementsResponse = Partial<Entitlements & EntitlementCaps> & {
   periodEnd?: string | null
   status?: string | null
   cancelAtPeriodEnd?: boolean
+  billingModePreference?: unknown
 }
 
 function normalizePlan(value: unknown): Plan {
@@ -89,6 +98,16 @@ function normalizePlan(value: unknown): Plan {
     }
   }
   return 'FREE'
+}
+
+function normalizeBillingMode(value: unknown): BillingMode {
+  if (typeof value === 'string') {
+    const upper = value.toUpperCase()
+    if (upper === 'AUTO' || upper === 'BYOK' || upper === 'MANAGED') {
+      return upper
+    }
+  }
+  return 'AUTO'
 }
 
 /**
@@ -141,8 +160,18 @@ export function normalizeEntitlements(raw: RawEntitlementsResponse | null | unde
   const periodEnd =
     typeof raw.periodEnd === 'string' && raw.periodEnd.length > 0 ? raw.periodEnd : null
   const cancelAtPeriodEnd = raw.cancelAtPeriodEnd === true
+  const billingModePreference = normalizeBillingMode(raw.billingModePreference)
 
-  return { plan, showAds, allowedModels, caps, status, periodEnd, cancelAtPeriodEnd }
+  return {
+    plan,
+    showAds,
+    allowedModels,
+    caps,
+    status,
+    periodEnd,
+    cancelAtPeriodEnd,
+    billingModePreference
+  }
 }
 
 type EntitlementsState = {
@@ -249,6 +278,7 @@ export function useEntitlements() {
   const status = computed<string | null>(() => entitlements.value.status)
   const periodEnd = computed<string | null>(() => entitlements.value.periodEnd)
   const cancelAtPeriodEnd = computed<boolean>(() => entitlements.value.cancelAtPeriodEnd)
+  const billingModePreference = computed<BillingMode>(() => entitlements.value.billingModePreference)
   const loading = computed<boolean>(() => state.value.loading)
   const error = computed<string | null>(() => state.value.error)
   const loaded = computed<boolean>(() => state.value.loaded)
@@ -262,6 +292,7 @@ export function useEntitlements() {
     status,
     periodEnd,
     cancelAtPeriodEnd,
+    billingModePreference,
     loading,
     error,
     loaded,
