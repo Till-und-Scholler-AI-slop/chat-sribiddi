@@ -177,6 +177,10 @@ app:
     max-media-attachment-bytes: ${CHAT_MAX_MEDIA_ATTACHMENT_BYTES:5242880}   # 5 MB
     max-media-total-bytes: ${CHAT_MAX_MEDIA_TOTAL_BYTES:20971520}           # 20 MB
     stream-timeout-ms: ${CHAT_STREAM_TIMEOUT_MS:1800000}                     # 30 min
+    tool-disabled-model-patterns:
+      - google:gemma-*
+      - openrouter:venice/*
+      - openrouter:*venice*uncensored*
   rate-limit:
     enabled: ${RATE_LIMIT_ENABLED:true}
     anonymous-requests-per-minute: ${RATE_LIMIT_ANONYMOUS_PER_MINUTE:60}

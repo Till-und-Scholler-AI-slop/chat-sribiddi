@@ -365,6 +365,48 @@ class ChatServiceTest {
   }
 
   @Test
+  void supportsTools_usesConfiguredProviderModelWildcards() {
+    ChatProperties properties = new ChatProperties();
+    properties.getToolDisabledModelPatterns().add("google:gemma-*");
+    properties.getToolDisabledModelPatterns().add("openrouter:*venice*uncensored*");
+    chatService = buildChatService(properties);
+
+    assertThat(chatService.supportsTools(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it")).isFalse();
+    assertThat(chatService.supportsTools(RequestDTO.Provider.GOOGLE, "gemini-2.5-flash")).isTrue();
+    assertThat(chatService.supportsTools(RequestDTO.Provider.OPENROUTER, "venice/uncensored")).isFalse();
+  }
+
+  @Test
+  void sendMessage_toolDisabledModelSkipsToolDefinitions() {
+    ChatProperties properties = new ChatProperties();
+    properties.getToolDisabledModelPatterns().add("google:gemma-*");
+    chatService = buildChatService(properties);
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", "goog-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gemma-3-27b-it").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("ok")))));
+
+    chatService.sendMessage(chatId, userId, request);
+
+    verify(requestSpec, never()).tools(any());
+  }
+
+  @Test
   void sendMessage_withMedia_addsMultimodalUserMessage() {
     RequestDTO request =
         new RequestDTO(

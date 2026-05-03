@@ -243,7 +243,14 @@ public class ChatService {
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(prep.promptMessages());
-      wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
+      wireTools(
+          chatId,
+          userId,
+          requestDTO.provider(),
+          requestDTO.modelId(),
+          requestDTO.webSearchEnabled(),
+          toolExecutionCollector,
+          promptSpec);
       chatResponse = promptSpec.call().chatResponse();
       providerCallSucceeded = true;
     }
@@ -412,7 +419,14 @@ public class ChatService {
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(promptMessages);
       ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
-      wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
+      wireTools(
+          chatId,
+          userId,
+          requestDTO.provider(),
+          requestDTO.modelId(),
+          requestDTO.webSearchEnabled(),
+          toolExecutionCollector,
+          promptSpec);
       String assistantContext =
           buildAssistantContext(
               promptMessages.size(),
@@ -1430,6 +1444,59 @@ public class ChatService {
         .map(key -> new BraveSearchTool(key, webSearchHttpClient, webSearchProperties));
   }
 
+  boolean supportsTools(RequestDTO.Provider provider, String modelId) {
+    if (provider == null || modelId == null || modelId.isBlank()) {
+      return true;
+    }
+    String providerName = provider.name().toLowerCase(Locale.ROOT);
+    String normalizedModel = modelId.toLowerCase(Locale.ROOT);
+    return chatProperties.getToolDisabledModelPatterns().stream()
+        .filter(pattern -> pattern != null && !pattern.isBlank())
+        .noneMatch(pattern -> matchesProviderModelPattern(pattern, providerName, normalizedModel));
+  }
+
+  private boolean matchesProviderModelPattern(
+      String rawPattern, String providerName, String normalizedModel) {
+    String pattern = rawPattern.trim().toLowerCase(Locale.ROOT);
+    int separator = pattern.indexOf(':');
+    if (separator <= 0 || separator == pattern.length() - 1) {
+      log.warn("Ignoring invalid app.chat.tool-disabled-model-patterns entry '{}'", rawPattern);
+      return false;
+    }
+    String providerPattern = pattern.substring(0, separator).trim();
+    String modelPattern = pattern.substring(separator + 1).trim();
+    return wildcardMatches(providerPattern, providerName)
+        && wildcardMatches(modelPattern, normalizedModel);
+  }
+
+  private boolean wildcardMatches(String pattern, String value) {
+    int patternIndex = 0;
+    int valueIndex = 0;
+    int starIndex = -1;
+    int matchIndex = 0;
+
+    while (valueIndex < value.length()) {
+      if (patternIndex < pattern.length()
+          && (pattern.charAt(patternIndex) == '?' || pattern.charAt(patternIndex) == value.charAt(valueIndex))) {
+        patternIndex++;
+        valueIndex++;
+      } else if (patternIndex < pattern.length() && pattern.charAt(patternIndex) == '*') {
+        starIndex = patternIndex++;
+        matchIndex = valueIndex;
+      } else if (starIndex != -1) {
+        patternIndex = starIndex + 1;
+        valueIndex = ++matchIndex;
+      } else {
+        return false;
+      }
+    }
+
+    while (patternIndex < pattern.length() && pattern.charAt(patternIndex) == '*') {
+      patternIndex++;
+    }
+    return patternIndex == pattern.length();
+  }
+
   /**
    * Wires up all available tools for a chat automatically.
    * All tools are always active except brave-search, which still requires a per-user API key
@@ -1438,9 +1505,15 @@ public class ChatService {
   private void wireTools(
       UUID chatId,
       String userId,
+      RequestDTO.Provider provider,
+      String modelId,
       Boolean webSearchEnabled,
       ToolExecutionCollector collector,
       ChatClient.ChatClientRequestSpec promptSpec) {
+    if (!supportsTools(provider, modelId)) {
+      log.debug("Skipping tool wiring for provider={} model={} due to app.chat tool gating", provider, modelId);
+      return;
+    }
     for (com.rft.chat_sribiddi.tools.api.ChatTool tool : toolRegistry.getAll()) {
       if (!isToolEnabledForChat(chatId, tool.getName())) {
         continue;
