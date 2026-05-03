@@ -32,3 +32,17 @@ or product-owner action before production rollout.
 - Tool and web-search outbound User-Agents are configurable.
 - The Python tool strips ANSI escape sequences and no longer falls back to a shell-based `su` path.
 - Frontend Docker runtime uses the non-root `node` user.
+
+## Security Backlog Split
+
+Issue #248 split the remaining bundled medium/low audit backlog into independently shippable
+follow-up tickets. The original bundled issues remain useful as historical audit references, but
+new implementation work should happen in the focused follow-up issues rather than adding unrelated
+changes to a bundle.
+
+Splitting rules:
+
+- Critical and high-risk work stays ahead of low/informational polish.
+- Each follow-up ticket owns one security concern with its own scope and acceptance criteria.
+- Bundled backlog issues can be closed as superseded after their remaining items are linked to
+  focused follow-up tickets.
