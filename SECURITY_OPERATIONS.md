@@ -61,3 +61,19 @@ Already completed from #244:
 - M-05 Frontend Docker runtime uses the non-root `node` user.
 - M-06 Session timeout defaults to 30 minutes.
 - M-08 Tool and web-search outbound User-Agents are configurable.
+
+Low/informational backlog split from #245:
+
+- L-01 SRI or self-hosting policy for third-party frontend assets: #257.
+- L-04 `security.txt` endpoint: #258.
+- L-05 Safe `Content-Disposition` headers for downloads: #259.
+- L-06 OAuth callback brute-force protection: #260.
+- I-01 OAuth2 PKCE evaluation for native/mobile clients: #261.
+- I-02 HSTS at the edge: #262.
+- I-03 Application threat model: #263.
+
+Already completed from #245:
+
+- L-02 Secret rotation is documented as a manual operator action.
+- L-03 Request ID tracing is implemented with `X-Request-Id` and MDC.
+- L-07 Python tool output strips ANSI escape sequences.
