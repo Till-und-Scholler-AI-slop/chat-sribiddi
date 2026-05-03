@@ -18,8 +18,9 @@ or product-owner action before production rollout.
    `TOOLS_PYTHON_IMAGE` is pre-pulled and maintained. When enabled, the application runs each Python
    execution in an ephemeral container with no network, a read-only filesystem, dropped
    capabilities, resource limits, and no mounted secrets.
-6. The current HTTP rate limiter is in-memory and per application instance. For multi-instance
-   production deployments, replace or augment it with Redis-backed shared limits before scaling out.
+6. Production deployments should keep `RATE_LIMIT_BACKEND=redis` so HTTP limits are enforced through
+   Redis-backed Bucket4j buckets. `RATE_LIMIT_BACKEND=memory` is only for local development and
+   single-process tests.
 7. Review CSP after every frontend dependency change. The current policy preserves Nuxt inline
    compatibility; tightening `script-src`/`style-src` further requires nonce/hash support.
 
@@ -34,6 +35,8 @@ or product-owner action before production rollout.
 - The Python tool strips ANSI escape sequences and executes through a Docker sandbox instead of a
   host interpreter keyword blocklist.
 - Frontend Docker runtime uses the non-root `node` user.
+- HTTP rate limiting supports Redis-backed Bucket4j buckets with fail-closed 429 behavior when
+  Redis is unavailable.
 
 ## Security Backlog Split
 

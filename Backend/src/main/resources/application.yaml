@@ -183,11 +183,13 @@ app:
       - openrouter:*venice*uncensored*
   rate-limit:
     enabled: ${RATE_LIMIT_ENABLED:true}
+    backend: ${RATE_LIMIT_BACKEND:redis}
     anonymous-requests-per-minute: ${RATE_LIMIT_ANONYMOUS_PER_MINUTE:10}
     free-requests-per-minute: ${RATE_LIMIT_FREE_PER_MINUTE:30}
     premium-requests-per-minute: ${RATE_LIMIT_PREMIUM_PER_MINUTE:120}
     max-requests-per-minute: ${RATE_LIMIT_MAX_PER_MINUTE:300}
     bucket-ttl: ${RATE_LIMIT_BUCKET_TTL:10m}
+    redis-failure-retry-after-seconds: ${RATE_LIMIT_REDIS_FAILURE_RETRY_AFTER_SECONDS:60}
     trusted-proxies: ${RATE_LIMIT_TRUSTED_PROXIES:127.0.0.1,::1}
   ai:
     openai:

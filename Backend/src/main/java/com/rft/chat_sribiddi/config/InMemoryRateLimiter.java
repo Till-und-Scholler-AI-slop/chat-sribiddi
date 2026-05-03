@@ -3,11 +3,11 @@ package com.rft.chat_sribiddi.config;
 import java.time.Clock;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnMissingBean(RateLimiter.class)
+@ConditionalOnProperty(name = "app.rate-limit.backend", havingValue = "memory")
 public class InMemoryRateLimiter implements RateLimiter {
 
   private final RateLimitProperties properties;
