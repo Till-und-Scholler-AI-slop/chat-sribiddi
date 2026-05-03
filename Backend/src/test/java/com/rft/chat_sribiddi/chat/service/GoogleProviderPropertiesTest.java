@@ -1,11 +1,19 @@
 package com.rft.chat_sribiddi.chat.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 class GoogleProviderPropertiesTest {
+
+  @Test
+  void defaultTimeout_is120Seconds() {
+    GoogleProviderProperties properties = new GoogleProviderProperties();
+
+    assertThat(properties.getTimeout()).isEqualTo(Duration.ofSeconds(120));
+  }
 
   @Test
   void setTimeout_rejectsNullValue() {
