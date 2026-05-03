@@ -248,6 +248,26 @@ describe('useChatApi.logout', () => {
     const { logout } = useChatApi()
     expect(await logout()).toBe(false)
   })
+
+  it('posts to the runbook export endpoint with csrf protection', async () => {
+    ;(globalThis as unknown as { document: { cookie: string } }).document.cookie =
+      'XSRF-TOKEN=csrf-token-value'
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ filename: 'incident.md', markdown: '# Incident' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    )
+
+    const { exportRunbook } = useChatApi()
+    const result = await exportRunbook('chat-123')
+
+    expect(result).toEqual({ filename: 'incident.md', markdown: '# Incident' })
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('http://localhost:8080/chats/chat-123/export/runbook')
+    expect(init.method).toBe('POST')
+    expect(init.headers['X-XSRF-TOKEN']).toBe('csrf-token-value')
+  })
 })
 
 describe('normalizeAvailability', () => {

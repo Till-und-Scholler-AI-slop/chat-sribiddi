@@ -4,9 +4,11 @@ import com.rft.chat_sribiddi.chat.dto.ChatResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.CreateChatRequestDTO;
 import com.rft.chat_sribiddi.chat.dto.MessageResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
+import com.rft.chat_sribiddi.chat.dto.RunbookExportDTO;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.service.ChatService;
+import com.rft.chat_sribiddi.chat.service.RunbookExportService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
@@ -35,6 +37,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ChatController {
 
   private final ChatService chatService;
+  private final RunbookExportService runbookExportService;
 
   @PostMapping
   public ResponseEntity<ChatResponseDTO> createChat(
@@ -111,6 +114,13 @@ public class ChatController {
     validatePrincipal(principal);
 
     return chatService.editAndStreamMessage(chatId, principal.getSubject(), messageId, request);
+  }
+
+  @PostMapping("/{chatId}/export/runbook")
+  public ResponseEntity<RunbookExportDTO> exportRunbook(
+      @AuthenticationPrincipal OidcUser principal, @PathVariable UUID chatId) {
+    validatePrincipal(principal);
+    return ResponseEntity.ok(runbookExportService.generateRunbook(chatId, principal.getSubject()));
   }
 
   @PatchMapping("/{chatId}")

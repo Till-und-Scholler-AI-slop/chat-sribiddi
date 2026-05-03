@@ -27,6 +27,8 @@ public interface MessageRepository extends JpaRepository<MessageEntity, Long> {
 
   List<MessageEntity> findByChatIdOrderByCreatedAtDesc(UUID chatId, Pageable pageable);
 
+  List<MessageEntity> findByChatIdOrderByCreatedAtAsc(UUID chatId);
+
   Optional<MessageEntity> findByIdAndChatId(Long id, UUID chatId);
 
   @Modifying

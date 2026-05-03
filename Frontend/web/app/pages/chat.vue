@@ -40,11 +40,13 @@ const {
   webSearchEnabled
 } = useChatStore()
 const { settings } = useUserSettings()
+const { exportRunbook } = useChatApi()
 
 const input = ref('')
 const attachments = ref<MediaAttachment[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const initializing = ref(true)
+const exportingRunbook = ref(false)
 const toast = useToast()
 const messagesContainer = ref<HTMLElement | null>(null)
 const skipNextSmoothScroll = ref(false)
@@ -491,6 +493,34 @@ const handleStop = () => {
   }
 }
 
+const downloadRunbook = async () => {
+  const conversation = activeConversation.value
+  if (!conversation || exportingRunbook.value) return
+
+  exportingRunbook.value = true
+  try {
+    const result = await exportRunbook(conversation.session.chatId)
+    const blob = new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = result.filename || t('chat.runbookFallbackFilename')
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    toast.add({ title: t('chat.runbookExportedTitle'), color: 'success' })
+  } catch (err) {
+    toast.add({
+      title: t('chat.runbookExportFailedTitle'),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    exportingRunbook.value = false
+  }
+}
+
 const handleReload = async () => {
   const conversation = activeConversation.value
   const model = selectedModel.value
@@ -596,6 +626,19 @@ const submitEditMessage = async () => {
               </span>
             </div>
             <div class="chat-page-header__meta">
+              <UTooltip :text="t('chat.exportRunbook')">
+                <UButton
+                  icon="i-heroicons-arrow-down-tray"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  :loading="exportingRunbook"
+                  :disabled="!activeConversation.messages.length"
+                  :aria-label="t('chat.exportRunbook')"
+                  class="btn-interactive"
+                  @click="downloadRunbook"
+                />
+              </UTooltip>
               <UBadge
                 v-if="selectedModel"
                 color="primary"

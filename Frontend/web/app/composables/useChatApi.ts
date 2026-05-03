@@ -91,6 +91,11 @@ export type SendMessageResponse = {
   totalTokens?: number | null
 }
 
+export type RunbookExport = {
+  filename: string
+  markdown: string
+}
+
 export type StreamEvent = {
   type: 'text' | 'reasoning' | 'done' | 'error'
   content?: string | null
@@ -565,6 +570,10 @@ export function useChatApi() {
     await requestJson<unknown>(`/chats/${chatId}`, { method: 'DELETE' })
   }
 
+  const exportRunbook = async (chatId: string) => {
+    return requestJson<RunbookExport>(`/chats/${chatId}/export/runbook`, { method: 'POST' })
+  }
+
   const deleteAccount = async () => {
     await requestJson<unknown>('/account', { method: 'DELETE' })
   }
@@ -669,6 +678,7 @@ export function useChatApi() {
     editAndStreamMessage,
     updateChat,
     deleteChat,
+    exportRunbook,
     deleteAccount,
     logout,
     checkSession,
