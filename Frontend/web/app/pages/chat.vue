@@ -589,7 +589,7 @@ const submitEditMessage = async () => {
           <header class="chat-page-header">
             <div class="chat-page-header__titles">
               <h1 class="chat-page-header__title">
-                {{ activeConversation.session.title || 'Neuer Chat' }}
+                {{ activeConversation.session.title || t('chat.newChatPlaceholder') }}
               </h1>
               <span v-if="selectedModel" class="chat-page-header__subtitle">
                 {{ providerLabel(selectedModel.provider) }} · {{ selectedModel.label }}

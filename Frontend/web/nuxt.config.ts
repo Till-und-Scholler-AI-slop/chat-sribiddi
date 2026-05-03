@@ -34,6 +34,10 @@ export default defineNuxtConfig({
                 {
                     name: 'description',
                     content: 'A lightweight AI chat wrapper supporting multiple providers.'
+                },
+                {
+                    name: 'theme-color',
+                    content: '#b82e8e'
                 }
             ],
             link: [

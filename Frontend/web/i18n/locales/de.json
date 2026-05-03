@@ -9,7 +9,8 @@
     "hide": "Verbergen",
     "loading": "Wird geladen…",
     "unknown": "Unbekannt",
-    "back": "Zurück"
+    "back": "Zurück",
+    "reload": "Neu laden"
   },
   "language": {
     "label": "Sprache",
@@ -59,6 +60,7 @@
     "deleteConfirmAction": "Endgültig löschen"
   },
   "chat": {
+    "newChatPlaceholder": "Neuer Chat",
     "welcomeIntro": "Wähle unten ein Modell und leg los. Dateien anhängen, im Web suchen und vieles mehr.",
     "startChat": "Chat starten",
     "modelPlaceholder": "Modell auswählen",
@@ -264,7 +266,12 @@
     "payloadTooLarge": "Anhang ist zu groß.",
     "rateLimit": "Zu viele Anfragen. Bitte kurz warten.",
     "serverError": "Server-Fehler. Bitte später erneut versuchen.",
-    "apiKey": "API-Schlüssel ungültig oder fehlt. Bitte in den Einstellungen prüfen."
+    "apiKey": "API-Schlüssel ungültig oder fehlt. Bitte in den Einstellungen prüfen.",
+    "pageNotFoundTitle": "Seite nicht gefunden",
+    "pageNotFoundDescription": "Die angeforderte Seite existiert nicht oder wurde verschoben.",
+    "unexpectedTitle": "Etwas ist schiefgelaufen",
+    "unexpectedDescription": "Bitte lade die Seite neu oder kehre zum Chat zurück.",
+    "backToChat": "Zum Chat"
   },
   "billing": {
     "title": "Abrechnung",
