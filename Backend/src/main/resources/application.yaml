@@ -207,6 +207,16 @@ app:
   tools:
     user-agent: ${TOOLS_USER_AGENT:ChatSribiddi/1.0 (Tool)}
     python-enabled: ${TOOLS_PYTHON_ENABLED:false}
+    python-sandbox:
+      docker-binary: ${TOOLS_PYTHON_DOCKER_BINARY:docker}
+      image: ${TOOLS_PYTHON_IMAGE:python:3.13-alpine}
+      timeout: ${TOOLS_PYTHON_TIMEOUT:10s}
+      max-output-bytes: ${TOOLS_PYTHON_MAX_OUTPUT_BYTES:10240}
+      max-code-length: ${TOOLS_PYTHON_MAX_CODE_LENGTH:10000}
+      memory: ${TOOLS_PYTHON_MEMORY:128m}
+      cpus: ${TOOLS_PYTHON_CPUS:0.5}
+      pids-limit: ${TOOLS_PYTHON_PIDS_LIMIT:64}
+      tmpfs: ${TOOLS_PYTHON_TMPFS:/tmp:rw,noexec,nosuid,size=16m}
   web-search:
     max-results: ${WEB_SEARCH_MAX_RESULTS:5}
     request-timeout: ${WEB_SEARCH_REQUEST_TIMEOUT:10s}

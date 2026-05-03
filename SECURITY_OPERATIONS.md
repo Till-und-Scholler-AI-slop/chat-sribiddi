@@ -14,9 +14,10 @@ or product-owner action before production rollout.
    `WEB_SEARCH_USER_AGENT` for production support and abuse-contact clarity.
 4. Keep `OPENROUTER_ALLOWED_MODEL_CATALOG_HOSTS` narrow. The default is `openrouter.ai`; only add a
    host when it is a trusted catalog provider.
-5. Keep `TOOLS_PYTHON_ENABLED=false` in production unless the backend is running with a dedicated
-   container/jail profile: no network, a read-only filesystem, process limits, and no mounted
-   secrets. The application defaults this tool off.
+5. Keep `TOOLS_PYTHON_ENABLED=false` in production unless Docker is available and the configured
+   `TOOLS_PYTHON_IMAGE` is pre-pulled and maintained. When enabled, the application runs each Python
+   execution in an ephemeral container with no network, a read-only filesystem, dropped
+   capabilities, resource limits, and no mounted secrets.
 6. The current HTTP rate limiter is in-memory and per application instance. For multi-instance
    production deployments, replace or augment it with Redis-backed shared limits before scaling out.
 7. Review CSP after every frontend dependency change. The current policy preserves Nuxt inline
@@ -30,7 +31,8 @@ or product-owner action before production rollout.
 - CSRF cookies use `SameSite=Lax`.
 - The OpenRouter model catalog URL is restricted to HTTPS and an allowlisted host.
 - Tool and web-search outbound User-Agents are configurable.
-- The Python tool strips ANSI escape sequences and no longer falls back to a shell-based `su` path.
+- The Python tool strips ANSI escape sequences and executes through a Docker sandbox instead of a
+  host interpreter keyword blocklist.
 - Frontend Docker runtime uses the non-root `node` user.
 
 ## Security Backlog Split

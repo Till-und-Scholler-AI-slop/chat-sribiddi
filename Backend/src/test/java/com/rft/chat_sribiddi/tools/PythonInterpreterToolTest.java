@@ -7,14 +7,32 @@ import org.junit.jupiter.api.Test;
 
 class PythonInterpreterToolTest {
 
-  private final PythonInterpreterTool tool = new PythonInterpreterTool();
+  private final PythonSandboxProperties properties = new PythonSandboxProperties();
+  private final PythonInterpreterTool tool = new PythonInterpreterTool(properties);
 
   @Test
-  void execute_blocksCompileByDefault() {
-    var result = tool.execute("user-1", Map.of("code", "compile('1 + 1', '<x>', 'eval')"));
+  void execute_rejectsOverlongCodeBeforeStartingDocker() {
+    properties.setMaxCodeLength(3);
+
+    var result = tool.execute("user-1", Map.of("code", "print('too long')"));
 
     assertThat(result.success()).isFalse();
-    assertThat(result.error()).contains("compile(");
+    assertThat(result.error()).contains("maximum length");
+  }
+
+  @Test
+  void buildCommand_usesDockerIsolationOptions() {
+    assertThat(tool.buildCommand())
+        .containsSubsequence("docker", "run")
+        .contains("--rm", "--interactive", "--read-only")
+        .containsSubsequence("--network", "none")
+        .containsSubsequence("--memory", "128m")
+        .containsSubsequence("--cpus", "0.5")
+        .containsSubsequence("--pids-limit", "64")
+        .containsSubsequence("--security-opt", "no-new-privileges")
+        .containsSubsequence("--cap-drop", "ALL")
+        .containsSubsequence("--user", "65534:65534")
+        .containsSubsequence("python:3.13-alpine", "python3", "-I", "-S", "-");
   }
 
   @Test
