@@ -351,6 +351,14 @@ const planBadgeLabel = computed<string>(() => {
       />
       <UButton
         variant="ghost"
+        icon="i-heroicons-chart-bar"
+        :label="collapsed ? '' : t('sidebar.usage')"
+        :aria-label="t('sidebar.usage')"
+        to="/usage"
+        class="w-full justify-start btn-interactive"
+      />
+      <UButton
+        variant="ghost"
         icon="i-heroicons-cog-6-tooth"
         :label="collapsed ? '' : t('sidebar.settings')"
         :aria-label="t('sidebar.settings')"

@@ -43,6 +43,7 @@
     "renameChat": "Rename chat",
     "deleteChat": "Delete chat",
     "models": "Models",
+    "usage": "Usage",
     "settings": "Settings",
     "switchAccount": "Switch account",
     "switchGoogleAccount": "Switch Google account",
@@ -325,6 +326,23 @@
       "cta": "Upgrade plan",
       "dismiss": "Dismiss"
     }
+  },
+  "usage": {
+    "title": "Usage dashboard",
+    "subtitle": "Analyze token usage, estimated cost, and model activity across the selected period.",
+    "range7": "7 days",
+    "range30": "30 days",
+    "range90": "90 days",
+    "modelFilterPlaceholder": "Filter by model",
+    "applyFilters": "Filter",
+    "loadFailedTitle": "Could not load usage",
+    "totalTokens": "Total tokens",
+    "estimatedCost": "Estimated cost",
+    "topModel": "Top model",
+    "tokensByModel": "Tokens by model",
+    "dailyTrend": "Daily trend",
+    "requestsCount": "{count} requests",
+    "noData": "No usage data is available for this period yet."
   },
   "pricing": {
     "title": "Pricing",

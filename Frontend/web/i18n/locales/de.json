@@ -43,6 +43,7 @@
     "renameChat": "Chat umbenennen",
     "deleteChat": "Chat löschen",
     "models": "Modelle",
+    "usage": "Nutzung",
     "settings": "Einstellungen",
     "switchAccount": "Konto wechseln",
     "switchGoogleAccount": "Google-Konto wechseln",
@@ -325,6 +326,23 @@
       "cta": "Plan upgraden",
       "dismiss": "Schließen"
     }
+  },
+  "usage": {
+    "title": "Nutzungsdashboard",
+    "subtitle": "Analysiere Token-Verbrauch, geschätzte Kosten und Modellnutzung über den gewählten Zeitraum.",
+    "range7": "7 Tage",
+    "range30": "30 Tage",
+    "range90": "90 Tage",
+    "modelFilterPlaceholder": "Nach Modell filtern",
+    "applyFilters": "Filtern",
+    "loadFailedTitle": "Nutzung konnte nicht geladen werden",
+    "totalTokens": "Tokens gesamt",
+    "estimatedCost": "Geschätzte Kosten",
+    "topModel": "Top-Modell",
+    "tokensByModel": "Tokens pro Modell",
+    "dailyTrend": "Tagestrend",
+    "requestsCount": "{count} Anfragen",
+    "noData": "Für diesen Zeitraum liegen noch keine Nutzungsdaten vor."
   },
   "pricing": {
     "title": "Preise",
