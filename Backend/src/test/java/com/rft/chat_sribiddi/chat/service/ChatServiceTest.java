@@ -97,6 +97,20 @@ class ChatServiceTest {
         .thenReturn(BillingMode.BYOK);
     lenient().when(chatToolRepository.findByChatId(any())).thenReturn(List.of());
     lenient().when(toolRegistry.getAll()).thenReturn(List.of());
+    lenient()
+        .when(apiKeyService.getKey(eq(userId), any(RequestDTO.Provider.class)))
+        .thenAnswer(
+            invocation -> {
+              RequestDTO.Provider provider = invocation.getArgument(1);
+              return Optional.of(
+                  switch (provider) {
+                    case OPENAI -> "key";
+                    case GOOGLE -> "goog-key";
+                    case CLAUDE -> "claude-key";
+                    case OPENROUTER -> "or-key";
+                    case BRAVE_SEARCH -> "brave-key";
+                  });
+            });
 
     AtomicLong ids = new AtomicLong(100);
     lenient().when(messageRepository.save(any(MessageEntity.class)))
@@ -600,10 +614,10 @@ class ChatServiceTest {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key"))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
-            RequestDTO.Provider.GOOGLE, "gemini", "key"))
+            RequestDTO.Provider.GOOGLE, "gemini", "goog-key"))
         .thenReturn(
             org.springframework.ai.chat.prompt.ChatOptions.builder().model("gemini").build());
     when(chatClient.prompt()).thenReturn(requestSpec);

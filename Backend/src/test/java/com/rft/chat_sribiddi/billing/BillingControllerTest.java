@@ -30,6 +30,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.http.HttpStatus;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
@@ -65,7 +66,8 @@ class BillingControllerTest {
     user.setBillingModePreference(BillingMode.AUTO);
     setId(user, 42L);
 
-    RequestUserResolver resolver = new RequestUserResolver();
+    RequestUserResolver resolver =
+        new RequestUserResolver(new MockEnvironment().withProperty("spring.profiles.active", "dev"));
     when(request.getHeader(RequestUserResolver.USER_ID_HEADER)).thenReturn(PROVIDER_ID);
     when(userRepository.findByProviderId(PROVIDER_ID)).thenReturn(Optional.of(user));
 

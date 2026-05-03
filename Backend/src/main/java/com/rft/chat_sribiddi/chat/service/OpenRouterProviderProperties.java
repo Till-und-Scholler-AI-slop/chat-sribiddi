@@ -1,5 +1,6 @@
 package com.rft.chat_sribiddi.chat.service;
 
+import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -10,6 +11,7 @@ public class OpenRouterProviderProperties {
   private String baseUrl = "https://openrouter.ai/api/v1";
   private String completionsPath = "/chat/completions";
   private String modelCatalogUrl = "https://openrouter.ai/api/v1/models";
+  private Set<String> allowedModelCatalogHosts = Set.of("openrouter.ai");
 
   /**
    * OpenRouter request-attribution fields. OpenRouter requires/recommends callers to identify
@@ -43,6 +45,14 @@ public class OpenRouterProviderProperties {
 
   public void setModelCatalogUrl(String modelCatalogUrl) {
     this.modelCatalogUrl = modelCatalogUrl;
+  }
+
+  public Set<String> getAllowedModelCatalogHosts() {
+    return allowedModelCatalogHosts;
+  }
+
+  public void setAllowedModelCatalogHosts(Set<String> allowedModelCatalogHosts) {
+    this.allowedModelCatalogHosts = allowedModelCatalogHosts;
   }
 
   public String getAppName() {

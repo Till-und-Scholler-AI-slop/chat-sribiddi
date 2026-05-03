@@ -57,10 +57,13 @@ public class SecurityConfig {
   @Bean
   SecurityFilterChain securityFilterChain(
       HttpSecurity http, OAuth2AuthorizationRequestResolver authorizationRequestResolver) {
+    CookieCsrfTokenRepository csrfTokenRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+    csrfTokenRepository.setCookieCustomizer(cookie -> cookie.sameSite("Lax"));
+
     return http.cors(Customizer.withDefaults())
         .csrf(
             csrf ->
-                csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                csrf.csrfTokenRepository(csrfTokenRepository)
                     .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
                     // Stripe authenticates webhook calls via the Stripe-Signature header, not a
                     // CSRF token; the endpoint is also called from outside the browser so there
@@ -70,13 +73,11 @@ public class SecurityConfig {
         .authorizeHttpRequests(
             auth -> {
               auth.requestMatchers(
-                      "/",
-                      "/login",
-                      "/billing/webhook",
-                      "/v3/api-docs/**",
-                      "/swagger-ui/**",
-                      "/swagger-ui.html")
+                      "/", "/login", "/billing/webhook", "/actuator/health", "/actuator/info")
                   .permitAll();
+              auth.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
+                  .denyAll();
+              auth.requestMatchers("/actuator/**").denyAll();
               auth.anyRequest().authenticated();
             })
         .sessionManagement(

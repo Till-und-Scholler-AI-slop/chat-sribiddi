@@ -562,11 +562,11 @@ export function useChatApi() {
   }
 
   const deleteChat = async (chatId: string) => {
-    await requestJson<void>(`/chats/${chatId}`, { method: 'DELETE' })
+    await requestJson<unknown>(`/chats/${chatId}`, { method: 'DELETE' })
   }
 
   const deleteAccount = async () => {
-    await requestJson<void>('/account', { method: 'DELETE' })
+    await requestJson<unknown>('/account', { method: 'DELETE' })
   }
 
   /**
@@ -578,7 +578,7 @@ export function useChatApi() {
    */
   const logout = async (): Promise<boolean> => {
     try {
-      await requestJson<void>('/logout', { method: 'POST' })
+      await requestJson<unknown>('/logout', { method: 'POST' })
       return true
     } catch {
       return false

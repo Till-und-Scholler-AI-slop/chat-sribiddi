@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type MarkdownIt from 'markdown-it'
+import DOMPurify from 'isomorphic-dompurify'
 import MarkdownItLib from 'markdown-it'
 
 const props = defineProps<{
@@ -43,7 +44,10 @@ function escapeHtml(str: string): string {
 
 function renderMarkdown(text: string): string {
   try {
-    return md.value.render(text)
+    return DOMPurify.sanitize(md.value.render(text), {
+      ADD_ATTR: ['target', 'rel'],
+      USE_PROFILES: { html: true }
+    })
   } catch {
     return `<pre style="white-space:pre-wrap">${escapeHtml(text)}</pre>`
   }
@@ -109,7 +113,7 @@ function copyWithExecCommand(btn: HTMLElement, code: string) {
   try {
     const ok = document.execCommand('copy')
     if (ok) showCopied(btn)
-  } catch (_) {
+  } catch {
     // ignore failures in legacy copy fallback
   } finally {
     document.body.removeChild(ta)
@@ -139,5 +143,6 @@ function handleClick(event: MouseEvent) {
 </script>
 
 <template>
+  <!-- eslint-disable-next-line vue/no-v-html -- sanitized in renderMarkdown() -->
   <div class="markdown-body" @click="handleClick" v-html="rendered" />
 </template>

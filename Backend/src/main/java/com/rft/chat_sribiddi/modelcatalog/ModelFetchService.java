@@ -5,10 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rft.chat_sribiddi.chat.service.OpenRouterProviderProperties;
 import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
 import java.io.IOException;
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -139,10 +142,12 @@ public class ModelFetchService {
   @Cacheable(value = "model-catalog", keyGenerator = "modelCatalogKeyGenerator")
   public List<ModelOption> fetchOpenRouterModels(String apiKey) {
     try {
+      String modelCatalogUrl = openRouterProperties.getModelCatalogUrl();
+      validateOpenRouterModelCatalogUrl(modelCatalogUrl);
       RestClient.RequestHeadersSpec<?> request =
           restClient
               .get()
-              .uri(openRouterProperties.getModelCatalogUrl())
+              .uri(modelCatalogUrl)
               .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
       String referrer = openRouterProperties.getReferrer();
       if (referrer != null && !referrer.isBlank()) {
@@ -172,6 +177,25 @@ public class ModelFetchService {
     } catch (Exception e) {
       log.warn("Failed to fetch OpenRouter models: {}", e.getMessage());
       return List.of();
+    }
+  }
+
+  private void validateOpenRouterModelCatalogUrl(String url) {
+    URI uri = URI.create(url);
+    String scheme = uri.getScheme();
+    String host = uri.getHost();
+    if (!"https".equalsIgnoreCase(scheme)) {
+      throw new SecurityException("OpenRouter model catalog URL must use https.");
+    }
+    if (host == null || uri.getUserInfo() != null) {
+      throw new SecurityException("OpenRouter model catalog URL must have a valid host.");
+    }
+    String normalizedHost = host.toLowerCase(Locale.ROOT);
+    Set<String> allowedHosts = openRouterProperties.getAllowedModelCatalogHosts();
+    if (allowedHosts == null
+        || allowedHosts.stream().map(value -> value.toLowerCase(Locale.ROOT))
+            .noneMatch(normalizedHost::equals)) {
+      throw new SecurityException("OpenRouter model catalog host is not allowlisted.");
     }
   }
 

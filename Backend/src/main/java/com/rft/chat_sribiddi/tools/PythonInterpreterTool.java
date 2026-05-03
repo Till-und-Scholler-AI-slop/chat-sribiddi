@@ -4,9 +4,11 @@ import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolResult;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -25,7 +27,7 @@ import org.springframework.stereotype.Component;
  *   <li>{@code python3 -S} to skip site-packages</li>
  *   <li>15-second timeout with forced kill</li>
  *   <li>10KB output limit</li>
- *   <li>stderr captured and returned</li>
+ *   <li>stderr captured, sanitized, and returned</li>
  * </ul>
  */
 @Component
@@ -36,11 +38,16 @@ public class PythonInterpreterTool implements ChatTool {
   private static final long TIMEOUT_SECONDS = 15;
   private static final int MAX_OUTPUT_BYTES = 10_240; // 10 KB
   private static final int MAX_CODE_LENGTH = 10_000;
+  private static final Pattern ANSI_ESCAPE_PATTERN =
+      Pattern.compile("\\u001B\\[[0-?]*[ -/]*[@-~]");
 
   private static final Set<String> BLOCKED_PATTERNS = Set.of(
       "import os", "subprocess", "socket", "exec(", "eval(",
       "__import__", "open(", "shutil", "pathlib", "sys.exit",
-      "importlib", "importlib.import_module"
+      "importlib", "importlib.import_module", "compile(", "ctypes",
+      "multiprocessing", "threading", "builtins", "__builtins__",
+      "globals(", "locals(", "vars(", "getattr(", "setattr(",
+      "delattr(", "breakpoint(", "input("
   );
 
   @Override
@@ -90,8 +97,9 @@ public class PythonInterpreterTool implements ChatTool {
     for (String blocked : BLOCKED_PATTERNS) {
       if (loweredCode.contains(blocked.toLowerCase())) {
         return ToolResult.failure(
-            "Code contains blocked keyword: '%s'. For security reasons, certain modules "
-                + "and functions are not allowed.".formatted(blocked));
+            ("Code contains blocked keyword: '%s'. For security reasons, certain modules "
+                    + "and functions are not allowed.")
+                .formatted(blocked));
       }
     }
     return null; // null means validation passed
@@ -119,7 +127,8 @@ public class PythonInterpreterTool implements ChatTool {
 
       byte[] output = process.getInputStream().readNBytes(MAX_OUTPUT_BYTES + 1);
       int exitCode = process.exitValue();
-      String outputText = new String(output, 0, Math.min(output.length, MAX_OUTPUT_BYTES));
+      String outputText =
+          sanitizeOutput(new String(output, 0, Math.min(output.length, MAX_OUTPUT_BYTES), StandardCharsets.UTF_8));
 
       if (exitCode != 0) {
         return ToolResult.failure("Python exited with code " + exitCode + ":\n" + outputText);
@@ -131,55 +140,18 @@ public class PythonInterpreterTool implements ChatTool {
 
       return ToolResult.success(outputText.isEmpty() ? "(no output)" : outputText);
     } catch (IOException e) {
-      // Fallback to su if runuser is not available
-      log.debug("runuser failed, falling back to su: {}", e.getMessage());
-      return executeWithSu(code);
+      log.warn("Failed to start python3 via runuser", e);
+      return ToolResult.failure("Python execution is unavailable on this host.");
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       return ToolResult.failure("Python execution was interrupted.");
     }
   }
 
-  private ToolResult executeWithSu(String code) {
-    ToolResult validationError = validateCode(code);
-    if (validationError != null) return validationError;
-
-    try {
-      // Escape single quotes in code for shell
-      String escaped = code.replace("'", "'\\''");
-      ProcessBuilder pb = new ProcessBuilder(
-          "su", "-s", "/bin/sh", "nobody", "-c",
-          "python3 -S -c '" + escaped + "'");
-      pb.environment().clear();
-      pb.directory(new File("/tmp"));
-      pb.redirectErrorStream(true);
-      Process process = pb.start();
-
-      boolean finished = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-      if (!finished) {
-        process.destroyForcibly();
-        process.waitFor(5, TimeUnit.SECONDS);
-        return ToolResult.failure("Python execution timed out after " + TIMEOUT_SECONDS + " seconds.");
-      }
-
-      byte[] output = process.getInputStream().readNBytes(MAX_OUTPUT_BYTES + 1);
-      int exitCode = process.exitValue();
-      String outputText = new String(output, 0, Math.min(output.length, MAX_OUTPUT_BYTES));
-
-      if (exitCode != 0) {
-        return ToolResult.failure("Python exited with code " + exitCode + ":\n" + outputText);
-      }
-
-      if (output.length > MAX_OUTPUT_BYTES) {
-        outputText += "\n\n[Output truncated at 10KB]";
-      }
-
-      return ToolResult.success(outputText.isEmpty() ? "(no output)" : outputText);
-    } catch (IOException e) {
-      return ToolResult.failure("Failed to start python3: " + e.getMessage());
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      return ToolResult.failure("Python execution was interrupted.");
+  String sanitizeOutput(String output) {
+    if (output == null || output.isEmpty()) {
+      return "";
     }
+    return ANSI_ESCAPE_PATTERN.matcher(output).replaceAll("");
   }
 }

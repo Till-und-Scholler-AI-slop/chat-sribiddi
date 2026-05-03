@@ -11,7 +11,7 @@ export function useInstructionsApi() {
   }
 
   const saveCustomInstructions = async (customInstructions: string | null) => {
-    return requestJson<void>('/account/settings', {
+    return requestJson<unknown>('/account/settings', {
       method: 'PUT',
       body: JSON.stringify({ customInstructions })
     })

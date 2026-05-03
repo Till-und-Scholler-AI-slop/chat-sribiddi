@@ -34,12 +34,17 @@ public class ToolAutoRegistration {
   @Value("${BRAVE_SEARCH_API_KEY:}")
   private String braveSearchApiKey;
 
+  @Value("${app.tools.python-enabled:false}")
+  private boolean pythonEnabled;
+
   @PostConstruct
   void registerTools() {
     register(calculatorTool);
     register(urlFetcherTool);
     register(currentDateTimeTool);
-    register(pythonInterpreterTool);
+    if (pythonEnabled) {
+      register(pythonInterpreterTool);
+    }
     // Always register BraveSearch so per-user keys work via wireTools()
     register(new BraveSearchChatToolAdapter(
         new BraveSearchTool(braveSearchApiKey.isBlank() ? "" : braveSearchApiKey, httpClient, webSearchProperties)));

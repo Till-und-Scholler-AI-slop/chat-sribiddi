@@ -31,12 +31,14 @@ public class BraveSearchTool {
   private final HttpClient httpClient;
   private final int maxResults;
   private final Duration requestTimeout;
+  private final String userAgent;
 
   public BraveSearchTool(String apiKey, HttpClient httpClient, WebSearchProperties properties) {
     this.apiKey = apiKey;
     this.httpClient = httpClient;
     this.maxResults = properties.getMaxResults();
     this.requestTimeout = properties.getRequestTimeout();
+    this.userAgent = properties.getUserAgent();
   }
 
   @Tool(description = "Search the web for current information using Brave Search. "
@@ -53,6 +55,7 @@ public class BraveSearchTool {
           HttpRequest.newBuilder()
               .uri(uri)
               .header("Accept", "application/json")
+              .header("User-Agent", userAgent)
               .header("X-Subscription-Token", apiKey)
               .timeout(requestTimeout)
               .GET()

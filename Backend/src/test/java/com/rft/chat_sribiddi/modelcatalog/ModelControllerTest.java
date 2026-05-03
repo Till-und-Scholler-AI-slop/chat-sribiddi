@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,27 +39,24 @@ class ModelControllerTest {
         new ModelController(
             modelCatalogService,
             apiKeyService,
-            new RequestUserResolver(),
+            new RequestUserResolver(new MockEnvironment()),
             entitlementService,
             managedApiKeyProperties);
   }
 
   @Test
-  void openRouterModels_usesFrontendUserIdFallback_whenPrincipalMissing() {
+  void openRouterModels_returnsConfiguredModelsWhenPrincipalMissing() {
     List<ModelCatalogProperties.ModelOption> models =
         List.of(new ModelCatalogProperties.ModelOption("openrouter/auto", "OpenRouter Auto"));
-    when(request.getHeader(RequestUserResolver.USER_ID_HEADER)).thenReturn("frontend-user");
-    when(apiKeyService.getKey("frontend-user", Provider.OPENROUTER)).thenReturn(Optional.of("or-user-key"));
-    when(modelCatalogService.listOpenRouterModels("or-user-key")).thenReturn(models);
-    when(entitlementService.annotateModelsForPlan("frontend-user", Provider.OPENROUTER, models))
+    when(modelCatalogService.listOpenRouterModels(null)).thenReturn(models);
+    when(entitlementService.annotateModelsForPlan(null, Provider.OPENROUTER, models))
         .thenReturn(models);
 
     var response = controller.openRouterModels(null, request);
 
     assertThat(response.getBody()).isEqualTo(models);
-    verify(apiKeyService).getKey("frontend-user", Provider.OPENROUTER);
-    verify(modelCatalogService).listOpenRouterModels("or-user-key");
-    verify(entitlementService).annotateModelsForPlan("frontend-user", Provider.OPENROUTER, models);
+    verify(modelCatalogService).listOpenRouterModels(null);
+    verify(entitlementService).annotateModelsForPlan(null, Provider.OPENROUTER, models);
   }
 
   @Test

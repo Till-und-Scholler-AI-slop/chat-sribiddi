@@ -202,6 +202,15 @@ class ModelFetchServiceTest {
   }
 
   @Test
+  void fetchOpenRouterModels_blocksNonAllowlistedCatalogHost() {
+    openRouterProperties.setModelCatalogUrl("https://169.254.169.254/latest/meta-data");
+
+    var models = service.fetchOpenRouterModels("or-key");
+
+    assertThat(models).isEmpty();
+  }
+
+  @Test
   void fetchOpenRouterModels_omitsAttributionHeadersWhenConfigIsBlank() {
     RestClient.Builder builder = RestClient.builder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -218,6 +227,15 @@ class ModelFetchServiceTest {
         .andRespond(withSuccess("{\"data\":[]}", MediaType.APPLICATION_JSON));
 
     assertThat(service.fetchOpenRouterModels("or-key")).isEmpty();
+  }
+
+  @Test
+  void fetchOpenRouterModels_blocksNonHttpsCatalogUrl() {
+    openRouterProperties.setModelCatalogUrl("http://openrouter.ai/api/v1/models");
+
+    var models = service.fetchOpenRouterModels("or-key");
+
+    assertThat(models).isEmpty();
   }
 
   @Test

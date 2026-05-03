@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.env.MockEnvironment;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
@@ -18,28 +20,27 @@ class ApiKeyControllerTest {
 
   @Mock private ApiKeyService apiKeyService;
   @Mock private HttpServletRequest request;
+  @Mock private OidcUser principal;
 
   private ApiKeyController controller;
 
   @BeforeEach
   void setUp() {
-    controller = new ApiKeyController(apiKeyService, new RequestUserResolver());
+    controller = new ApiKeyController(apiKeyService, new RequestUserResolver(new MockEnvironment()));
   }
 
   @Test
-  void upsertApiKey_usesFrontendUserIdFallback_whenPrincipalMissing() {
-    when(request.getHeader(RequestUserResolver.USER_ID_HEADER)).thenReturn("frontend-user");
+  void upsertApiKey_usesAuthenticatedUserId() {
+    when(principal.getSubject()).thenReturn("oidc-user");
 
     controller.upsertApiKey(
-        null, request, "openrouter", new ApiKeyController.ApiKeyPayload("sk-or-user"));
+        principal, request, "openrouter", new ApiKeyController.ApiKeyPayload("sk-or-user"));
 
-    verify(apiKeyService).saveKey("frontend-user", com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider.OPENROUTER, "sk-or-user");
+    verify(apiKeyService).saveKey("oidc-user", com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider.OPENROUTER, "sk-or-user");
   }
 
   @Test
   void hasApiKey_requiresAnyUserIdentity() {
-    when(request.getHeader(RequestUserResolver.USER_ID_HEADER)).thenReturn(null);
-
     assertThatThrownBy(() -> controller.hasApiKey(null, request, "openrouter"))
         .isInstanceOf(ResponseStatusException.class)
         .hasMessageContaining("401 UNAUTHORIZED");

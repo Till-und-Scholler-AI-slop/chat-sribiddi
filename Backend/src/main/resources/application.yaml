@@ -2,6 +2,9 @@ server:
   # Required when running behind reverse proxies (Caddy/Nginx) so OAuth redirects use https.
   forward-headers-strategy: framework
   shutdown: graceful
+  servlet:
+    session:
+      timeout: ${SESSION_TIMEOUT:30m}
   tomcat:
     threads:
       max: ${TOMCAT_MAX_THREADS:200}
@@ -157,10 +160,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info}
   endpoint:
     health:
-      show-details: when-authorized
+      show-details: never
 
 app:
   cors:
@@ -174,6 +177,11 @@ app:
     max-media-attachment-bytes: ${CHAT_MAX_MEDIA_ATTACHMENT_BYTES:5242880}   # 5 MB
     max-media-total-bytes: ${CHAT_MAX_MEDIA_TOTAL_BYTES:20971520}           # 20 MB
     stream-timeout-ms: ${CHAT_STREAM_TIMEOUT_MS:1800000}                     # 30 min
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    anonymous-requests-per-minute: ${RATE_LIMIT_ANONYMOUS_PER_MINUTE:60}
+    authenticated-requests-per-minute: ${RATE_LIMIT_AUTHENTICATED_PER_MINUTE:300}
+    bucket-ttl: ${RATE_LIMIT_BUCKET_TTL:10m}
   ai:
     openai:
       connect-timeout: ${OPENAI_CONNECT_TIMEOUT:10s}
@@ -187,13 +195,18 @@ app:
       base-url: ${OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
       completions-path: ${OPENROUTER_COMPLETIONS_PATH:/chat/completions}
       model-catalog-url: ${OPENROUTER_MODEL_CATALOG_URL:https://openrouter.ai/api/v1/models}
+      allowed-model-catalog-hosts: ${OPENROUTER_ALLOWED_MODEL_CATALOG_HOSTS:openrouter.ai}
       # Attribution headers sent with every OpenRouter request (HTTP-Referer, X-Title). Required
       # by OpenRouter so requests show up under the correct integrating app on their dashboard.
       app-name: ${OPENROUTER_APP_NAME:chat-sribiddi}
       referrer: ${OPENROUTER_REFERRER:${APP_FRONTEND_URL:https://chat-sribiddi.local}}
+  tools:
+    user-agent: ${TOOLS_USER_AGENT:ChatSribiddi/1.0 (Tool)}
+    python-enabled: ${TOOLS_PYTHON_ENABLED:false}
   web-search:
     max-results: ${WEB_SEARCH_MAX_RESULTS:5}
     request-timeout: ${WEB_SEARCH_REQUEST_TIMEOUT:10s}
+    user-agent: ${WEB_SEARCH_USER_AGENT:ChatSribiddi/1.0 (WebSearch)}
   billing:
     # Per-tier entitlements. Values are consumed by BillingProperties / EntitlementService.
     # Model access is NOT gated via hardcoded ID whitelists — it uses the price threshold

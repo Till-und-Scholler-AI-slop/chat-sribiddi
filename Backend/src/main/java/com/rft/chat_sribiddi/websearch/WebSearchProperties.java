@@ -17,4 +17,7 @@ public class WebSearchProperties {
 
   /** HTTP request timeout for Brave Search API calls (default: 10s). */
   private Duration requestTimeout = Duration.ofSeconds(10);
+
+  /** User-Agent sent to outbound search APIs. */
+  private String userAgent = "ChatSribiddi/1.0 (WebSearch)";
 }

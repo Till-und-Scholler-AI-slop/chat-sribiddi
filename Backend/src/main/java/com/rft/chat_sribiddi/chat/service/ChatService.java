@@ -12,6 +12,7 @@ import com.rft.chat_sribiddi.chat.dto.StreamEventDTO;
 import com.rft.chat_sribiddi.chat.dto.ToolCallLogResponseDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
+import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.model.ToolCallLogEntity;
@@ -224,7 +225,7 @@ public class ChatService {
               requestDTO.provider(), requestDTO.modelId(), resolvedKey);
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(prep.promptMessages());
-      wireTools(userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
+      wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
       chatResponse = promptSpec.call().chatResponse();
       providerCallSucceeded = true;
     }
@@ -358,9 +359,8 @@ public class ChatService {
   }
 
   private String resolveApiKey(String userId, RequestDTO requestDTO) {
-    return Optional.ofNullable(requestDTO.apiKey())
-        .filter(key -> !key.isBlank())
-        .or(() -> apiKeyService.getKey(userId, requestDTO.provider()))
+    return apiKeyService
+        .getKey(userId, requestDTO.provider())
         .orElseThrow(
             () ->
                 new IllegalArgumentException(
@@ -393,7 +393,7 @@ public class ChatService {
     var client = clientHolder.client();
     var promptSpec = client.prompt().options(options).messages(promptMessages);
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
-    wireTools(userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
+    wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
     String assistantContext = buildAssistantContext(
         promptMessages.size(),
         supportsSystemInstruction(requestDTO.provider(), requestDTO.modelId()));
@@ -1355,11 +1355,15 @@ public class ChatService {
    * and is only wired when webSearchEnabled is true.
    */
   private void wireTools(
+      UUID chatId,
       String userId,
       Boolean webSearchEnabled,
       ToolExecutionCollector collector,
       ChatClient.ChatClientRequestSpec promptSpec) {
     for (com.rft.chat_sribiddi.tools.api.ChatTool tool : toolRegistry.getAll()) {
+      if (!isToolEnabledForChat(chatId, tool.getName())) {
+        continue;
+      }
       switch (tool.getName()) {
         case "current-datetime" ->
             promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, collector));
@@ -1383,5 +1387,17 @@ public class ChatService {
             promptSpec.tools(tool);
       }
     }
+  }
+
+  private boolean isToolEnabledForChat(UUID chatId, String toolName) {
+    return chatToolRepository
+        .findByChatIdAndToolName(chatId, toolName)
+        .map(ChatToolEntity::isEnabled)
+        .orElseGet(
+            () ->
+                switch (toolName) {
+                  case "calculator", "current-datetime", "brave-search" -> true;
+                  default -> false;
+                });
   }
 }

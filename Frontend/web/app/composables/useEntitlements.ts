@@ -122,7 +122,7 @@ export function normalizeEntitlements(raw: RawEntitlementsResponse | null | unde
   // Prune undefined keys so consumers can do `'x' in caps` cleanly, and so
   // that fields the backend didn't send don't leak into the normalized shape.
   for (const key of Object.keys(caps) as (keyof EntitlementCaps)[]) {
-    if (caps[key] === undefined) delete caps[key]
+    if (caps[key] === undefined) Reflect.deleteProperty(caps, key)
   }
 
   // `showAds` defaults to true on the Free plan and false otherwise, unless the

@@ -43,22 +43,24 @@ export default defineNuxtConfig({
                     href: '/favicon.ico'
                 },
                 {
-                    rel: 'preconnect',
-                    href: 'https://fonts.googleapis.com'
+                    rel: 'manifest',
+                    href: '/manifest.webmanifest'
                 },
-                {
-                    rel: 'preconnect',
-                    href: 'https://fonts.gstatic.com',
-                    crossorigin: ''
-                },
-                {
-                    rel: 'stylesheet',
-                    href: 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lora:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap'
-                }
             ]
         },
         pageTransition: { name: 'page', mode: 'out-in' },
         layoutTransition: { name: 'layout', mode: 'out-in' }
+    },
+    fonts: {
+        providers: {
+            adobe: false,
+            bunny: false,
+            fontshare: false,
+            fontsource: false,
+            google: false,
+            googleicons: false,
+            npm: false
+        }
     },
     icon: {
         provider: 'none',

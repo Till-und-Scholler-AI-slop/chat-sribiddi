@@ -1,5 +1,6 @@
 package com.rft.chat_sribiddi.chat.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -12,13 +13,13 @@ import java.util.List;
  * @param content user message
  * @param provider target model provider
  * @param modelId model identifier for the provider
- * @param apiKey user-supplied API key for the chosen provider (optional if stored)
+ * @param apiKey deprecated compatibility field; request-supplied API keys are ignored
  */
 public record RequestDTO(
     @NotBlank(message = "content must not be blank") String content,
     @NotNull(message = "provider is required") Provider provider,
     @NotBlank(message = "modelId must not be blank") String modelId,
-    String apiKey,
+    @Deprecated @JsonIgnore String apiKey,
     @Size(max = 5, message = "media supports up to 5 attachments")
         List<@NotNull(message = "media items must not be null") @Valid MediaAttachment> media,
     Boolean webSearchEnabled) {
