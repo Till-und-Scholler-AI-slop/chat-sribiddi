@@ -2,10 +2,13 @@ package com.rft.chat_sribiddi.billing;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.rft.chat_sribiddi.audit.AuditLogService;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
@@ -39,6 +42,7 @@ class StripeWebhookProcessorTest {
   @Mock private StripeEventRepository stripeEventRepository;
   @Mock private SubscriptionRepository subscriptionRepository;
   @Mock private UserRepository userRepository;
+  @Mock private AuditLogService auditLogService;
 
   private StripeProperties stripeProperties;
   private StripeWebhookProcessor processor;
@@ -60,7 +64,11 @@ class StripeWebhookProcessorTest {
 
     processor =
         new StripeWebhookProcessor(
-            stripeEventRepository, subscriptionRepository, userRepository, stripeProperties);
+            stripeEventRepository,
+            subscriptionRepository,
+            userRepository,
+            stripeProperties,
+            auditLogService);
 
     when(stripeEventRepository.save(any(StripeEventEntity.class)))
         .thenAnswer(inv -> inv.getArgument(0));
@@ -79,6 +87,8 @@ class StripeWebhookProcessorTest {
     assertThat(processed).isFalse();
     verify(stripeEventRepository, never()).save(any());
     verify(userRepository, never()).save(any());
+    verify(auditLogService, never())
+        .recordPlanStateChange(any(), any(), any(), any(), any(), any(), any(), any());
   }
 
   @Test
@@ -132,6 +142,16 @@ class StripeWebhookProcessorTest {
     assertThat(userCap.getValue().getPlanStatus()).isEqualTo("active");
     assertThat(userCap.getValue().getPlanValidUntil())
         .isEqualTo(Instant.ofEpochSecond(periodEnd));
+    verify(auditLogService)
+        .recordPlanStateChange(
+            eq(42L),
+            eq(Plan.FREE),
+            eq(Plan.PREMIUM),
+            isNull(),
+            eq("active"),
+            eq("stripe_webhook"),
+            eq("customer.subscription.updated"),
+            any());
   }
 
   @Test
@@ -193,6 +213,16 @@ class StripeWebhookProcessorTest {
     assertThat(userCap.getValue().getPlan()).isEqualTo(Plan.FREE);
     assertThat(userCap.getValue().getPlanStatus()).isEqualTo("canceled");
     assertThat(userCap.getValue().getPlanValidUntil()).isNull();
+    verify(auditLogService)
+        .recordPlanStateChange(
+            eq(42L),
+            eq(Plan.PREMIUM),
+            eq(Plan.FREE),
+            isNull(),
+            eq("canceled"),
+            eq("stripe_webhook"),
+            eq("customer.subscription.deleted"),
+            any());
   }
 
   @Test
@@ -213,6 +243,16 @@ class StripeWebhookProcessorTest {
     assertThat(userCap.getValue().getPlanStatus()).isEqualTo("PAYMENT_FAILED");
     // Plan itself is intentionally left untouched here.
     assertThat(userCap.getValue().getPlan()).isEqualTo(Plan.PREMIUM);
+    verify(auditLogService)
+        .recordPlanStateChange(
+            eq(42L),
+            eq(Plan.PREMIUM),
+            eq(Plan.PREMIUM),
+            eq("active"),
+            eq("PAYMENT_FAILED"),
+            eq("stripe_webhook"),
+            eq("invoice.payment_failed"),
+            any());
   }
 
   @Test
@@ -226,6 +266,8 @@ class StripeWebhookProcessorTest {
     verify(stripeEventRepository).save(any(StripeEventEntity.class));
     verify(userRepository, never()).save(any());
     verify(subscriptionRepository, never()).save(any());
+    verify(auditLogService, never())
+        .recordPlanStateChange(any(), any(), any(), any(), any(), any(), any(), any());
   }
 
   // ---- helpers ---------------------------------------------------------

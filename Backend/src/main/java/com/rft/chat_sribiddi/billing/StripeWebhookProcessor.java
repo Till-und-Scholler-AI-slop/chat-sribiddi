@@ -1,5 +1,6 @@
 package com.rft.chat_sribiddi.billing;
 
+import com.rft.chat_sribiddi.audit.AuditLogService;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
@@ -11,6 +12,8 @@ import com.stripe.model.Subscription;
 import com.stripe.model.SubscriptionItem;
 import com.stripe.model.checkout.Session;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +55,7 @@ public class StripeWebhookProcessor {
   private final SubscriptionRepository subscriptionRepository;
   private final UserRepository userRepository;
   private final StripeProperties stripeProperties;
+  private final AuditLogService auditLogService;
 
   /**
    * Idempotently processes a verified Stripe {@link Event}. Returns {@code true} when this is the
@@ -144,6 +148,8 @@ public class StripeWebhookProcessor {
           subscription.getCustomer());
       return;
     }
+    Plan previousPlan = user.getPlan();
+    String previousStatus = user.getPlanStatus();
     String priceId = firstPriceId(subscription);
     Plan plan = stripeProperties.resolvePlanFromPriceId(priceId);
     if (plan == null) {
@@ -179,6 +185,27 @@ public class StripeWebhookProcessor {
     user.setPlanStatus(status);
     user.setPlanValidUntil(entity.getCurrentPeriodEnd());
     userRepository.save(user);
+    auditLogService.recordPlanStateChange(
+        user.getId(),
+        previousPlan,
+        user.getPlan(),
+        previousStatus,
+        user.getPlanStatus(),
+        "stripe_webhook",
+        event.getType(),
+        metadata(
+            "event_id",
+            event.getId(),
+            "subscription_id",
+            subscription.getId(),
+            "stripe_customer_id",
+            subscription.getCustomer(),
+            "price_id",
+            priceId,
+            "subscription_status",
+            status,
+            "current_period_end",
+            instant(entity.getCurrentPeriodEnd())));
     log.info(
         "{} {}: user id={} -> plan={} status={} until {}",
         event.getType(),
@@ -202,11 +229,30 @@ public class StripeWebhookProcessor {
           subscription.getCustomer());
       return;
     }
+    Plan previousPlan = user.getPlan();
+    String previousStatus = user.getPlanStatus();
     user.setPlan(Plan.FREE);
     user.setPlanStatus(
         subscription.getStatus() == null ? "canceled" : subscription.getStatus());
     user.setPlanValidUntil(null);
     userRepository.save(user);
+    auditLogService.recordPlanStateChange(
+        user.getId(),
+        previousPlan,
+        user.getPlan(),
+        previousStatus,
+        user.getPlanStatus(),
+        "stripe_webhook",
+        event.getType(),
+        metadata(
+            "event_id",
+            event.getId(),
+            "subscription_id",
+            subscription.getId(),
+            "stripe_customer_id",
+            subscription.getCustomer(),
+            "subscription_status",
+            subscription.getStatus()));
 
     if (subscription.getId() != null) {
       subscriptionRepository
@@ -238,8 +284,19 @@ public class StripeWebhookProcessor {
           invoice.getCustomer());
       return;
     }
+    Plan previousPlan = user.getPlan();
+    String previousStatus = user.getPlanStatus();
     user.setPlanStatus(PAYMENT_FAILED_STATUS);
     userRepository.save(user);
+    auditLogService.recordPlanStateChange(
+        user.getId(),
+        previousPlan,
+        user.getPlan(),
+        previousStatus,
+        user.getPlanStatus(),
+        "stripe_webhook",
+        event.getType(),
+        metadata("event_id", event.getId(), "stripe_customer_id", invoice.getCustomer()));
     log.info(
         "invoice.payment_failed {}: flagged user id={} as {}",
         event.getId(),
@@ -295,6 +352,22 @@ public class StripeWebhookProcessor {
 
   private static Instant toInstant(Long epochSeconds) {
     return epochSeconds == null ? null : Instant.ofEpochSecond(epochSeconds);
+  }
+
+  private static Map<String, Object> metadata(Object... keyValues) {
+    Map<String, Object> metadata = new LinkedHashMap<>();
+    for (int i = 0; i + 1 < keyValues.length; i += 2) {
+      Object key = keyValues[i];
+      Object value = keyValues[i + 1];
+      if (key instanceof String name && value != null) {
+        metadata.put(name, value);
+      }
+    }
+    return metadata;
+  }
+
+  private static String instant(Instant value) {
+    return value == null ? null : value.toString();
   }
 
   @SuppressWarnings("unchecked")

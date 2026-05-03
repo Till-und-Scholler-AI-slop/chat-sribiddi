@@ -64,7 +64,19 @@ public interface UserRepository extends JpaRepository<User, Long> {
       @Param("newPlanStatus") String newPlanStatus,
       @Param("cutoff") Instant cutoff);
 
-
+  /**
+   * Per-user variant of {@link #downgradeAllByStatusAndValidUntilBefore(String, String, Instant)}
+   * used when callers need an exact audit-log row for every successfully downgraded user.
+   */
+  @Modifying
+  @Query(
+      "UPDATE User u SET u.plan = com.rft.chat_sribiddi.auth.Plan.FREE, u.planStatus = :newPlanStatus "
+          + "WHERE u.id = :id AND u.planStatus = :expectedStatus AND u.planValidUntil < :cutoff")
+  int downgradePaymentFailedUserIfStillOverdue(
+      @Param("id") Long id,
+      @Param("expectedStatus") String expectedStatus,
+      @Param("newPlanStatus") String newPlanStatus,
+      @Param("cutoff") Instant cutoff);
 
   /**
    * Acquires a row-level write lock on the user record. Used by

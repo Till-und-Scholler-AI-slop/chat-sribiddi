@@ -1,9 +1,14 @@
 package com.rft.chat_sribiddi.billing;
 
+import com.rft.chat_sribiddi.audit.AuditLogService;
+import com.rft.chat_sribiddi.auth.Plan;
+import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -53,6 +58,7 @@ public class PlanLifecycleJob {
 
   private final SubscriptionRepository subscriptionRepository;
   private final UserRepository userRepository;
+  private final AuditLogService auditLogService;
 
   /**
    * Finds subscriptions still marked {@code active} whose {@code currentPeriodEnd} has already
@@ -90,6 +96,23 @@ public class PlanLifecycleJob {
               subscription.getUserId(), USER_EXPIRED_STATUS, now);
       if (userUpdated > 0) {
         usersDowngraded++;
+        auditLogService.recordPlanStateChange(
+            subscription.getUserId(),
+            subscription.getPlan(),
+            Plan.FREE,
+            subscription.getStatus(),
+            USER_EXPIRED_STATUS,
+            "plan_lifecycle_job",
+            "subscription_expired",
+            metadata(
+                "subscription_id",
+                subscription.getId(),
+                "stripe_subscription_id",
+                subscription.getStripeSubscriptionId(),
+                "current_period_end",
+                instant(subscription.getCurrentPeriodEnd()),
+                "cutoff",
+                instant(now)));
         log.debug(
             "PlanLifecycleJob: expired subscription id={} -> user id={} downgraded to FREE",
             subscription.getId(),
@@ -120,13 +143,54 @@ public class PlanLifecycleJob {
   @Transactional
   public void processPaymentFailedGracePeriod() {
     Instant cutoff = Instant.now().minus(GRACE_PERIOD);
-    int downgraded =
-        userRepository.downgradeAllByStatusAndValidUntilBefore(
-            StripeWebhookProcessor.PAYMENT_FAILED_STATUS, USER_DOWNGRADED_STATUS, cutoff);
+    List<User> candidates =
+        userRepository.findByPlanStatusAndPlanValidUntilBefore(
+            StripeWebhookProcessor.PAYMENT_FAILED_STATUS, cutoff);
+    int downgraded = 0;
+    for (User user : candidates) {
+      int userUpdated =
+          userRepository.downgradePaymentFailedUserIfStillOverdue(
+              user.getId(),
+              StripeWebhookProcessor.PAYMENT_FAILED_STATUS,
+              USER_DOWNGRADED_STATUS,
+              cutoff);
+      if (userUpdated > 0) {
+        downgraded++;
+        auditLogService.recordPlanStateChange(
+            user.getId(),
+            user.getPlan(),
+            Plan.FREE,
+            user.getPlanStatus(),
+            USER_DOWNGRADED_STATUS,
+            "plan_lifecycle_job",
+            "payment_failed_grace_elapsed",
+            metadata(
+                "plan_valid_until",
+                instant(user.getPlanValidUntil()),
+                "cutoff",
+                instant(cutoff)));
+      }
+    }
     if (downgraded > 0) {
       log.info(
           "PlanLifecycleJob: downgraded {} user(s) past payment-failed grace period",
           downgraded);
     }
+  }
+
+  private static Map<String, Object> metadata(Object... keyValues) {
+    Map<String, Object> metadata = new LinkedHashMap<>();
+    for (int i = 0; i + 1 < keyValues.length; i += 2) {
+      Object key = keyValues[i];
+      Object value = keyValues[i + 1];
+      if (key instanceof String name && value != null) {
+        metadata.put(name, value);
+      }
+    }
+    return metadata;
+  }
+
+  private static String instant(Instant value) {
+    return value == null ? null : value.toString();
   }
 }
