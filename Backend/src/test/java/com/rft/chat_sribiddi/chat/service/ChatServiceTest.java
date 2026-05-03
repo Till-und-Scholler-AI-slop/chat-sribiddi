@@ -26,6 +26,7 @@ import com.rft.chat_sribiddi.tools.CalculatorTool;
 import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
 import com.rft.chat_sribiddi.tools.UrlFetcherTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.http.HttpClient;
 import java.util.Base64;
@@ -49,6 +50,7 @@ import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Pageable;
 
 @ExtendWith(MockitoExtension.class)
 class ChatServiceTest {
@@ -162,6 +164,81 @@ class ChatServiceTest {
     assertThat(savedMessages.getAllValues())
         .extracting(MessageEntity::getRole)
         .containsExactly(Role.USER, Role.ASSISTANT);
+  }
+
+  @Test
+  void listChats_usesLimitAndOffsetPageable() {
+    ChatProperties properties = new ChatProperties();
+    properties.setChatPageSize(25);
+    chatService = buildChatService(properties);
+    when(chatRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any()))
+        .thenReturn(List.of());
+
+    chatService.listChats(userId, 10, 20);
+
+    ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+    verify(chatRepository).findByUserIdOrderByCreatedAtDesc(eq(userId), pageable.capture());
+    assertThat(pageable.getValue().getPageSize()).isEqualTo(10);
+    assertThat(pageable.getValue().getOffset()).isEqualTo(20);
+  }
+
+  @Test
+  void listMessages_clampsLimitUsesOffsetAndReturnsChronologicalOrder() {
+    ChatProperties properties = new ChatProperties();
+    properties.setMessagePageSize(2);
+    chatService = buildChatService(properties);
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    MessageEntity newest = messageWithId(2L);
+    MessageEntity oldest = messageWithId(1L);
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(eq(chatId), any()))
+        .thenReturn(List.of(newest, oldest));
+
+    List<MessageEntity> result = chatService.listMessages(chatId, userId, 10, 3);
+
+    ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+    verify(messageRepository).findByChatIdOrderByCreatedAtDesc(eq(chatId), pageable.capture());
+    assertThat(pageable.getValue().getPageSize()).isEqualTo(2);
+    assertThat(pageable.getValue().getOffset()).isEqualTo(3);
+    assertThat(result).extracting(MessageEntity::getId).containsExactly(1L, 2L);
+  }
+
+  @Test
+  void streamSetupFailure_closesClientHolder() throws Exception {
+    AutoCloseable closeable = mock(AutoCloseable.class);
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null, null, null);
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, closeable));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", "key"))
+        .thenThrow(new RuntimeException("boom"));
+    Method method =
+        ChatService.class.getDeclaredMethod(
+            "createAndSubscribeStream",
+            String.class,
+            RequestDTO.class,
+            List.class,
+            UUID.class,
+            String.class,
+            BillingMode.class);
+    method.setAccessible(true);
+
+    assertThatThrownBy(
+            () ->
+                method.invoke(
+                    chatService,
+                    userId,
+                    request,
+                    List.<Message>of(new UserMessage("hi")),
+                    chatId,
+                    null,
+                    BillingMode.BYOK))
+        .isInstanceOf(InvocationTargetException.class)
+        .hasCauseInstanceOf(RuntimeException.class);
+    verify(closeable).close();
   }
 
   @Test
@@ -1421,5 +1498,14 @@ class ChatServiceTest {
     assertThat(assistantMsg.getContext())
         .doesNotContain("including system prompt")
         .contains("instructions sent as user message");
+  }
+
+  private MessageEntity messageWithId(long id) {
+    MessageEntity message = new MessageEntity();
+    message.setId(id);
+    message.setChatId(chatId);
+    message.setMessage("message-" + id);
+    message.setRole(Role.USER);
+    return message;
   }
 }

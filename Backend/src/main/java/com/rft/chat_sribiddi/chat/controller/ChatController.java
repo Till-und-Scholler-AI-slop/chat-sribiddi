@@ -53,10 +53,11 @@ public class ChatController {
   @GetMapping
   public ResponseEntity<List<ChatResponseDTO>> listChats(
       @AuthenticationPrincipal OidcUser principal,
-      @RequestParam(required = false) Integer limit) {
+      @RequestParam(required = false) Integer limit,
+      @RequestParam(required = false) Integer offset) {
     validatePrincipal(principal);
     List<ChatResponseDTO> chats =
-        chatService.listChats(principal.getSubject(), limit).stream()
+        chatService.listChats(principal.getSubject(), limit, offset).stream()
             .map(ChatResponseDTO::from)
             .toList();
     return ResponseEntity.ok(chats);
@@ -66,10 +67,11 @@ public class ChatController {
   public ResponseEntity<List<MessageResponseDTO>> listMessages(
       @AuthenticationPrincipal OidcUser principal,
       @PathVariable UUID chatId,
-      @RequestParam(required = false) Integer limit) {
+      @RequestParam(required = false) Integer limit,
+      @RequestParam(required = false) Integer offset) {
     validatePrincipal(principal);
     List<MessageResponseDTO> messages =
-        chatService.listMessageResponses(chatId, principal.getSubject(), limit);
+        chatService.listMessageResponses(chatId, principal.getSubject(), limit, offset);
     return ResponseEntity.ok(messages);
   }
 

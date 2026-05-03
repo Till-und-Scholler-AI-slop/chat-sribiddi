@@ -66,6 +66,8 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.content.Media;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
@@ -134,26 +136,42 @@ public class ChatService {
   }
 
   public List<ChatEntity> listChats(String userId, Integer limit) {
+    return listChats(userId, limit, null);
+  }
+
+  public List<ChatEntity> listChats(String userId, Integer limit, Integer offset) {
     int pageSize =
         (limit != null && limit > 0)
             ? Math.min(limit, chatProperties.getChatPageSize())
             : chatProperties.getChatPageSize();
-    return chatRepository.findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, pageSize));
+    return chatRepository.findByUserIdOrderByCreatedAtDesc(
+        userId, OffsetPageRequest.of(pageSize, offset));
   }
 
   public List<MessageEntity> listMessages(UUID chatId, String userId, Integer limit) {
+    return listMessages(chatId, userId, limit, null);
+  }
+
+  public List<MessageEntity> listMessages(UUID chatId, String userId, Integer limit, Integer offset) {
     chatRepository
         .findByChatIdAndUserId(chatId, userId)
         .orElseThrow(() -> new ChatNotFoundException(chatId));
     int pageSize =
-        (limit != null && limit > 0) ? limit : chatProperties.getMessagePageSize();
+        (limit != null && limit > 0)
+            ? Math.min(limit, chatProperties.getMessagePageSize())
+            : chatProperties.getMessagePageSize();
     return messageRepository
-        .findByChatIdOrderByCreatedAtDesc(chatId, PageRequest.of(0, pageSize))
+        .findByChatIdOrderByCreatedAtDesc(chatId, OffsetPageRequest.of(pageSize, offset))
         .reversed();
   }
 
   public List<MessageResponseDTO> listMessageResponses(UUID chatId, String userId, Integer limit) {
-    List<MessageEntity> messages = listMessages(chatId, userId, limit);
+    return listMessageResponses(chatId, userId, limit, null);
+  }
+
+  public List<MessageResponseDTO> listMessageResponses(
+      UUID chatId, String userId, Integer limit, Integer offset) {
+    List<MessageEntity> messages = listMessages(chatId, userId, limit, offset);
     if (messages.isEmpty()) {
       return List.of();
     }
@@ -387,28 +405,34 @@ public class ChatService {
     SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
     ClientHolder clientHolder =
         providerClientFactory.getClient(requestDTO.provider(), resolvedKey);
-    var options =
-        providerClientFactory.buildOptions(
-            requestDTO.provider(), requestDTO.modelId(), resolvedKey);
-    var client = clientHolder.client();
-    var promptSpec = client.prompt().options(options).messages(promptMessages);
-    ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
-    wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
-    String assistantContext = buildAssistantContext(
-        promptMessages.size(),
-        supportsSystemInstruction(requestDTO.provider(), requestDTO.modelId()));
-    subscribeToStream(
-        promptSpec,
-        emitter,
-        clientHolder,
-        userId,
-        requestDTO.provider(),
-        requestDTO.modelId(),
-        billingMode,
-        chatId,
-        assistantContext,
-        updatedTitle,
-        toolExecutionCollector);
+    try {
+      var options =
+          providerClientFactory.buildOptions(
+              requestDTO.provider(), requestDTO.modelId(), resolvedKey);
+      var client = clientHolder.client();
+      var promptSpec = client.prompt().options(options).messages(promptMessages);
+      ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
+      wireTools(chatId, userId, requestDTO.webSearchEnabled(), toolExecutionCollector, promptSpec);
+      String assistantContext =
+          buildAssistantContext(
+              promptMessages.size(),
+              supportsSystemInstruction(requestDTO.provider(), requestDTO.modelId()));
+      subscribeToStream(
+          promptSpec,
+          emitter,
+          clientHolder,
+          userId,
+          requestDTO.provider(),
+          requestDTO.modelId(),
+          billingMode,
+          chatId,
+          assistantContext,
+          updatedTitle,
+          toolExecutionCollector);
+    } catch (RuntimeException | Error error) {
+      clientHolder.close();
+      throw error;
+    }
     return emitter;
   }
 
@@ -1336,6 +1360,63 @@ public class ChatService {
       } catch (Exception e) {
         log.warn("Failed to close provider client", e);
       }
+    }
+  }
+
+  private record OffsetPageRequest(int limit, long offset) implements Pageable {
+
+    private static OffsetPageRequest of(int limit, Integer offset) {
+      int sanitizedLimit = Math.max(1, limit);
+      long sanitizedOffset = offset != null && offset > 0 ? offset.longValue() : 0L;
+      return new OffsetPageRequest(sanitizedLimit, sanitizedOffset);
+    }
+
+    @Override
+    public int getPageNumber() {
+      return Math.toIntExact(offset / limit);
+    }
+
+    @Override
+    public int getPageSize() {
+      return limit;
+    }
+
+    @Override
+    public long getOffset() {
+      return offset;
+    }
+
+    @Override
+    public Sort getSort() {
+      return Sort.unsorted();
+    }
+
+    @Override
+    public Pageable next() {
+      return new OffsetPageRequest(limit, offset + limit);
+    }
+
+    @Override
+    public Pageable previousOrFirst() {
+      return hasPrevious() ? new OffsetPageRequest(limit, Math.max(0, offset - limit)) : first();
+    }
+
+    @Override
+    public Pageable first() {
+      return new OffsetPageRequest(limit, 0);
+    }
+
+    @Override
+    public Pageable withPage(int pageNumber) {
+      if (pageNumber < 0) {
+        throw new IllegalArgumentException("pageNumber must not be negative");
+      }
+      return new OffsetPageRequest(limit, (long) pageNumber * limit);
+    }
+
+    @Override
+    public boolean hasPrevious() {
+      return offset > 0;
     }
   }
 
