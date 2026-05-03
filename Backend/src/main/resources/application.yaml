@@ -183,9 +183,12 @@ app:
       - openrouter:*venice*uncensored*
   rate-limit:
     enabled: ${RATE_LIMIT_ENABLED:true}
-    anonymous-requests-per-minute: ${RATE_LIMIT_ANONYMOUS_PER_MINUTE:60}
-    authenticated-requests-per-minute: ${RATE_LIMIT_AUTHENTICATED_PER_MINUTE:300}
+    anonymous-requests-per-minute: ${RATE_LIMIT_ANONYMOUS_PER_MINUTE:10}
+    free-requests-per-minute: ${RATE_LIMIT_FREE_PER_MINUTE:30}
+    premium-requests-per-minute: ${RATE_LIMIT_PREMIUM_PER_MINUTE:120}
+    max-requests-per-minute: ${RATE_LIMIT_MAX_PER_MINUTE:300}
     bucket-ttl: ${RATE_LIMIT_BUCKET_TTL:10m}
+    trusted-proxies: ${RATE_LIMIT_TRUSTED_PROXIES:127.0.0.1,::1}
   ai:
     openai:
       connect-timeout: ${OPENAI_CONNECT_TIMEOUT:10s}
