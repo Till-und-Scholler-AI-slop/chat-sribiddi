@@ -46,3 +46,18 @@ Splitting rules:
 - Each follow-up ticket owns one security concern with its own scope and acceptance criteria.
 - Bundled backlog issues can be closed as superseded after their remaining items are linked to
   focused follow-up tickets.
+
+Medium backlog split from #244:
+
+- M-01 Markdown HTML sanitization: #252.
+- M-03 BYOK API key transport outside JSON bodies: #253.
+- M-04 Remove user identifiers from localStorage: #254.
+- M-07 Datasource credential log sanitization: #255.
+- M-09 Production guard for `DevSecurityConfig`: #256.
+
+Already completed from #244:
+
+- M-02 CSRF cookies use `SameSite=Lax`.
+- M-05 Frontend Docker runtime uses the non-root `node` user.
+- M-06 Session timeout defaults to 30 minutes.
+- M-08 Tool and web-search outbound User-Agents are configurable.
