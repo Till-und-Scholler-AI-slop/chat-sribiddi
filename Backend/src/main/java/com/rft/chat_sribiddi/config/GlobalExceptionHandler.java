@@ -2,7 +2,7 @@ package com.rft.chat_sribiddi.config;
 
 import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
-import com.rft.chat_sribiddi.chat.service.ChatService;
+import com.rft.chat_sribiddi.chat.service.StreamErrorHandler;
 import java.net.http.HttpTimeoutException;
 import java.util.HashMap;
 import java.util.Map;
@@ -87,7 +87,7 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(RestClientResponseException.class)
   public ResponseEntity<Map<String, String>> handleProviderResponse(RestClientResponseException ex) {
     HttpStatus mappedStatus = mapProviderStatus(ex.getStatusCode());
-    String message = ChatService.formatProviderError(
+    String message = StreamErrorHandler.formatProviderError(
         ex.getResponseBodyAsString(), ex.getStatusCode().value());
     return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
   }
@@ -95,7 +95,7 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(WebClientResponseException.class)
   public ResponseEntity<Map<String, String>> handleWebClientResponse(WebClientResponseException ex) {
     HttpStatus mappedStatus = mapProviderStatus(ex.getStatusCode());
-    String message = ChatService.formatProviderError(
+    String message = StreamErrorHandler.formatProviderError(
         ex.getResponseBodyAsString(), ex.getStatusCode().value());
     return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
   }

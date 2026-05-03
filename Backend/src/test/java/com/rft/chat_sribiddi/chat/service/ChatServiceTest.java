@@ -88,7 +88,7 @@ class ChatServiceTest {
 
   private ChatService buildChatService(ChatProperties chatProperties) {
     return new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
-        apiKeyService, providerClientFactory, chatProperties, userSettingsService,
+        apiKeyService, providerClientFactory, chatProperties, new MediaValidationService(chatProperties), userSettingsService,
         new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
         toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
         new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), entitlementService, usageEventService,
@@ -1052,7 +1052,7 @@ class ChatServiceTest {
         new org.springframework.web.reactive.function.client.WebClientResponseException(
             400, "Bad Request", null, openAiBody.getBytes(), null);
 
-    String result = ChatService.extractProviderErrorMessage(ex);
+    String result = StreamErrorHandler.extractProviderMessage(ex);
 
     assertThat(result).isEqualTo("The model `gpt-invalid` does not exist");
   }
@@ -1064,7 +1064,7 @@ class ChatServiceTest {
         new org.springframework.web.reactive.function.client.WebClientResponseException(
             500, "Internal Server Error", null, rawBody.getBytes(), null);
 
-    String result = ChatService.extractProviderErrorMessage(ex);
+    String result = StreamErrorHandler.extractProviderMessage(ex);
 
     assertThat(result).isEqualTo("Something went wrong");
   }
@@ -1075,7 +1075,7 @@ class ChatServiceTest {
         new org.springframework.web.reactive.function.client.WebClientResponseException(
             400, "Bad Request", null, null, null);
 
-    String result = ChatService.extractProviderErrorMessage(ex);
+    String result = StreamErrorHandler.extractProviderMessage(ex);
 
     assertThat(result).contains("HTTP 400");
   }
@@ -1086,7 +1086,7 @@ class ChatServiceTest {
         new org.springframework.web.reactive.function.client.WebClientResponseException(
             429, "Too Many Requests", null, null, null);
 
-    String result = ChatService.extractProviderErrorMessage(ex);
+    String result = StreamErrorHandler.extractProviderMessage(ex);
 
     assertThat(result).contains("rate limit exceeded");
     assertThat(result).contains("HTTP 429");
@@ -1099,7 +1099,7 @@ class ChatServiceTest {
         new org.springframework.web.reactive.function.client.WebClientResponseException(
             429, "Too Many Requests", null, body.getBytes(), null);
 
-    String result = ChatService.extractProviderErrorMessage(ex);
+    String result = StreamErrorHandler.extractProviderMessage(ex);
 
     assertThat(result).isEqualTo("Rate limit exceeded");
   }
@@ -1108,7 +1108,7 @@ class ChatServiceTest {
   void extractProviderErrorMessage_returnsGenericMessage_forNonProviderError() {
     var ex = new RuntimeException("Something unexpected");
 
-    String result = ChatService.extractProviderErrorMessage(ex);
+    String result = StreamErrorHandler.extractProviderMessage(ex);
 
     assertThat(result).isEqualTo("An error occurred while streaming the response.");
   }
@@ -1116,7 +1116,7 @@ class ChatServiceTest {
   @Test
   void classifyStreamError_detectsTimeoutWithoutHttpStatus() {
     String result =
-        ChatService.classifyStreamError(
+        StreamErrorHandler.classify(
             new RuntimeException("response timeout while streaming"), null);
 
     assertThat(result).isEqualTo("TIMEOUT");
@@ -1124,7 +1124,7 @@ class ChatServiceTest {
 
   @Test
   void classifyStreamError_detectsRateLimitFromHttpStatus() {
-    String result = ChatService.classifyStreamError(new RuntimeException("any"), 429);
+    String result = StreamErrorHandler.classify(new RuntimeException("any"), 429);
 
     assertThat(result).isEqualTo("RATE_LIMIT");
   }
@@ -1132,8 +1132,8 @@ class ChatServiceTest {
   @Test
   void buildClientStreamErrorMessage_includesProviderModelStatusAndPartialHint() {
     String message =
-        ChatService.buildClientStreamErrorMessage(
-            new ChatService.StreamErrorDetails(
+        StreamErrorHandler.buildClientMessage(
+            new StreamErrorHandler.StreamErrorDetails(
                 RequestDTO.Provider.GOOGLE,
                 "gemma-4-31b-it",
                 503,
@@ -1147,9 +1147,9 @@ class ChatServiceTest {
 
   @Test
   void expectedStreamFailures_includeProviderAndTimeoutKinds() {
-    assertThat(ChatService.isExpectedStreamFailure("TIMEOUT")).isTrue();
-    assertThat(ChatService.isExpectedStreamFailure("PROVIDER_ERROR")).isTrue();
-    assertThat(ChatService.isExpectedStreamFailure("UNKNOWN")).isFalse();
+    assertThat(StreamErrorHandler.isExpectedFailure("TIMEOUT")).isTrue();
+    assertThat(StreamErrorHandler.isExpectedFailure("PROVIDER_ERROR")).isTrue();
+    assertThat(StreamErrorHandler.isExpectedFailure("UNKNOWN")).isFalse();
   }
 
   // ── Auto-title tests ────────────────────────────────────────────────────────

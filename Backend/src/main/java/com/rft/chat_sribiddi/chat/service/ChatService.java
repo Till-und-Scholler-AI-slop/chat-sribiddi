@@ -1,7 +1,5 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.chat.dto.MessageResponseDTO;
@@ -44,7 +42,6 @@ import java.io.IOException;
 import java.net.http.HttpClient;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -66,18 +63,13 @@ import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.Generation;
-import org.springframework.ai.content.Media;
-import org.springframework.core.io.ByteArrayResource;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.util.MimeTypeUtils;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.client.RestClientResponseException;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -108,6 +100,7 @@ public class ChatService {
   private final ApiKeyService apiKeyService;
   private final ProviderClientFactory providerClientFactory;
   private final ChatProperties chatProperties;
+  private final MediaValidationService mediaValidationService;
   private final UserSettingsService userSettingsService;
   private final WebSearchProperties webSearchProperties;
   private final HttpClient webSearchHttpClient;
@@ -359,7 +352,7 @@ public class ChatService {
       throw new IllegalArgumentException("Only user messages can be edited.");
     }
 
-    List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
+    List<MediaAttachment> validatedMedia = mediaValidationService.validateAttachments(requestDTO.media());
     String userContext = buildMediaContext(validatedMedia);
 
     // Run entitlement checks before mutating chat history so that a rejected request
@@ -407,7 +400,7 @@ public class ChatService {
 
   private MessagePreparation prepareUserMessage(
       UUID chatId, ChatEntity chat, String userId, RequestDTO requestDTO) {
-    List<MediaAttachment> validatedMedia = validateMediaAttachments(requestDTO.media());
+    List<MediaAttachment> validatedMedia = mediaValidationService.validateAttachments(requestDTO.media());
     String userContext = buildMediaContext(validatedMedia);
     MessageEntity persistedUserMessage = persistMessage(chatId, requestDTO.content(), userContext);
     String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
@@ -606,45 +599,45 @@ public class ChatService {
       SseEmitter emitter,
       ClientHolder clientHolder,
       ChatMetrics.StreamSample streamSample) {
-    StreamErrorDetails streamErrorDetails =
-        describeStreamError(provider, modelId, streamedTextUtf8Bytes, error);
+    StreamErrorHandler.StreamErrorDetails streamErrorDetails =
+        StreamErrorHandler.describe(provider, modelId, streamedTextUtf8Bytes, error);
     logStreamingError(chatId, streamErrorDetails, error);
     TokenUsage tokenUsage = toTokenUsage(lastUsage.get());
-      try (clientHolder) {
-          emitter.send(
-                  SseEmitter.event()
-                          .name(EVENT_ERROR)
-                          .data(
-                                    new StreamEventDTO(
-                                            EVENT_ERROR,
-                                            buildClientStreamErrorMessage(streamErrorDetails),
-                                            null, null, null, null, null, null,
-                                            streamErrorDetails.provider().name(),
-                                            streamErrorDetails.modelId(),
-                                            streamErrorDetails.statusCode(),
-                                            streamErrorDetails.errorType(),
-                                            streamErrorDetails.receivedBytes(),
-                                            true),
-                                    MediaType.APPLICATION_JSON));
-      } catch (IOException e) {
-          log.warn("Failed to send SSE error event", e);
-      } finally {
-          // Stream did not complete normally — do not increment the managed-mode counter,
-          // regardless of whether the error originated from the provider or the client.
-          recordUsageAndMaybeIncrementCounter(
-              userId,
-              provider,
-              modelId,
-              tokenUsage.promptTokens(),
-              tokenUsage.generationTokens(),
-              tokenUsage.totalTokens(),
-              null,
-              billingMode,
-              plan,
-              false);
-          chatMetrics.recordStreamEnd(streamSample);
-          emitter.complete();
-      }
+    try (clientHolder) {
+      emitter.send(
+          SseEmitter.event()
+              .name(EVENT_ERROR)
+              .data(
+                  new StreamEventDTO(
+                      EVENT_ERROR,
+                      StreamErrorHandler.buildClientMessage(streamErrorDetails),
+                      null, null, null, null, null, null,
+                      streamErrorDetails.provider().name(),
+                      streamErrorDetails.modelId(),
+                      streamErrorDetails.statusCode(),
+                      streamErrorDetails.errorType(),
+                      streamErrorDetails.receivedBytes(),
+                      true),
+                  MediaType.APPLICATION_JSON));
+    } catch (IOException e) {
+      log.warn("Failed to send SSE error event", e);
+    } finally {
+      // Stream did not complete normally — do not increment the managed-mode counter,
+      // regardless of whether the error originated from the provider or the client.
+      recordUsageAndMaybeIncrementCounter(
+          userId,
+          provider,
+          modelId,
+          tokenUsage.promptTokens(),
+          tokenUsage.generationTokens(),
+          tokenUsage.totalTokens(),
+          null,
+          billingMode,
+          plan,
+          false);
+      chatMetrics.recordStreamEnd(streamSample);
+      emitter.complete();
+    }
   }
 
   private void handleStreamCompletion(
@@ -657,78 +650,77 @@ public class ChatService {
       UUID chatId, String assistantContext, String updatedTitle,
       ToolExecutionCollector toolExecutionCollector,
       SseEmitter emitter, ClientHolder clientHolder, ChatMetrics.StreamSample streamSample) {
-      AtomicReference<Long> savedMessageId = new AtomicReference<>();
-      try (clientHolder) {
-          String assistantResponse = fullText.toString();
-          Usage usage = lastUsage.get();
+    AtomicReference<Long> savedMessageId = new AtomicReference<>();
+    try (clientHolder) {
+      String assistantResponse = fullText.toString();
+      Usage usage = lastUsage.get();
 
-          Long promptTokens = usage != null ? safeLong(usage.getPromptTokens()) : null;
-          Long generationTokens = usage != null ? safeLong(usage.getCompletionTokens()) : null;
-          Long totalTokens = usage != null ? safeLong(usage.getTotalTokens()) : null;
+      Long promptTokens = usage != null ? safeLong(usage.getPromptTokens()) : null;
+      Long generationTokens = usage != null ? safeLong(usage.getCompletionTokens()) : null;
+      Long totalTokens = usage != null ? safeLong(usage.getTotalTokens()) : null;
 
-          MessageEntity assistantMessage = new MessageEntity();
-          assistantMessage.setChatId(chatId);
-          assistantMessage.setMessage(assistantResponse);
-          assistantMessage.setRole(Role.ASSISTANT);
-          assistantMessage.setContext(assistantContext);
-          assistantMessage.setCreatedAt(Instant.now());
-          assistantMessage.setPromptTokens(promptTokens);
-          assistantMessage.setGenerationTokens(generationTokens);
-          assistantMessage.setTotalTokens(totalTokens);
+      MessageEntity assistantMessage = new MessageEntity();
+      assistantMessage.setChatId(chatId);
+      assistantMessage.setMessage(assistantResponse);
+      assistantMessage.setRole(Role.ASSISTANT);
+      assistantMessage.setContext(assistantContext);
+      assistantMessage.setCreatedAt(Instant.now());
+      assistantMessage.setPromptTokens(promptTokens);
+      assistantMessage.setGenerationTokens(generationTokens);
+      assistantMessage.setTotalTokens(totalTokens);
 
-          if (!chatRepository.existsById(chatId)) {
-              log.warn(
-                      "Chat {} was deleted during streaming — skipping assistant message save", chatId);
-              sendChatDeletedError(emitter);
-              return;
-          }
+      if (!chatRepository.existsById(chatId)) {
+        log.warn("Chat {} was deleted during streaming — skipping assistant message save", chatId);
+        sendChatDeletedError(emitter);
+        return;
+      }
 
-          if (!saveStreamedAssistantMessage(assistantMessage, chatId, emitter)) {
-              return;
-          }
-          savedMessageId.set(assistantMessage.getId());
+      if (!saveStreamedAssistantMessage(assistantMessage, chatId, emitter)) {
+        return;
+      }
+      savedMessageId.set(assistantMessage.getId());
 
-          persistToolCallLogs(assistantMessage, toolExecutionCollector, assistantResponse);
+      persistToolCallLogs(assistantMessage, toolExecutionCollector, assistantResponse);
 
-          emitter.send(
-                  SseEmitter.event()
-                          .name("done")
-                          .data(
-           new StreamEventDTO(
-                                             "done",
-                                             null,
-                                            promptTokens,
-                                            generationTokens,
-                                            totalTokens,
-                                            updatedTitle,
-                                            assistantMessage.getId(),
-                                            !toolExecutionCollector.isEmpty(),
-                                            null,
-                                            null,
-                                            null,
-                                            null,
-                                            null,
-                                            null),
-                                     MediaType.APPLICATION_JSON));
-           emitter.complete();
-       } catch (IOException e) {
-           log.warn("Failed to send SSE done event", e);
-           emitter.complete();
-       } finally {
-           TokenUsage tokenUsage = toTokenUsage(lastUsage.get());
-           recordUsageAndMaybeIncrementCounter(
-               userId,
-               provider,
-               modelId,
-               tokenUsage.promptTokens(),
-               tokenUsage.generationTokens(),
-               tokenUsage.totalTokens(),
-               savedMessageId.get(),
-               billingMode,
-               plan,
-               true);
-           chatMetrics.recordStreamEnd(streamSample);
-       }
+      emitter.send(
+          SseEmitter.event()
+              .name("done")
+              .data(
+                  new StreamEventDTO(
+                      "done",
+                      null,
+                      promptTokens,
+                      generationTokens,
+                      totalTokens,
+                      updatedTitle,
+                      assistantMessage.getId(),
+                      !toolExecutionCollector.isEmpty(),
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null),
+                  MediaType.APPLICATION_JSON));
+      emitter.complete();
+    } catch (IOException e) {
+      log.warn("Failed to send SSE done event", e);
+      emitter.complete();
+    } finally {
+      TokenUsage tokenUsage = toTokenUsage(lastUsage.get());
+      recordUsageAndMaybeIncrementCounter(
+          userId,
+          provider,
+          modelId,
+          tokenUsage.promptTokens(),
+          tokenUsage.generationTokens(),
+          tokenUsage.totalTokens(),
+          savedMessageId.get(),
+          billingMode,
+          plan,
+          true);
+      chatMetrics.recordStreamEnd(streamSample);
+    }
   }
 
   private BillingMode assertEntitlementsForCall(String userId, RequestDTO requestDTO) {
@@ -933,11 +925,12 @@ public class ChatService {
     return null;
   }
 
-  private void logStreamingError(UUID chatId, StreamErrorDetails details, Throwable error) {
+  private void logStreamingError(
+      UUID chatId, StreamErrorHandler.StreamErrorDetails details, Throwable error) {
     String baseMessage =
         "Streaming error type={} provider={} model={} chatId={} statusCode={} receivedBytes={} providerMessage={}";
 
-    if (isExpectedStreamFailure(details.errorType())) {
+    if (StreamErrorHandler.isExpectedFailure(details.errorType())) {
       log.warn(
           baseMessage,
           details.errorType(),
@@ -946,7 +939,7 @@ public class ChatService {
           chatId,
           details.statusCode(),
           details.receivedBytes(),
-          extractProviderErrorMessage(error));
+          StreamErrorHandler.extractProviderMessage(error));
       log.debug(
           "Streaming error stacktrace type={} provider={} model={} chatId={}",
           details.errorType(),
@@ -965,46 +958,8 @@ public class ChatService {
         chatId,
         details.statusCode(),
         details.receivedBytes(),
-        extractProviderErrorMessage(error),
+        StreamErrorHandler.extractProviderMessage(error),
         error);
-  }
-
-  static String extractProviderErrorMessage(Throwable error) {
-    if (error instanceof WebClientResponseException webEx) {
-      return formatProviderError(webEx.getResponseBodyAsString(), webEx.getStatusCode().value());
-    }
-    if (error instanceof RestClientResponseException restEx) {
-      return formatProviderError(restEx.getResponseBodyAsString(), restEx.getStatusCode().value());
-    }
-    return "An error occurred while streaming the response.";
-  }
-
-  public static String formatProviderError(String responseBody, int statusCode) {
-    if (responseBody != null && !responseBody.isBlank()) {
-      String parsed = parseErrorMessage(responseBody);
-      if (parsed != null) {
-        return parsed;
-      }
-      return responseBody;
-    }
-    if (statusCode == 429) {
-      return "AI provider rate limit exceeded (HTTP 429). Try again later, switch models/providers, or add credits if required.";
-    }
-    return "AI provider rejected the request (HTTP %d). Check your model and API key."
-        .formatted(statusCode);
-  }
-
-  private static final ObjectMapper ERROR_MAPPER = new ObjectMapper();
-
-  private static StreamErrorDetails describeStreamError(
-      Provider provider, String modelId, long streamedTextUtf8Bytes, Throwable error) {
-    Integer statusCode = extractStatusCode(error);
-    return new StreamErrorDetails(
-        provider,
-        modelId,
-        statusCode,
-        classifyStreamError(error, statusCode),
-        streamedTextUtf8Bytes);
   }
 
   private static long utf8Length(CharSequence value) {
@@ -1027,159 +982,6 @@ public class ChatService {
       }
     }
     return byteLength;
-  }
-
-  private static Integer extractStatusCode(Throwable error) {
-    Throwable current = error;
-    int depth = 0;
-    while (current != null && depth < 10) {
-      switch (current) {
-        case WebClientResponseException webEx -> {
-          return webEx.getStatusCode().value();
-        }
-        case RestClientResponseException restEx -> {
-          return restEx.getStatusCode().value();
-        }
-        default -> {
-          current = current.getCause();
-          depth++;
-        }
-      }
-    }
-    return null;
-  }
-
-  static String classifyStreamError(Throwable error, Integer statusCode) {
-    if (statusCode != null) {
-      if (statusCode == 429) {
-        return "RATE_LIMIT";
-      }
-      if (statusCode >= 500) {
-        return "SERVER_ERROR";
-      }
-      if (statusCode >= 400) {
-        return "PROVIDER_ERROR";
-      }
-    }
-
-    if (isTimeoutError(error)) {
-      return "TIMEOUT";
-    }
-    if (isParseError(error)) {
-      return "PARSE_ERROR";
-    }
-    return "UNKNOWN";
-  }
-
-  private static boolean isTimeoutError(Throwable error) {
-    Throwable current = error;
-    int depth = 0;
-    while (current != null && depth < 10) {
-      if (current instanceof java.util.concurrent.TimeoutException
-          || current instanceof java.net.SocketTimeoutException
-          || current instanceof java.net.http.HttpTimeoutException) {
-        return true;
-      }
-      String message = current.getMessage();
-      if (message != null && message.toLowerCase(Locale.ROOT).contains("timeout")) {
-        return true;
-      }
-      current = current.getCause();
-      depth++;
-    }
-    return false;
-  }
-
-  private static boolean isParseError(Throwable error) {
-    Throwable current = error;
-    int depth = 0;
-    while (current != null && depth < 10) {
-      String className = current.getClass().getSimpleName().toLowerCase(Locale.ROOT);
-      if (className.contains("parse")
-          || className.contains("decode")
-          || className.contains("deserial")) {
-        return true;
-      }
-      String message = current.getMessage();
-      if (message != null) {
-        String lowered = message.toLowerCase(Locale.ROOT);
-        if (lowered.contains("parse") || lowered.contains("json")) {
-          return true;
-        }
-      }
-      current = current.getCause();
-      depth++;
-    }
-    return false;
-  }
-
-  static boolean isExpectedStreamFailure(String errorType) {
-    return switch (errorType) {
-      case "TIMEOUT", "PARSE_ERROR", "RATE_LIMIT", "SERVER_ERROR", "PROVIDER_ERROR" -> true;
-      default -> false;
-    };
-  }
-
-  static String buildClientStreamErrorMessage(StreamErrorDetails details) {
-    String providerName = providerDisplayName(details.provider());
-    StringBuilder builder =
-        new StringBuilder("Response from ")
-            .append(providerName)
-            .append(" (")
-            .append(details.modelId())
-            .append(") was interrupted");
-
-    if (details.statusCode() != null) {
-      builder.append(" (HTTP ").append(details.statusCode()).append(")");
-    }
-
-    builder.append(". ");
-    builder.append(
-        switch (details.errorType()) {
-          case "TIMEOUT" -> "The provider timed out before completion.";
-          case "PARSE_ERROR" -> "The streamed response could not be parsed completely.";
-          case "RATE_LIMIT" -> "The provider rate limit was reached.";
-          case "SERVER_ERROR" -> "The provider returned a server error.";
-          case "PROVIDER_ERROR" -> "The provider rejected the request.";
-          default -> "An unexpected streaming error occurred.";
-        });
-    if (details.receivedBytes() > 0) {
-      builder.append(" Partial response shown.");
-    }
-    return builder.toString();
-  }
-
-  private static String providerDisplayName(Provider provider) {
-    if (provider == null) {
-      return "AI provider";
-    }
-    return switch (provider) {
-      case OPENAI -> "OpenAI";
-      case GOOGLE -> "Google";
-      case CLAUDE -> "Claude";
-      case OPENROUTER -> "OpenRouter";
-      case BRAVE_SEARCH -> "Brave Search";
-    };
-  }
-
-  static String parseErrorMessage(String responseBody) {
-    try {
-      JsonNode root = ERROR_MAPPER.readTree(responseBody);
-      JsonNode errorNode = root.path(EVENT_ERROR);
-      if (!errorNode.isMissingNode()) {
-        JsonNode messageNode = errorNode.path("message");
-        if (messageNode.isTextual() && !messageNode.asText().isBlank()) {
-          return messageNode.asText();
-        }
-      }
-      JsonNode messageNode = root.path("message");
-      if (messageNode.isTextual() && !messageNode.asText().isBlank()) {
-        return messageNode.asText();
-      }
-    } catch (Exception e) {
-      log.debug("Failed to parse provider error response as JSON", e);
-    }
-    return null;
   }
 
   private String extractReasoningContent(ChatResponse chunk) {
@@ -1249,26 +1051,6 @@ public class ChatService {
     return "Contains last %d messages (instructions sent as user message)".formatted(messageCount);
   }
 
-  private List<MediaAttachment> validateMediaAttachments(List<MediaAttachment> mediaAttachments) {
-    if (mediaAttachments == null || mediaAttachments.isEmpty()) {
-      return List.of();
-    }
-
-    if (mediaAttachments.size() > chatProperties.getMaxMediaAttachments()) {
-      throw new IllegalArgumentException(
-          "media supports up to %d attachments".formatted(chatProperties.getMaxMediaAttachments()));
-    }
-
-    for (int i = 0; i < mediaAttachments.size(); i++) {
-      MediaAttachment attachment = mediaAttachments.get(i);
-      if (attachment == null) {
-        throw new IllegalArgumentException("media[%d] must not be null".formatted(i));
-      }
-    }
-
-    return mediaAttachments;
-  }
-
   private Message toChatMessage(MessageEntity entity) {
     return switch (entity.getRole()) {
       case ASSISTANT -> new AssistantMessage(entity.getMessage());
@@ -1278,69 +1060,10 @@ public class ChatService {
   }
 
   private UserMessage toUserMessage(MessageEntity entity, List<MediaAttachment> mediaAttachments) {
-    List<Media> media = toMediaPayload(mediaAttachments);
-    return UserMessage.builder().text(entity.getMessage()).media(media).build();
-  }
-
-  private List<Media> toMediaPayload(List<MediaAttachment> mediaAttachments) {
-    long totalBytes = 0;
-    List<Media> media = new ArrayList<>(mediaAttachments.size());
-
-    for (int i = 0; i < mediaAttachments.size(); i++) {
-      MediaAttachment attachment = mediaAttachments.get(i);
-      String normalized = normalizeEncodedData(attachment.data());
-      long estimatedDecodedBytes = estimateDecodedBytes(normalized);
-
-      if (estimatedDecodedBytes > chatProperties.getMaxMediaAttachmentBytes()) {
-        throw new IllegalArgumentException(
-            "media[%d] exceeds %d bytes"
-                .formatted(i, chatProperties.getMaxMediaAttachmentBytes()));
-      }
-
-      totalBytes += estimatedDecodedBytes;
-      if (totalBytes > chatProperties.getMaxMediaTotalBytes()) {
-        throw new IllegalArgumentException(
-            "combined media size exceeds %d bytes".formatted(chatProperties.getMaxMediaTotalBytes()));
-      }
-
-      byte[] content;
-      try {
-        content = Base64.getDecoder().decode(normalized);
-      } catch (IllegalArgumentException e) {
-        throw new IllegalArgumentException("media[%d].data is not valid base64".formatted(i), e);
-      }
-
-      if (content.length > chatProperties.getMaxMediaAttachmentBytes()) {
-        throw new IllegalArgumentException(
-            "media[%d] exceeds %d bytes".formatted(i, chatProperties.getMaxMediaAttachmentBytes()));
-      }
-
-      media.add(
-          new Media(
-              MimeTypeUtils.parseMimeType(attachment.mimeType()), new ByteArrayResource(content)));
-    }
-
-    return media;
-  }
-
-  private String normalizeEncodedData(String encodedData) {
-    int commaIndex = encodedData.indexOf(',');
-    if (encodedData.startsWith("data:") && commaIndex > 0) {
-      return encodedData.substring(commaIndex + 1);
-    }
-    return encodedData;
-  }
-
-  private long estimateDecodedBytes(String normalizedBase64) {
-    int length = normalizedBase64.length();
-    int padding = 0;
-    if (length > 0 && normalizedBase64.charAt(length - 1) == '=') {
-      padding++;
-      if (length > 1 && normalizedBase64.charAt(length - 2) == '=') {
-        padding++;
-      }
-    }
-    return ((long) length * 3 / 4) - padding;
+    return UserMessage.builder()
+        .text(entity.getMessage())
+        .media(mediaValidationService.toMediaPayload(mediaAttachments))
+        .build();
   }
 
   private MessageEntity persistMessage(UUID chatId, String message, String context) {
@@ -1409,13 +1132,6 @@ public class ChatService {
   private static Long safeLong(Number value) {
     return value == null ? null : value.longValue();
   }
-
-  record StreamErrorDetails(
-      Provider provider,
-      String modelId,
-      Integer statusCode,
-      String errorType,
-      Long receivedBytes) {}
 
   public record ClientHolder(
       org.springframework.ai.chat.client.ChatClient client, AutoCloseable closeable)
