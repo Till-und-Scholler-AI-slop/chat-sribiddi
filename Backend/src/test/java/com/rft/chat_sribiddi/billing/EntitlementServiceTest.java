@@ -146,6 +146,33 @@ class EntitlementServiceTest {
     assertThat(entitlements.allModelsAllowed()).isFalse();
   }
 
+  // -------- resolveBillingMode --------
+
+  @Test
+  void resolveBillingMode_defaultsToAutoWhenUserMissing() {
+    when(userRepository.findByProviderId("unknown")).thenReturn(Optional.empty());
+
+    assertThat(service.resolveBillingMode("unknown")).isEqualTo(BillingMode.AUTO);
+  }
+
+  @Test
+  void resolveBillingMode_preservesAutoPreference() {
+    User user = userWithPlan(Plan.FREE);
+    user.setBillingModePreference(BillingMode.AUTO);
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(user));
+
+    assertThat(service.resolveBillingMode(USER_ID)).isEqualTo(BillingMode.AUTO);
+  }
+
+  @Test
+  void resolveBillingMode_returnsExplicitPreference() {
+    User user = userWithPlan(Plan.FREE);
+    user.setBillingModePreference(BillingMode.MANAGED);
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(user));
+
+    assertThat(service.resolveBillingMode(USER_ID)).isEqualTo(BillingMode.MANAGED);
+  }
+
   // -------- assertCanUseModel --------
 
   @Test
@@ -574,4 +601,3 @@ class EntitlementServiceTest {
         .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.ALWAYS);
   }
 }
-

@@ -153,8 +153,12 @@ ai:
         label: OpenRouter Auto
       - id: openai/gpt-4o-mini
         label: GPT-4o Mini
+        prompt-price: "0.00000015"
+        completion-price: "0.00000060"
       - id: anthropic/claude-3.5-sonnet
         label: Claude 3.5 Sonnet
+        prompt-price: "0.00000300"
+        completion-price: "0.00001500"
 
 management:
   endpoints:

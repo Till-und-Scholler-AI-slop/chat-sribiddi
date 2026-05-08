@@ -3,6 +3,7 @@ package com.rft.chat_sribiddi.modelcatalog;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
+import com.rft.chat_sribiddi.billing.ModelPricingLookup;
 import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +20,7 @@ class ModelCatalogServiceTest {
 
   private ModelCatalogService service;
   private ModelCatalogProperties properties;
+  private ModelPricingLookup pricingLookup;
 
   @BeforeEach
   void setUp() {
@@ -32,7 +34,8 @@ class ModelCatalogServiceTest {
         new ArrayList<>(List.of(new ModelOption("claude-sonnet-4-20250514", "Claude Sonnet 4"))));
     properties.setOpenrouter(
         new ArrayList<>(List.of(new ModelOption("openrouter/auto", "OpenRouter Auto"))));
-    service = new ModelCatalogService(properties, modelFetchService);
+    pricingLookup = new ModelPricingLookup(properties);
+    service = new ModelCatalogService(properties, modelFetchService, pricingLookup);
   }
 
   // --- OpenAI ---
@@ -135,12 +138,17 @@ class ModelCatalogServiceTest {
 
   @Test
   void listOpenRouterModels_returnsLiveResults_whenApiKeyProvidedAndFetchSucceeds() {
-    List<ModelOption> liveModels = List.of(new ModelOption("openai/gpt-4o", "GPT-4o"));
+    List<ModelOption> liveModels = List.of(liveOption("openai/gpt-4o", "GPT-4o", "0.0000025", "0.000010"));
     when(modelFetchService.fetchOpenRouterModels("or-key")).thenReturn(liveModels);
 
     List<ModelOption> result = service.listOpenRouterModels("or-key");
 
     assertThat(result).isEqualTo(liveModels);
+    assertThat(pricingLookup.find(com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider.OPENROUTER, "openai/gpt-4o"))
+        .isPresent()
+        .get()
+        .extracting(ModelPricingLookup.Pricing::inputUsdPerMillion)
+        .isEqualTo(2.5);
   }
 
   @Test
@@ -158,5 +166,13 @@ class ModelCatalogServiceTest {
 
     assertThat(result).isEqualTo(properties.getOpenrouter());
     verifyNoInteractions(modelFetchService);
+  }
+
+  private static ModelOption liveOption(
+      String id, String label, String promptPrice, String completionPrice) {
+    ModelOption option = new ModelOption(id, label);
+    option.setPromptPrice(promptPrice);
+    option.setCompletionPrice(completionPrice);
+    return option;
   }
 }

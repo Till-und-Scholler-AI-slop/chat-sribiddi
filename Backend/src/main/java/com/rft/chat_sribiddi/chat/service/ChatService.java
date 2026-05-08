@@ -25,7 +25,9 @@ import com.rft.chat_sribiddi.chat.toolcall.LoggedCurrentDateTimeTool;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedPythonInterpreterTool;
 import com.rft.chat_sribiddi.chat.toolcall.LoggedUrlFetcherTool;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
+import com.rft.chat_sribiddi.billing.BillingModeResolver;
 import com.rft.chat_sribiddi.billing.EntitlementService;
+import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.billing.UsageEventService;
 import com.rft.chat_sribiddi.tools.CalculatorTool;
 import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
@@ -85,9 +87,6 @@ public class ChatService {
 
   private static final String ATTACHMENTS_PREFIX = "attachments:";
 
-  private static final String NO_API_KEY_MESSAGE =
-      "No API key supplied and no stored key found for provider %s";
-
   private static final String CHAT_FK_CONSTRAINT = "messages_chat_id_fkey";
   private static final int MIN_CONTEXT_EXCERPT_CANDIDATE_LENGTH = 8;
   private static final int MAX_CONTEXT_EXCERPT_MATCHES = 5;
@@ -109,6 +108,7 @@ public class ChatService {
   private final UrlFetcherTool urlFetcherTool;
   private final PythonInterpreterTool pythonInterpreterTool;
   private final com.rft.chat_sribiddi.tools.CurrentDateTimeTool currentDateTimeTool;
+  private final BillingModeResolver billingModeResolver;
   private final EntitlementService entitlementService;
   private final UsageEventService usageEventService;
   private final ChatMetrics chatMetrics;
@@ -222,23 +222,24 @@ public class ChatService {
             .findByChatIdAndUserId(chatId, userId)
             .orElseThrow(() -> new ChatNotFoundException(chatId));
 
-    BillingMode billingMode = assertEntitlementsForCall(userId, requestDTO);
-    MessagePreparation prep = prepareUserMessage(chatId, chat, userId, requestDTO);
+    ResolvedCall resolvedCall = resolveCall(userId, requestDTO);
+    MessagePreparation prep =
+        prepareUserMessage(chatId, chat, userId, requestDTO, resolvedCall.entitlements());
     if (log.isTraceEnabled()) {
       log.trace("Prompt messages: {}", prep.promptMessages());
     }
 
-    String resolvedKey = resolveApiKey(userId, requestDTO);
     Plan plan = resolvePlanForMetrics(userId);
 
     ChatResponse chatResponse;
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
     boolean providerCallSucceeded = false;
     try (ClientHolder clientHolder =
-        providerClientFactory.getClient(requestDTO.provider(), resolvedKey)) {
+        providerClientFactory.getClient(
+            requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.billingMode())) {
       var options =
           providerClientFactory.buildOptions(
-              requestDTO.provider(), requestDTO.modelId(), resolvedKey);
+              requestDTO.provider(), requestDTO.modelId(), resolvedCall.apiKey());
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(prep.promptMessages());
       wireTools(
@@ -302,7 +303,7 @@ public class ChatService {
         generationTokens,
         totalTokens,
         assistantMessage.getId(),
-        billingMode,
+        resolvedCall.billingMode(),
         plan,
         providerCallSucceeded);
 
@@ -321,12 +322,19 @@ public class ChatService {
             .findByChatIdAndUserId(chatId, userId)
             .orElseThrow(() -> new ChatNotFoundException(chatId));
 
-    BillingMode billingMode = assertEntitlementsForCall(userId, requestDTO);
+    ResolvedCall resolvedCall = resolveCall(userId, requestDTO);
     Plan plan = resolvePlanForMetrics(userId);
-    MessagePreparation prep = prepareUserMessage(chatId, chat, userId, requestDTO);
+    MessagePreparation prep =
+        prepareUserMessage(chatId, chat, userId, requestDTO, resolvedCall.entitlements());
 
     return createAndSubscribeStream(
-        userId, requestDTO, prep.promptMessages(), chatId, prep.updatedTitle(), billingMode, plan);
+        userId,
+        requestDTO,
+        prep.promptMessages(),
+        chatId,
+        prep.updatedTitle(),
+        resolvedCall,
+        plan);
   }
 
   /**
@@ -352,13 +360,13 @@ public class ChatService {
       throw new IllegalArgumentException("Only user messages can be edited.");
     }
 
-    List<MediaAttachment> validatedMedia = mediaValidationService.validateAttachments(requestDTO.media());
-    String userContext = buildMediaContext(validatedMedia);
-
     // Run entitlement checks before mutating chat history so that a rejected request
     // never leaves the database in a half-edited state.
-    BillingMode billingMode = assertEntitlementsForCall(userId, requestDTO);
+    ResolvedCall resolvedCall = resolveCall(userId, requestDTO);
     Plan plan = resolvePlanForMetrics(userId);
+    List<MediaAttachment> validatedMedia =
+        mediaValidationService.validateAttachments(requestDTO.media(), resolvedCall.entitlements());
+    String userContext = buildMediaContext(validatedMedia);
 
     userMessage.setMessage(requestDTO.content());
     userMessage.setContext(userContext);
@@ -370,10 +378,10 @@ public class ChatService {
         userSettingsService.getCustomInstructions(userId).orElse(null);
     List<Message> promptMessages =
         buildPromptMessages(chatId, validatedMedia, messageId, customInstructions,
-            requestDTO.provider(), requestDTO.modelId());
+            requestDTO.provider(), requestDTO.modelId(), resolvedCall.entitlements());
 
     return createAndSubscribeStream(
-        userId, requestDTO, promptMessages, chatId, null, billingMode, plan);
+        userId, requestDTO, promptMessages, chatId, null, resolvedCall, plan);
   }
 
   private record MessagePreparation(
@@ -389,39 +397,35 @@ public class ChatService {
                 .collect(Collectors.joining(","));
   }
 
-  private String resolveApiKey(String userId, RequestDTO requestDTO) {
-    return apiKeyService
-        .getKey(userId, requestDTO.provider())
-        .orElseThrow(
-            () ->
-                new IllegalArgumentException(
-                    NO_API_KEY_MESSAGE.formatted(requestDTO.provider())));
-  }
-
   private MessagePreparation prepareUserMessage(
-      UUID chatId, ChatEntity chat, String userId, RequestDTO requestDTO) {
-    List<MediaAttachment> validatedMedia = mediaValidationService.validateAttachments(requestDTO.media());
+      UUID chatId,
+      ChatEntity chat,
+      String userId,
+      RequestDTO requestDTO,
+      Entitlements entitlements) {
+    List<MediaAttachment> validatedMedia =
+        mediaValidationService.validateAttachments(requestDTO.media(), entitlements);
     String userContext = buildMediaContext(validatedMedia);
     MessageEntity persistedUserMessage = persistMessage(chatId, requestDTO.content(), userContext);
     String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
     String customInstructions = userSettingsService.getCustomInstructions(userId).orElse(null);
     List<Message> promptMessages =
         buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId(), customInstructions,
-            requestDTO.provider(), requestDTO.modelId());
+            requestDTO.provider(), requestDTO.modelId(), entitlements);
     return new MessagePreparation(updatedTitle, promptMessages);
   }
 
   private SseEmitter createAndSubscribeStream(
       String userId, RequestDTO requestDTO, List<Message> promptMessages,
-      UUID chatId, String updatedTitle, BillingMode billingMode, Plan plan) {
-    String resolvedKey = resolveApiKey(userId, requestDTO);
+      UUID chatId, String updatedTitle, ResolvedCall resolvedCall, Plan plan) {
     SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
     ClientHolder clientHolder =
-        providerClientFactory.getClient(requestDTO.provider(), resolvedKey);
+        providerClientFactory.getClient(
+            requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.billingMode());
     try {
       var options =
           providerClientFactory.buildOptions(
-              requestDTO.provider(), requestDTO.modelId(), resolvedKey);
+              requestDTO.provider(), requestDTO.modelId(), resolvedCall.apiKey());
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(promptMessages);
       ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
@@ -445,7 +449,7 @@ public class ChatService {
           userId,
           requestDTO.provider(),
           requestDTO.modelId(),
-          billingMode,
+          resolvedCall.billingMode(),
           plan,
           chatId,
           assistantContext,
@@ -723,15 +727,20 @@ public class ChatService {
     }
   }
 
-  private BillingMode assertEntitlementsForCall(String userId, RequestDTO requestDTO) {
-    BillingMode billingMode = entitlementService.resolveBillingMode(userId);
-    entitlementService.assertCanUseModel(
-        userId, requestDTO.provider(), requestDTO.modelId(), billingMode);
-    if (billingMode == BillingMode.MANAGED) {
+  private ResolvedCall resolveCall(String userId, RequestDTO requestDTO) {
+    BillingMode requestedMode = entitlementService.resolveBillingMode(userId);
+    BillingModeResolver.ResolvedKey resolvedKey =
+        billingModeResolver.resolve(
+            userId, requestDTO.provider(), requestDTO.modelId(), requestedMode);
+    if (resolvedKey.effectiveMode() == BillingMode.MANAGED) {
       entitlementService.assertWithinDailyCap(userId);
     }
-    return billingMode;
+    return new ResolvedCall(
+        resolvedKey.apiKey(), resolvedKey.effectiveMode(), entitlementService.get(userId));
   }
+
+  private record ResolvedCall(
+      String apiKey, BillingMode billingMode, Entitlements entitlements) {}
 
   private Plan resolvePlanForMetrics(String userId) {
     try {
@@ -998,11 +1007,14 @@ public class ChatService {
 
   private List<Message> buildPromptMessages(
       UUID chatId, List<MediaAttachment> mediaAttachments, Long targetUserMessageId,
-      String customInstructions, RequestDTO.Provider provider, String modelId) {
+      String customInstructions,
+      RequestDTO.Provider provider,
+      String modelId,
+      Entitlements entitlements) {
     List<MessageEntity> latestMessages =
         new ArrayList<>(
             messageRepository.findByChatIdOrderByCreatedAtDesc(
-                chatId, PageRequest.of(0, chatProperties.getContextMessageLimit())));
+                chatId, PageRequest.of(0, contextMessageLimit(entitlements))));
 
     List<Message> messages = new ArrayList<>();
     String instructionContent =
@@ -1026,12 +1038,20 @@ public class ChatService {
           && targetUserMessageId != null
           && entity.getRole() == Role.USER
           && targetUserMessageId.equals(entity.getId())) {
-        messages.add(toUserMessage(entity, mediaAttachments));
+        messages.add(toUserMessage(entity, mediaAttachments, entitlements));
         continue;
       }
       messages.add(toChatMessage(entity));
     }
     return messages;
+  }
+
+  private int contextMessageLimit(Entitlements entitlements) {
+    int configured = chatProperties.getContextMessageLimit();
+    if (entitlements == null || entitlements.contextMessageLimit() <= 0) {
+      return Math.max(1, configured);
+    }
+    return Math.max(1, Math.min(configured, entitlements.contextMessageLimit()));
   }
 
   /**
@@ -1059,10 +1079,11 @@ public class ChatService {
     };
   }
 
-  private UserMessage toUserMessage(MessageEntity entity, List<MediaAttachment> mediaAttachments) {
+  private UserMessage toUserMessage(
+      MessageEntity entity, List<MediaAttachment> mediaAttachments, Entitlements entitlements) {
     return UserMessage.builder()
         .text(entity.getMessage())
-        .media(mediaValidationService.toMediaPayload(mediaAttachments))
+        .media(mediaValidationService.toMediaPayload(mediaAttachments, entitlements))
         .build();
   }
 
@@ -1288,6 +1309,9 @@ public class ChatService {
       return;
     }
     for (ChatTool tool : toolRegistry.getAll()) {
+      if (!isToolAllowedForUser(userId, tool.getName())) {
+        continue;
+      }
       if (!isToolEnabledForChat(chatId, tool.getName())) {
         continue;
       }
@@ -1319,6 +1343,16 @@ public class ChatService {
             // Use the tool's own @Tool-annotated methods directly via Spring AI reflection
             promptSpec.tools(tool);
       }
+    }
+  }
+
+  private boolean isToolAllowedForUser(String userId, String toolName) {
+    try {
+      Entitlements entitlements = entitlementService.get(userId);
+      return entitlements != null && entitlements.allowsTool(toolName);
+    } catch (RuntimeException ex) {
+      log.debug("Unable to resolve tool entitlement user={} tool={}", userId, toolName, ex);
+      return false;
     }
   }
 

@@ -248,16 +248,16 @@ public class EntitlementService {
   }
 
   /**
-   * Resolves the effective {@link BillingMode} for the given user. Uses the user's
-   * {@code billingModePreference}; {@link BillingMode#AUTO} is treated as
-   * {@link BillingMode#BYOK} so that users who bring their own API key are never counted
-   * against managed-mode quotas. Unknown users default to {@link BillingMode#BYOK}.
+   * Resolves the requested {@link BillingMode} preference for the given user. The actual API key
+   * and effective mode are chosen by {@link BillingModeResolver}; this method deliberately returns
+   * {@link BillingMode#AUTO} unchanged so AUTO can prefer BYOK when a user key exists and fall back
+   * to managed mode when the plan/model allows it.
    */
   public BillingMode resolveBillingMode(String userId) {
     return resolveUser(userId)
         .map(User::getBillingModePreference)
-        .map(mode -> mode == null || mode == BillingMode.AUTO ? BillingMode.BYOK : mode)
-        .orElse(BillingMode.BYOK);
+        .map(mode -> mode == null ? BillingMode.AUTO : mode)
+        .orElse(BillingMode.AUTO);
   }
 
   /**

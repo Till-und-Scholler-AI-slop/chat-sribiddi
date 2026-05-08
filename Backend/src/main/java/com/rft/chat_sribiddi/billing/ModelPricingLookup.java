@@ -4,7 +4,9 @@ import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties;
 import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -29,6 +31,7 @@ public class ModelPricingLookup {
   private static final double TOKENS_PER_MILLION = 1_000_000d;
 
   private final ModelCatalogProperties catalog;
+  private final Map<String, Pricing> livePricingByProviderAndModel = new ConcurrentHashMap<>();
 
   /** Model pricing in USD per 1,000,000 tokens. */
   public record Pricing(double inputUsdPerMillion, double outputUsdPerMillion) {}
@@ -41,6 +44,10 @@ public class ModelPricingLookup {
   public Optional<Pricing> find(Provider provider, String modelId) {
     if (provider == null || modelId == null || modelId.isBlank()) {
       return Optional.empty();
+    }
+    Pricing live = livePricingByProviderAndModel.get(key(provider, modelId));
+    if (live != null) {
+      return Optional.of(live);
     }
     Optional<ModelOption> match =
         listFor(provider).stream().filter(opt -> modelId.equals(opt.getId())).findFirst();
@@ -56,6 +63,30 @@ public class ModelPricingLookup {
       return Optional.of(new Pricing(0.0, 0.0));
     }
     return Optional.empty();
+  }
+
+  /**
+   * Stores pricing discovered from live provider catalogs so later plan checks for those same model
+   * ids can use the provider-reported prices instead of treating them as unknown.
+   */
+  public void remember(Provider provider, List<ModelOption> models) {
+    if (provider == null || models == null || models.isEmpty()) {
+      return;
+    }
+    for (ModelOption model : models) {
+      if (model == null || model.getId() == null || model.getId().isBlank()) {
+        continue;
+      }
+      Double prompt = parseUsdPerMillion(model.getPromptPrice());
+      Double completion = parseUsdPerMillion(model.getCompletionPrice());
+      if (prompt != null && completion != null) {
+        livePricingByProviderAndModel.put(key(provider, model.getId()), new Pricing(prompt, completion));
+      }
+    }
+  }
+
+  private static String key(Provider provider, String modelId) {
+    return provider.name() + "\u0000" + modelId;
   }
 
   private List<ModelOption> listFor(Provider provider) {
