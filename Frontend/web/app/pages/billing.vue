@@ -208,9 +208,10 @@ function cardFeatures(card: UpgradeCard): string[] {
 </script>
 
 <template>
-  <UDashboardPanel>
-    <template #body>
-      <UContainer class="py-10 max-w-4xl space-y-10">
+  <div>
+    <UDashboardPanel>
+      <template #body>
+        <UContainer class="py-10 max-w-4xl space-y-10">
         <!-- Page heading -->
         <header class="space-y-3">
           <h1 class="font-serif-display text-4xl sm:text-5xl text-gray-900 dark:text-gray-50">
@@ -413,7 +414,8 @@ function cardFeatures(card: UpgradeCard): string[] {
             </div>
           </UCard>
         </template>
-      </UContainer>
-    </template>
-  </UDashboardPanel>
+        </UContainer>
+      </template>
+    </UDashboardPanel>
+  </div>
 </template>

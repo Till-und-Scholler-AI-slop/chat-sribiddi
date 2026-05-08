@@ -542,7 +542,7 @@ async function handleDeleteAccount() {
                     />
                   </div>
 
-                  <UFormGroup
+                  <UFormField
                       :label="t(item.labelKey)"
                       :description="t(item.descriptionKey)"
                       :name="item.provider.toLowerCase()"
@@ -555,7 +555,7 @@ async function handleDeleteAccount() {
                         autocomplete="off"
                         class="w-full"
                     />
-                  </UFormGroup>
+                  </UFormField>
 
                   <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
                     <div class="flex items-center justify-between gap-3 flex-wrap">
@@ -628,7 +628,7 @@ async function handleDeleteAccount() {
                 />
               </div>
 
-              <UFormGroup
+              <UFormField
                   :label="t('settings.braveLabel')"
                   :description="t('settings.braveDescription')"
                   name="brave_search"
@@ -641,7 +641,7 @@ async function handleDeleteAccount() {
                     autocomplete="off"
                     class="w-full"
                 />
-              </UFormGroup>
+              </UFormField>
 
               <div class="pt-4 border-t border-gray-200 dark:border-gray-800">
                 <div class="flex items-center justify-between gap-3 flex-wrap">

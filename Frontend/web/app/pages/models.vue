@@ -210,7 +210,7 @@ onMounted(async () => {
             <div v-for="index in 6" :key="index" class="skeleton-shimmer h-44" />
           </div>
 
-          <UEmptyState
+          <UEmpty
             v-else-if="!filteredModels.length"
             icon="i-heroicons-cpu-chip"
             :title="t('models.noModelsFoundTitle')"
@@ -342,8 +342,8 @@ onMounted(async () => {
 
 /* ── Model card ──────────────────────────────────────────────────────── */
 .model-card {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid var(--color-gray-200);
+  background: color-mix(in oklab, var(--paper-2) 92%, var(--ink) 4%);
+  border: 1px solid var(--hair);
   border-radius: 0.875rem;
   padding: 1.25rem;
   transition:
@@ -353,21 +353,21 @@ onMounted(async () => {
   cursor: pointer;
 }
 .model-card:hover {
-  border-color: var(--color-gray-300);
+  border-color: color-mix(in oklab, var(--hair) 65%, var(--ink) 25%);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 4px 12px color-mix(in oklab, var(--ink) 8%, transparent);
 }
 .model-card:focus-visible {
   outline: 2px solid var(--ui-primary);
   outline-offset: 2px;
 }
 :global(.dark) .model-card {
-  background: color-mix(in oklab, var(--paper-2) 70%, transparent);
-  border-color: var(--color-gray-800);
+  background: color-mix(in oklab, var(--paper-2) 84%, var(--ink) 8%);
+  border-color: color-mix(in oklab, var(--hair) 82%, var(--ink) 8%);
 }
 :global(.dark) .model-card:hover {
-  border-color: var(--color-gray-700);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  border-color: color-mix(in oklab, var(--hair) 68%, var(--ink) 18%);
+  box-shadow: 0 4px 14px color-mix(in oklab, black 30%, transparent);
 }
 
 /* Plan-locked model cards: mute the card so users can still see the
