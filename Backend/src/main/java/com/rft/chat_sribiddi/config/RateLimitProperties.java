@@ -23,6 +23,7 @@ public class RateLimitProperties {
   private boolean enabled = true;
   private Backend backend = Backend.REDIS;
   private int anonymousRequestsPerMinute = 10;
+  private int authenticatedRequestsPerMinute = 30;
   private int freeRequestsPerMinute = 30;
   private int premiumRequestsPerMinute = 120;
   private int maxRequestsPerMinute = 300;
