@@ -93,6 +93,30 @@ everything in one place.
 Format per feature: a short heading, the ticket id, and a bullet list of the
 exact manual steps plus any environment variables / secrets involved.
 
+# Agent guidelines: operational documentation
+
+Production operations, deployment topology, Caddy routing, VPS smoke checks,
+OAuth login troubleshooting, and production incident notes live in
+[`docs/operations.md`](docs/operations.md). Every coding agent working on
+deployment, infrastructure, authentication, sessions, OAuth, Docker, Caddy,
+GitHub Actions, health checks, or production incidents must read that file
+before making changes.
+
+When an agent changes any of the following, it must update
+`docs/operations.md` in the same PR/commit:
+
+- Caddy routes, public paths, headers, timeouts, or TLS behavior.
+- Docker Compose services, ports, health checks, image startup commands, or
+  production env var names.
+- GitHub Actions deploy flow or production validation steps.
+- OAuth redirect/callback paths, backend base URL conventions, CORS/session/CSRF
+  behavior, or login smoke checks.
+- VPS-specific operational procedures that are needed to recover production.
+
+Do not put secrets, passwords, private keys, tokens, or OAuth client secrets in
+documentation. Document secret names and where they must be configured, not
+their values.
+
 ## BILL-7 — OpenRouter managed-mode for Free tier
 
 To enable the Free-tier managed (platform-paid) chat path through OpenRouter,
@@ -190,5 +214,4 @@ CSRF — Stripe authenticates via the `Stripe-Signature` header against
 4. **Idempotency is automatic**: duplicate deliveries are skipped via the
    `stripe_events.stripe_event_id` UNIQUE constraint (Flyway V7). No owner
    action required.
-
 
