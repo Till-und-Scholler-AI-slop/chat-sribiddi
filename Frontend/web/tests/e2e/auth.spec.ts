@@ -18,7 +18,8 @@ test('login page and logout flow use the mocked session backend', async ({ page 
 
   await page.goto('/chat')
   // The chat page also runs ensureAuthenticated() on mount — same hydration delay.
-  await expect(page.getByRole('button', { name: 'Abmelden' })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('chat-page')).toHaveAttribute('data-ready', 'true', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Abmelden' })).toBeEnabled({ timeout: 15_000 })
 
   const logoutRequest = page.waitForRequest(request => new URL(request.url()).pathname === '/logout')
   await page.getByRole('button', { name: 'Abmelden' }).click({ force: true })

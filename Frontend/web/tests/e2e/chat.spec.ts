@@ -11,10 +11,12 @@ test('creates a chat, sends a prompt, and renders the mocked streamed response',
   // only renders after ensureModels() + loadChatsFromBackend() complete.
   const prompt = page.getByRole('textbox', { name: 'Type your message here…' })
   await expect(prompt).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('chat-page')).toHaveAttribute('data-ready', 'true', { timeout: 15_000 })
 
   await prompt.click()
   await prompt.pressSequentially('Hallo E2E')
-  await page.getByRole('button', { name: 'Send prompt' }).click()
+  await expect(page.getByTestId('chat-submit')).toBeEnabled()
+  await page.getByTestId('chat-submit').click()
 
   await expect(page.getByText('Hallo E2E')).toBeVisible()
   await expect(page.getByText('Mocked response')).toBeVisible()

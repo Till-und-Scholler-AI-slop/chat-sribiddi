@@ -17,6 +17,7 @@ const checkError = ref<string | null>(null)
 const resolveBaseUrl = (value: string) => {
   const trimmed = value.trim()
   if (!trimmed) return DEFAULT_BACKEND_BASE_URL
+  if (trimmed.startsWith('/')) return normalizeBaseUrl(trimmed)
   try {
     const parsed = new URL(trimmed)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {

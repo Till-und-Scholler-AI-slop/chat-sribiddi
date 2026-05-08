@@ -75,6 +75,8 @@
     "uploadFailedTitle": "Upload fehlgeschlagen",
     "attachmentReadFallback": "Anhang konnte nicht gelesen werden.",
     "messageFailedTitle": "Nachricht fehlgeschlagen",
+    "sendMessage": "Nachricht senden",
+    "stopGenerating": "Antwort stoppen",
     "retryFailedTitle": "Wiederholen fehlgeschlagen",
     "retryFailedDescription": "Anfrage konnte nicht wiederholt werden.",
     "editFailedTitle": "Bearbeitung fehlgeschlagen",

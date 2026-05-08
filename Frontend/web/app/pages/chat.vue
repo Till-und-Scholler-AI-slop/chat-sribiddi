@@ -267,6 +267,12 @@ const preSendCompletionRateLabel = computed(() =>
   formatRatePerMillion(selectedModel.value?.completionPrice)
 )
 
+const hasPendingPrompt = computed(() => input.value.trim().length > 0 || attachments.value.length > 0)
+const canSubmitPrompt = computed(() =>
+  status.value === 'ready' && !!selectedModel.value && hasPendingPrompt.value
+)
+const chatReady = computed(() => !initializing.value && !!activeConversation.value && !!selectedModel.value)
+
 onMounted(async () => {
   try {
     await ensureModels()
@@ -376,6 +382,7 @@ const applyAndSubmit = (prompt: string) => {
 }
 
 async function handleSubmit() {
+  if (status.value !== 'ready') return
   if (!input.value.trim() && attachments.value.length === 0) return
   if (!activeConversation.value) {
     await startChat()
@@ -455,7 +462,11 @@ const handleReload = async () => {
 </script>
 
 <template>
-  <div class="h-full min-h-0 flex flex-col">
+  <div
+    class="h-full min-h-0 flex flex-col"
+    data-testid="chat-page"
+    :data-ready="chatReady ? 'true' : 'false'"
+  >
   <UDashboardPanel class="h-full min-h-0 flex flex-col">
     <template #body>
       <UContainer class="py-4 space-y-4 flex-1 min-h-0 overflow-hidden flex flex-col">
@@ -792,10 +803,35 @@ const handleReload = async () => {
                 </template>
               </UTooltip>
 
-              <UChatPromptSubmit
-                :status="status"
-                @stop="handleStop"
-                @reload="handleReload"
+              <UButton
+                v-if="status === 'ready'"
+                type="button"
+                icon="i-lucide-arrow-up"
+                color="primary"
+                :disabled="!canSubmitPrompt"
+                :aria-label="t('chat.sendMessage')"
+                data-testid="chat-submit"
+                @click="handleSubmit"
+              />
+              <UButton
+                v-else-if="status === 'submitted' || status === 'streaming'"
+                type="button"
+                icon="i-lucide-square"
+                color="neutral"
+                variant="subtle"
+                :aria-label="t('chat.stopGenerating')"
+                data-testid="chat-stop"
+                @click="handleStop"
+              />
+              <UButton
+                v-else
+                type="button"
+                icon="i-heroicons-arrow-path"
+                color="error"
+                variant="soft"
+                :aria-label="t('common.reload')"
+                data-testid="chat-reload"
+                @click="handleReload"
               />
             </div>
           </UChatPrompt>

@@ -75,6 +75,8 @@
     "uploadFailedTitle": "Upload failed",
     "attachmentReadFallback": "Attachment could not be read.",
     "messageFailedTitle": "Message failed",
+    "sendMessage": "Send message",
+    "stopGenerating": "Stop response",
     "retryFailedTitle": "Retry failed",
     "retryFailedDescription": "The request could not be retried.",
     "editFailedTitle": "Edit failed",
