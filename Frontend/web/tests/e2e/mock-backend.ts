@@ -15,6 +15,13 @@ const modelPayload = (provider: string) => [
   }
 ]
 
+const backendRoutePatterns = [
+  'http://localhost:8080/**',
+  'http://127.0.0.1:8080/**',
+  'http://127.0.0.1:3000/api/**',
+  'http://localhost:3000/api/**'
+]
+
 async function fulfillJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({
     status,
@@ -27,15 +34,10 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
   let authenticated = options.authenticated ?? true
   const chats = new Map<string, { chatId: string; title: string }>()
 
-  await page.route('**/*', async route => {
+  const handleRoute = async (route: Route) => {
     const request = route.request()
     const url = new URL(request.url())
-    const path = url.pathname
-
-    if (url.hostname === '127.0.0.1' && url.port === '3000') {
-      await route.continue()
-      return
-    }
+    const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/'
 
     if (path === '/secured') {
       await route.fulfill({ status: authenticated ? 204 : 401 })
@@ -99,5 +101,9 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
     }
 
     await fulfillJson(route, {})
-  })
+  }
+
+  for (const pattern of backendRoutePatterns) {
+    await page.route(pattern, handleRoute)
+  }
 }

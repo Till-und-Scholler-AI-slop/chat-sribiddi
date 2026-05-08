@@ -13,7 +13,7 @@ test('login page and logout flow use the mocked session backend', async ({ page 
   await page.goto('/chat')
   await expect(page).toHaveURL(/\/login$/)
 
-  await page.unroute('**/*')
+  await page.unrouteAll()
   await mockBackend(page, { authenticated: true })
 
   await page.goto('/chat')
@@ -21,7 +21,10 @@ test('login page and logout flow use the mocked session backend', async ({ page 
   await expect(page.getByTestId('chat-page')).toHaveAttribute('data-ready', 'true', { timeout: 15_000 })
   await expect(page.getByRole('button', { name: 'Abmelden' })).toBeEnabled({ timeout: 15_000 })
 
-  const logoutRequest = page.waitForRequest(request => new URL(request.url()).pathname === '/logout')
+  const logoutRequest = page.waitForRequest(request => {
+    const pathname = new URL(request.url()).pathname
+    return pathname === '/logout' || pathname === '/api/logout'
+  })
   await page.getByRole('button', { name: 'Abmelden' }).click({ force: true })
   await logoutRequest
   await expect(page).toHaveURL(/\/login$/)
