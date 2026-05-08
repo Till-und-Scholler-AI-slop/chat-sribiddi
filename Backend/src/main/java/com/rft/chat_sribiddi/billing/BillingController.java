@@ -169,9 +169,12 @@ public class BillingController {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "from must be before to");
     }
 
+    String modelFilter = normalizeModelFilter(model);
     List<UsageEventEntity> events =
-        usageEventRepository.findForDashboard(
-            user.getId(), since, until, normalizeModelFilter(model));
+        modelFilter == null
+            ? usageEventRepository.findForDashboard(user.getId(), since, until)
+            : usageEventRepository.findForDashboardByModel(
+                user.getId(), since, until, modelFilter);
     List<UsageItem> items = aggregateByModel(events);
     List<DailyUsageItem> daily = aggregateByDay(events);
     long totalCalls = items.stream().mapToLong(UsageItem::calls).sum();

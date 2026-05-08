@@ -45,10 +45,22 @@ public interface UsageEventRepository extends JpaRepository<UsageEventEntity, Lo
       WHERE u.userId = :userId
         AND u.createdAt >= :from
         AND u.createdAt < :to
-        AND (:model IS NULL OR LOWER(u.modelId) LIKE LOWER(CONCAT('%', :model, '%')))
       ORDER BY u.createdAt ASC
       """)
   List<UsageEventEntity> findForDashboard(
+      @Param("userId") Long userId, @Param("from") Instant from, @Param("to") Instant to);
+
+  @Query(
+      """
+      SELECT u
+      FROM UsageEventEntity u
+      WHERE u.userId = :userId
+        AND u.createdAt >= :from
+        AND u.createdAt < :to
+        AND LOWER(u.modelId) LIKE LOWER(CONCAT('%', :model, '%'))
+      ORDER BY u.createdAt ASC
+      """)
+  List<UsageEventEntity> findForDashboardByModel(
       @Param("userId") Long userId,
       @Param("from") Instant from,
       @Param("to") Instant to,

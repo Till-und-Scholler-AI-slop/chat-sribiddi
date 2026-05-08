@@ -1,4 +1,4 @@
-const CACHE_NAME = 'chat-sribiddi-v1'
+const CACHE_NAME = 'chat-sribiddi-v2'
 const APP_SHELL = [
   '/',
   '/chat',
@@ -6,12 +6,13 @@ const APP_SHELL = [
   '/favicon.ico',
   '/icon.svg'
 ]
+const NETWORK_ONLY_PREFIXES = ['/api/', '/login/oauth2/', '/oauth2/']
 
 self.addEventListener('install', event => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then(cache => cache.addAll(APP_SHELL))
+      .then(cache => Promise.allSettled(APP_SHELL.map(path => cache.add(path))))
       .catch(() => undefined)
   )
   self.skipWaiting()
@@ -34,6 +35,7 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return
+  if (NETWORK_ONLY_PREFIXES.some(prefix => url.pathname.startsWith(prefix))) return
 
   if (request.mode === 'navigate') {
     event.respondWith(networkFirst(request, '/chat'))
@@ -47,10 +49,12 @@ async function networkFirst(request, fallbackPath) {
   const cache = await caches.open(CACHE_NAME)
   try {
     const response = await fetch(request)
-    cache.put(request, response.clone())
+    if (response.ok) {
+      await cache.put(request, response.clone()).catch(() => undefined)
+    }
     return response
   } catch {
-    return (await cache.match(request)) || (await cache.match(fallbackPath)) || Response.error()
+    return (await cache.match(request)) || (await cache.match(fallbackPath)) || new Response('', { status: 503 })
   }
 }
 
@@ -59,10 +63,12 @@ async function staleWhileRevalidate(request) {
   const cached = await cache.match(request)
   const network = fetch(request)
     .then(response => {
-      cache.put(request, response.clone())
+      if (response.ok) {
+        cache.put(request, response.clone()).catch(() => undefined)
+      }
       return response
     })
-    .catch(() => cached)
+    .catch(() => cached || new Response('', { status: 503 }))
 
   return cached || network
 }

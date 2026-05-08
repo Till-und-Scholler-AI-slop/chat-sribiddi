@@ -79,6 +79,8 @@ export default defineNuxtConfig({
                 'lucide:check',
                 'lucide:square',
                 'lucide:arrow-down',
+                // Nuxt UI loading state
+                'lucide:loader-circle',
                 // UPagination internal icons
                 'lucide:chevrons-left',
                 'lucide:chevron-left',

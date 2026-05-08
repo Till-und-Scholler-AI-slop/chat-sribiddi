@@ -169,7 +169,7 @@ class BillingControllerTest {
     UsageEventEntity first = usageEvent("openai/gpt-4o-mini", 100L, 200L, 300L, 4_500L);
     UsageEventEntity second = usageEvent("openai/gpt-4o-mini", 50L, 60L, null, 1_500L);
     when(usageEventRepository.findForDashboard(
-            eq(42L), eq(NOW.minus(BillingController.USAGE_WINDOW)), eq(NOW), eq(null)))
+            eq(42L), eq(NOW.minus(BillingController.USAGE_WINDOW)), eq(NOW)))
         .thenReturn(List.of(first, second));
 
     BillingUsageResponse body = controller.usage(null, request, null, null, null).getBody();
@@ -189,7 +189,7 @@ class BillingControllerTest {
 
   @Test
   void usage_acceptsDateFiltersAndModelFilter() {
-    when(usageEventRepository.findForDashboard(
+    when(usageEventRepository.findForDashboardByModel(
             eq(42L),
             eq(Instant.parse("2026-04-01T00:00:00Z")),
             eq(Instant.parse("2026-04-21T00:00:00Z")),
@@ -201,6 +201,22 @@ class BillingControllerTest {
 
     assertThat(body).isNotNull();
     assertThat(body.since()).isEqualTo(Instant.parse("2026-04-01T00:00:00Z"));
+    assertThat(body.until()).isEqualTo(Instant.parse("2026-04-21T00:00:00Z"));
+  }
+
+  @Test
+  void usage_acceptsSameDayDateFilters() {
+    when(usageEventRepository.findForDashboard(
+            eq(42L),
+            eq(Instant.parse("2026-04-20T00:00:00Z")),
+            eq(Instant.parse("2026-04-21T00:00:00Z"))))
+        .thenReturn(List.of());
+
+    BillingUsageResponse body =
+        controller.usage(null, request, "2026-04-20", "2026-04-20", null).getBody();
+
+    assertThat(body).isNotNull();
+    assertThat(body.since()).isEqualTo(Instant.parse("2026-04-20T00:00:00Z"));
     assertThat(body.until()).isEqualTo(Instant.parse("2026-04-21T00:00:00Z"));
   }
 
