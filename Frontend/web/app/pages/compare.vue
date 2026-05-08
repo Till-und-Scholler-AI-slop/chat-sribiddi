@@ -248,7 +248,7 @@ const handleKeep = async (panelId: string) => {
   resize: vertical;
   border: 1px solid var(--hair);
   border-radius: 0.5rem;
-  background: rgb(255 255 255 / 0.78);
+  background: color-mix(in oklab, var(--paper) 92%, var(--ink) 4%);
   padding: 0.75rem;
   color: var(--ink);
   font-size: 0.9375rem;
@@ -256,18 +256,30 @@ const handleKeep = async (panelId: string) => {
   outline: none;
 }
 
+.compare-prompt__input::placeholder {
+  color: var(--ink-2);
+  opacity: 1;
+}
+
 .compare-prompt__input:focus {
-  border-color: rgb(var(--ui-primary) / 0.65);
-  box-shadow: 0 0 0 3px rgb(var(--ui-primary) / 0.12);
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 16%, transparent);
 }
 
 .compare-prompt__input:disabled {
   cursor: not-allowed;
-  opacity: 0.7;
+  opacity: 1;
+  background: color-mix(in oklab, var(--paper) 88%, var(--ink) 8%);
+  color: var(--ink-2);
+  -webkit-text-fill-color: var(--ink-2);
 }
 
 :global(.dark) .compare-prompt__input {
-  background: rgb(255 255 255 / 0.04);
+  background: color-mix(in oklab, var(--paper-2) 86%, var(--ink) 7%);
+}
+
+:global(.dark) .compare-prompt__input:disabled {
+  background: color-mix(in oklab, var(--paper-2) 82%, var(--ink) 10%);
 }
 
 .compare-prompt__actions {
