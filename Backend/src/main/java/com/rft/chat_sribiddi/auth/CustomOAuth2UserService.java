@@ -10,7 +10,6 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -20,7 +19,6 @@ public class CustomOAuth2UserService extends OidcUserService {
   private final UserRepository userRepository;
 
   @Override
-  @Transactional
   public OidcUser loadUser(OidcUserRequest userRequest) throws OAuth2AuthenticationException {
     OidcUser oidcUser = super.loadUser(userRequest);
 
