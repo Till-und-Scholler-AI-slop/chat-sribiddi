@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -43,6 +44,7 @@ public class PythonInterpreterTool implements ChatTool {
   private final PythonSandboxProperties properties;
   private final ProcessStarter processStarter;
 
+  @Autowired
   public PythonInterpreterTool(PythonSandboxProperties properties) {
     this(properties, processBuilder -> processBuilder.start());
   }
