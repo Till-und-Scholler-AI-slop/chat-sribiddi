@@ -176,21 +176,28 @@ class EntitlementServiceTest {
   // -------- assertCanUseModel --------
 
   @Test
-  void assertCanUseModel_allowsZeroCostModelForFree() {
+  void assertCanUseModel_managedMode_allowsZeroCostModelForFree() {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
     when(modelPricingLookup.find(Provider.OPENROUTER, "meta-llama/llama-3.1-8b-instruct:free"))
         .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.0, 0.0)));
 
-    service.assertCanUseModel(USER_ID, Provider.OPENROUTER, "meta-llama/llama-3.1-8b-instruct:free");
+    service.assertCanUseModel(
+        USER_ID,
+        Provider.OPENROUTER,
+        "meta-llama/llama-3.1-8b-instruct:free",
+        BillingMode.MANAGED);
   }
 
   @Test
-  void assertCanUseModel_rejectsPaidModelForFree() {
+  void assertCanUseModel_managedMode_rejectsPaidModelForFree() {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
-    when(modelPricingLookup.find(Provider.OPENAI, "gpt-5.2"))
+    when(modelPricingLookup.find(Provider.OPENROUTER, "openai/gpt-5.2"))
         .thenReturn(Optional.of(new ModelPricingLookup.Pricing(2.5, 10.0)));
 
-    assertThatThrownBy(() -> service.assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-5.2"))
+    assertThatThrownBy(
+            () ->
+                service.assertCanUseModel(
+                    USER_ID, Provider.OPENROUTER, "openai/gpt-5.2", BillingMode.MANAGED))
         .isInstanceOf(PlanRestrictionException.class)
         .satisfies(
             ex -> {
@@ -202,13 +209,15 @@ class EntitlementServiceTest {
   }
 
   @Test
-  void assertCanUseModel_rejectsUnknownPricingForFree() {
+  void assertCanUseModel_managedMode_rejectsUnknownPricingForFree() {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
     when(modelPricingLookup.find(Provider.OPENROUTER, "some/unknown-model"))
         .thenReturn(Optional.empty());
 
     assertThatThrownBy(
-            () -> service.assertCanUseModel(USER_ID, Provider.OPENROUTER, "some/unknown-model"))
+            () ->
+                service.assertCanUseModel(
+                    USER_ID, Provider.OPENROUTER, "some/unknown-model", BillingMode.MANAGED))
         .isInstanceOf(PlanRestrictionException.class)
         .satisfies(
             ex ->
@@ -217,13 +226,14 @@ class EntitlementServiceTest {
   }
 
   @Test
-  void assertCanUseModel_allowsCheapModelForPremium() {
+  void assertCanUseModel_managedMode_allowsCheapModelForPremium() {
     when(userRepository.findByProviderId(USER_ID))
         .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
     when(modelPricingLookup.find(Provider.OPENROUTER, "openai/gpt-4o-mini"))
         .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.15, 0.60)));
 
-    service.assertCanUseModel(USER_ID, Provider.OPENROUTER, "openai/gpt-4o-mini");
+    service.assertCanUseModel(
+        USER_ID, Provider.OPENROUTER, "openai/gpt-4o-mini", BillingMode.MANAGED);
   }
 
   @Test
@@ -238,7 +248,10 @@ class EntitlementServiceTest {
     assertThatThrownBy(
             () ->
                 service.assertCanUseModel(
-                    USER_ID, Provider.OPENROUTER, "anthropic/claude-opus-4-7"))
+                    USER_ID,
+                    Provider.OPENROUTER,
+                    "anthropic/claude-opus-4-7",
+                    BillingMode.MANAGED))
         .isInstanceOf(PlanRestrictionException.class)
         .satisfies(
             ex -> {
@@ -250,10 +263,11 @@ class EntitlementServiceTest {
   }
 
   @Test
-  void assertCanUseModel_allowsAnyModelForMax() {
+  void assertCanUseModel_managedMode_allowsAnyOpenRouterModelForMax() {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.MAX)));
 
-    service.assertCanUseModel(USER_ID, Provider.OPENAI, "any-future-model");
+    service.assertCanUseModel(
+        USER_ID, Provider.OPENROUTER, "any-future-model", BillingMode.MANAGED);
 
     verifyNoInteractions(modelPricingLookup);
   }
@@ -308,14 +322,11 @@ class EntitlementServiceTest {
   }
 
   @Test
-  void assertCanUseModel_byokMode_allowsDirectOpenAiForPremium() {
-    when(userRepository.findByProviderId(USER_ID))
-        .thenReturn(Optional.of(userWithPlan(Plan.PREMIUM)));
-    // BILL-8: Premium now price-checks even on BYOK; mid-range model under the $5/1M cap passes.
-    when(modelPricingLookup.find(Provider.OPENAI, "gpt-5.2"))
-        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(2.5, 4.5)));
-
+  void assertCanUseModel_byokMode_allowsDirectOpenAiWithoutPlanPricing() {
     service.assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-5.2", BillingMode.BYOK);
+
+    verifyNoInteractions(userRepository);
+    verifyNoInteractions(modelPricingLookup);
   }
 
   @Test
@@ -385,6 +396,26 @@ class EntitlementServiceTest {
   }
 
   // -------- annotateModelsForPlan (BILL-15: snapshot-per-tier) --------
+
+  @Test
+  void annotateModelsForPlan_withUserKey_marksEveryModelAlways() {
+    var paid =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "openai/gpt-5.2", "GPT-5.2");
+    var unknown =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "future/model", "Future Model");
+
+    var result =
+        service.annotateModelsForPlan(
+            USER_ID, Provider.OPENROUTER, java.util.List.of(paid, unknown), true);
+
+    assertThat(result)
+        .extracting(o -> o.getId() + ":" + o.getAvailability() + ":" + o.getRequiredPlan())
+        .containsExactly("openai/gpt-5.2:ALWAYS:null", "future/model:ALWAYS:null");
+    verifyNoInteractions(userRepository);
+    verifyNoInteractions(modelPricingLookup);
+  }
 
   @Test
   void annotateModelsForPlan_openRouter_freeTier_flagsPaidAsUpgradeRequired() {
@@ -576,10 +607,70 @@ class EntitlementServiceTest {
     verifyNoInteractions(userRepository);
   }
 
-  // -------- filterOpenRouterModelsForPlan (deprecated shim — still delegates to annotate) -----
+  // -------- filterUsableModelsForPlan --------
 
   @Test
-  void filterOpenRouterModelsForPlan_delegatesToAnnotateForBackwardsCompatibility() {
+  void filterUsableModelsForPlan_openRouterFreeTier_returnsOnlyFreeModels() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "meta-llama/llama-3.1-8b-instruct:free"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.0, 0.0)));
+    when(modelPricingLookup.find(Provider.OPENROUTER, "openai/gpt-4o"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(2.5, 10.0)));
+    var paid =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "openai/gpt-4o", "GPT-4o");
+    var free =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "meta-llama/llama-3.1-8b-instruct:free", "Llama (free)");
+
+    var result =
+        service.filterUsableModelsForPlan(
+            USER_ID, Provider.OPENROUTER, java.util.List.of(paid, free), false);
+
+    assertThat(result).hasSize(1);
+    assertThat(result.getFirst().getId()).isEqualTo("meta-llama/llama-3.1-8b-instruct:free");
+    assertThat(result.getFirst().getAvailability())
+        .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.ALWAYS);
+  }
+
+  @Test
+  void filterUsableModelsForPlan_directProviderWithoutUserKey_returnsEmptyList() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.MAX)));
+    var gpt =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "gpt-4o", "GPT-4o");
+
+    var result =
+        service.filterUsableModelsForPlan(
+            USER_ID, Provider.OPENAI, java.util.List.of(gpt), false);
+
+    assertThat(result).isEmpty();
+  }
+
+  @Test
+  void filterUsableModelsForPlan_withUserKey_returnsAllProviderModels() {
+    var paid =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "gpt-5.2", "GPT-5.2");
+    var future =
+        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
+            "future-model", "Future Model");
+
+    var result =
+        service.filterUsableModelsForPlan(
+            USER_ID, Provider.OPENAI, java.util.List.of(paid, future), true);
+
+    assertThat(result)
+        .extracting(o -> o.getId() + ":" + o.getAvailability() + ":" + o.getRequiredPlan())
+        .containsExactly("gpt-5.2:ALWAYS:null", "future-model:ALWAYS:null");
+    verifyNoInteractions(userRepository);
+    verifyNoInteractions(modelPricingLookup);
+  }
+
+  // -------- filterOpenRouterModelsForPlan (deprecated shim) -----
+
+  @Test
+  void filterOpenRouterModelsForPlan_delegatesToUsableFilterForBackwardsCompatibility() {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
     when(modelPricingLookup.find(Provider.OPENROUTER, "meta-llama/llama-3.1-8b-instruct:free"))
         .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.0, 0.0)));
@@ -593,11 +684,9 @@ class EntitlementServiceTest {
 
     var result = service.filterOpenRouterModelsForPlan(USER_ID, java.util.List.of(paid, free));
 
-    // No longer filters: returns every model annotated with plan flags.
-    assertThat(result).hasSize(2);
-    assertThat(result.get(0).getAvailability())
-        .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.UPGRADE_REQUIRED);
-    assertThat(result.get(1).getAvailability())
+    assertThat(result).hasSize(1);
+    assertThat(result.getFirst().getId()).isEqualTo("meta-llama/llama-3.1-8b-instruct:free");
+    assertThat(result.getFirst().getAvailability())
         .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.ALWAYS);
   }
 }

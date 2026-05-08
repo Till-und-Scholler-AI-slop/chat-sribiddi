@@ -18,8 +18,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>Model access is <em>not</em> gated via hardcoded ID whitelists. Instead, the Free tier is
  * restricted by price thresholds (see {@link ModelAccess}): only models whose prompt and
- * completion prices are at or below the configured threshold are allowed on Free. Premium/Max
- * have no price cap.
+ * completion prices are at or below the configured threshold are allowed on Free. Premium has a
+ * configurable price cap, while Max has no price cap.
  */
 @Getter
 @Setter
@@ -129,4 +129,3 @@ public class BillingProperties {
     }
   }
 }
-

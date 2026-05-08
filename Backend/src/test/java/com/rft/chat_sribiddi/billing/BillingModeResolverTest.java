@@ -61,19 +61,17 @@ class BillingModeResolverTest {
   }
 
   @Test
-  void byok_withStoredUserKey_blockedByEntitlement_throwsPlanRestriction() {
+  void byok_withStoredUserKey_allowsPaidModelOnFreePlan() {
     when(apiKeyService.getKey(USER_ID, Provider.OPENAI)).thenReturn(Optional.of("user-key"));
-    PlanRestrictionException denied =
-        new PlanRestrictionException(
-            PlanRestrictionException.Reason.MODEL_NOT_ALLOWED, Plan.FREE, "price cap");
-    doThrow(denied)
-        .when(entitlementService)
-        .assertCanUseModel(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.BYOK);
     BillingModeResolver resolver = newResolverWithAllServerKeys();
 
-    assertThatThrownBy(
-            () -> resolver.resolve(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.BYOK))
-        .isSameAs(denied);
+    BillingModeResolver.ResolvedKey resolved =
+        resolver.resolve(USER_ID, Provider.OPENAI, "gpt-5.2", BillingMode.BYOK);
+
+    assertThat(resolved.apiKey()).isEqualTo("user-key");
+    assertThat(resolved.effectiveMode()).isEqualTo(BillingMode.BYOK);
+    verify(entitlementService)
+        .assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-5.2", BillingMode.BYOK);
   }
 
   @Test
@@ -112,19 +110,17 @@ class BillingModeResolverTest {
   }
 
   @Test
-  void auto_withUserKey_blockedByEntitlement_throwsPlanRestriction() {
+  void auto_withUserKey_allowsPaidModelOnFreePlan() {
     when(apiKeyService.getKey(USER_ID, Provider.OPENAI)).thenReturn(Optional.of("user-key"));
-    PlanRestrictionException denied =
-        new PlanRestrictionException(
-            PlanRestrictionException.Reason.MODEL_NOT_ALLOWED, Plan.FREE, "price cap");
-    doThrow(denied)
-        .when(entitlementService)
-        .assertCanUseModel(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.BYOK);
     BillingModeResolver resolver = newResolverWithAllServerKeys();
 
-    assertThatThrownBy(
-            () -> resolver.resolve(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.AUTO))
-        .isSameAs(denied);
+    BillingModeResolver.ResolvedKey resolved =
+        resolver.resolve(USER_ID, Provider.OPENAI, "gpt-5.2", BillingMode.AUTO);
+
+    assertThat(resolved.apiKey()).isEqualTo("user-key");
+    assertThat(resolved.effectiveMode()).isEqualTo(BillingMode.BYOK);
+    verify(entitlementService)
+        .assertCanUseModel(USER_ID, Provider.OPENAI, "gpt-5.2", BillingMode.BYOK);
   }
 
   @Test
@@ -188,8 +184,28 @@ class BillingModeResolverTest {
     assertThat(google.apiKey()).isEqualTo("srv-google");
     assertThat(claude.apiKey()).isEqualTo("srv-claude");
     assertThat(openrouter.apiKey()).isEqualTo("srv-openrouter");
-    // User key lookup is not required when MANAGED is explicitly requested.
-    verify(apiKeyService, never()).getKey(any(), any());
+    verify(entitlementService)
+        .assertCanUseModel(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.MANAGED);
+    verify(entitlementService)
+        .assertCanUseModel(USER_ID, Provider.GOOGLE, MODEL_ID, BillingMode.MANAGED);
+    verify(entitlementService)
+        .assertCanUseModel(USER_ID, Provider.CLAUDE, MODEL_ID, BillingMode.MANAGED);
+    verify(entitlementService)
+        .assertCanUseModel(USER_ID, Provider.OPENROUTER, MODEL_ID, BillingMode.MANAGED);
+  }
+
+  @Test
+  void managed_withStoredUserKey_stillPrefersByok() {
+    when(apiKeyService.getKey(USER_ID, Provider.OPENAI)).thenReturn(Optional.of("user-key"));
+    BillingModeResolver resolver = newResolver("", "srv-google", "srv-claude", "srv-openrouter");
+
+    BillingModeResolver.ResolvedKey resolved =
+        resolver.resolve(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.MANAGED);
+
+    assertThat(resolved.apiKey()).isEqualTo("user-key");
+    assertThat(resolved.effectiveMode()).isEqualTo(BillingMode.BYOK);
+    verify(entitlementService)
+        .assertCanUseModel(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.BYOK);
   }
 
   @Test

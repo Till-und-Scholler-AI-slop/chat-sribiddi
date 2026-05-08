@@ -268,19 +268,21 @@ class ChatServiceTest {
   @Test
   void sendMessage_freeUserWithPremiumModel_throwsPlanRestriction() {
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null, null, null);
+        new RequestDTO(
+            "hi", RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.BYOK);
+    when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.AUTO);
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENROUTER)).thenReturn(Optional.empty());
     doThrow(
             new PlanRestrictionException(
                 PlanRestrictionException.Reason.MODEL_NOT_ALLOWED, Plan.FREE, "Premium model"))
         .when(entitlementService)
         .assertCanUseModel(
-            userId, RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", BillingMode.BYOK);
+            userId, RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", BillingMode.MANAGED);
 
     assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
         .isInstanceOfSatisfying(
@@ -297,13 +299,15 @@ class ChatServiceTest {
   @Test
   void sendMessage_freeUserOverDailyCap_throwsPlanRestriction() {
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-4.1-mini", null, null, null);
+        new RequestDTO(
+            "hi", RequestDTO.Provider.OPENROUTER, "openai/gpt-4.1-mini", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENROUTER)).thenReturn(Optional.empty());
     doThrow(
             new PlanRestrictionException(
                 PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED,
@@ -321,7 +325,7 @@ class ChatServiceTest {
 
     verify(entitlementService)
         .assertCanUseModel(
-            userId, RequestDTO.Provider.OPENAI, "gpt-4.1-mini", BillingMode.MANAGED);
+            userId, RequestDTO.Provider.OPENROUTER, "openai/gpt-4.1-mini", BillingMode.MANAGED);
     verifyNoInteractions(providerClientFactory);
     verifyNoInteractions(usageEventService);
     verify(entitlementService, never()).incrementCounter(anyString());
@@ -946,7 +950,7 @@ class ChatServiceTest {
     // (so the user does not lose a cap slot for a failed call), but the usage event
     // MUST still be recorded for analytics/auditing.
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -954,13 +958,15 @@ class ChatServiceTest {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENROUTER)).thenReturn(Optional.empty());
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "srv-openai", BillingMode.MANAGED))
+    when(providerClientFactory.getClient(
+            RequestDTO.Provider.OPENROUTER, "srv-openrouter", BillingMode.MANAGED))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
-            RequestDTO.Provider.OPENAI, "gpt-5.2", "srv-openai"))
+            RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", "srv-openrouter"))
         .thenReturn(
-            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("openai/gpt-5.2").build());
     when(chatClient.prompt()).thenReturn(requestSpec);
     when(requestSpec.options(any())).thenReturn(requestSpec);
     when(requestSpec.messages(anyList())).thenReturn(requestSpec);
@@ -977,8 +983,8 @@ class ChatServiceTest {
     verify(usageEventService)
         .record(
             eq(userId),
-            eq(RequestDTO.Provider.OPENAI),
-            eq("gpt-5.2"),
+            eq(RequestDTO.Provider.OPENROUTER),
+            eq("openai/gpt-5.2"),
             any(),
             any(),
             any(),
@@ -993,7 +999,7 @@ class ChatServiceTest {
     // BILL-14 refund path: on a successful managed-mode stream, both record() and
     // incrementCounter() must be invoked (user consumes exactly one daily cap slot).
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -1002,13 +1008,15 @@ class ChatServiceTest {
     when(chatRepository.existsById(chatId)).thenReturn(true);
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENROUTER)).thenReturn(Optional.empty());
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "srv-openai", BillingMode.MANAGED))
+    when(providerClientFactory.getClient(
+            RequestDTO.Provider.OPENROUTER, "srv-openrouter", BillingMode.MANAGED))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
-            RequestDTO.Provider.OPENAI, "gpt-5.2", "srv-openai"))
+            RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", "srv-openrouter"))
         .thenReturn(
-            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("openai/gpt-5.2").build());
     when(chatClient.prompt()).thenReturn(requestSpec);
     when(requestSpec.options(any())).thenReturn(requestSpec);
     when(requestSpec.messages(anyList())).thenReturn(requestSpec);
@@ -1026,8 +1034,8 @@ class ChatServiceTest {
     verify(usageEventService)
         .record(
             eq(userId),
-            eq(RequestDTO.Provider.OPENAI),
-            eq("gpt-5.2"),
+            eq(RequestDTO.Provider.OPENROUTER),
+            eq("openai/gpt-5.2"),
             eq(10L),
             eq(5L),
             eq(15L),
