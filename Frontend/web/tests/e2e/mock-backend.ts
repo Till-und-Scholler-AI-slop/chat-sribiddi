@@ -4,6 +4,9 @@ type MockBackendOptions = {
   authenticated?: boolean
 }
 
+const USER_SETTINGS_STORAGE_KEY = 'chat-sribiddi:user-settings:v2'
+const E2E_BACKEND_BASE_URL = '/api'
+
 const modelPayload = (provider: string) => [
   {
     id: `${provider.toLowerCase()}-mock`,
@@ -18,14 +21,27 @@ const modelPayload = (provider: string) => [
 const backendRoutePatterns = [
   'http://localhost:8080/**',
   'http://127.0.0.1:8080/**',
-  'http://127.0.0.1:3000/api/**',
-  'http://localhost:3000/api/**'
+  /^https?:\/\/(?:localhost|127\.0\.0\.1):3000\/api(?:\/.*)?(?:\?.*)?$/
 ]
+
+function corsHeaders(route: Route) {
+  const origin = route.request().headers().origin || '*'
+  return {
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Chat-User-Id, X-XSRF-TOKEN',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+    'Access-Control-Allow-Origin': origin,
+    Vary: 'Origin'
+  }
+}
 
 async function fulfillJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({
     status,
-    contentType: 'application/json',
+    headers: {
+      ...corsHeaders(route),
+      'Content-Type': 'application/json'
+    },
     body: JSON.stringify(body)
   })
 }
@@ -34,19 +50,48 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
   let authenticated = options.authenticated ?? true
   const chats = new Map<string, { chatId: string; title: string }>()
 
+  await page.addInitScript(({ backendBaseUrl, storageKey }) => {
+    const fallbackSettings = {
+      backendBaseUrl,
+      favoriteModels: [],
+      lastUsedModel: null,
+      showPreSendCostEstimate: true
+    }
+
+    try {
+      const existing = window.localStorage.getItem(storageKey)
+      const parsed = existing ? JSON.parse(existing) as Record<string, unknown> : {}
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          ...fallbackSettings,
+          ...parsed,
+          backendBaseUrl
+        })
+      )
+    } catch {
+      window.localStorage.setItem(storageKey, JSON.stringify(fallbackSettings))
+    }
+  }, { backendBaseUrl: E2E_BACKEND_BASE_URL, storageKey: USER_SETTINGS_STORAGE_KEY })
+
   const handleRoute = async (route: Route) => {
     const request = route.request()
     const url = new URL(request.url())
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/'
 
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: corsHeaders(route) })
+      return
+    }
+
     if (path === '/secured') {
-      await route.fulfill({ status: authenticated ? 204 : 401 })
+      await route.fulfill({ status: authenticated ? 204 : 401, headers: corsHeaders(route) })
       return
     }
 
     if (path === '/logout') {
       authenticated = false
-      await route.fulfill({ status: 204 })
+      await route.fulfill({ status: 204, headers: corsHeaders(route) })
       return
     }
 
@@ -90,7 +135,10 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
     if (path === '/chats/chat-e2e/messages/stream') {
       await route.fulfill({
         status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
+        headers: {
+          ...corsHeaders(route),
+          'Content-Type': 'text/event-stream'
+        },
         body:
           'event: text\n' +
           'data: {"type":"text","content":"Mocked response"}\n\n' +
