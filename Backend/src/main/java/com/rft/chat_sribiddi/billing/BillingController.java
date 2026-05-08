@@ -13,8 +13,13 @@ import jakarta.validation.constraints.NotNull;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +33,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -150,31 +156,30 @@ public class BillingController {
 
   @GetMapping("/usage")
   public ResponseEntity<BillingUsageResponse> usage(
-      @AuthenticationPrincipal OidcUser principal, HttpServletRequest request) {
+      @AuthenticationPrincipal OidcUser principal,
+      HttpServletRequest request,
+      @RequestParam(required = false) String from,
+      @RequestParam(required = false) String to,
+      @RequestParam(required = false) String model) {
     User user = requireUser(principal, request);
     Instant now = clock.instant();
-    Instant since = now.minus(USAGE_WINDOW);
-    List<UsageEventRepository.UsageAggregate> aggregates =
-        usageEventRepository.aggregateSince(user.getId(), since);
-    List<UsageItem> items =
-        aggregates.stream()
-            .map(
-                a ->
-                    new UsageItem(
-                        a.getProvider(),
-                        a.getModelId(),
-                        a.getCalls(),
-                        a.getPromptTokens(),
-                        a.getCompletionTokens(),
-                        a.getTotalTokens(),
-                        a.getCostMicroCents()))
-            .toList();
+    Instant until = parseUsageTo(to, now);
+    Instant since = parseUsageFrom(from, until.minus(USAGE_WINDOW));
+    if (!since.isBefore(until)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "from must be before to");
+    }
+
+    List<UsageEventEntity> events =
+        usageEventRepository.findForDashboard(
+            user.getId(), since, until, normalizeModelFilter(model));
+    List<UsageItem> items = aggregateByModel(events);
+    List<DailyUsageItem> daily = aggregateByDay(events);
     long totalCalls = items.stream().mapToLong(UsageItem::calls).sum();
     long totalTokens = items.stream().mapToLong(UsageItem::totalTokens).sum();
     long totalCostMicroCents = items.stream().mapToLong(UsageItem::costMicroCents).sum();
     return ResponseEntity.ok(
         new BillingUsageResponse(
-            since, now, totalCalls, totalTokens, totalCostMicroCents, items));
+            since, until, totalCalls, totalTokens, totalCostMicroCents, items, daily));
   }
 
   @PostMapping(path = "/webhook", consumes = "application/json")
@@ -248,6 +253,108 @@ public class BillingController {
     return new ResponseStatusException(mapped, clientMessage, ex);
   }
 
+  private static List<UsageItem> aggregateByModel(List<UsageEventEntity> events) {
+    Map<ModelUsageKey, UsageAccumulator> byModel = new LinkedHashMap<>();
+    for (UsageEventEntity event : events) {
+      ModelUsageKey key = new ModelUsageKey(event.getProvider(), event.getModelId());
+      byModel.computeIfAbsent(key, _ -> new UsageAccumulator()).add(event);
+    }
+    return byModel.entrySet().stream()
+        .map(
+            entry ->
+                new UsageItem(
+                    entry.getKey().provider(),
+                    entry.getKey().modelId(),
+                    entry.getValue().calls,
+                    entry.getValue().promptTokens,
+                    entry.getValue().completionTokens,
+                    entry.getValue().totalTokens,
+                    entry.getValue().costMicroCents))
+        .sorted((left, right) -> Long.compare(right.calls(), left.calls()))
+        .toList();
+  }
+
+  private static List<DailyUsageItem> aggregateByDay(List<UsageEventEntity> events) {
+    Map<LocalDate, UsageAccumulator> byDay = new TreeMap<>();
+    for (UsageEventEntity event : events) {
+      if (event.getCreatedAt() == null) {
+        continue;
+      }
+      LocalDate day = LocalDate.ofInstant(event.getCreatedAt(), ZoneOffset.UTC);
+      byDay.computeIfAbsent(day, _ -> new UsageAccumulator()).add(event);
+    }
+    return byDay.entrySet().stream()
+        .map(
+            entry ->
+                new DailyUsageItem(
+                    entry.getKey(),
+                    entry.getValue().calls,
+                    entry.getValue().totalTokens,
+                    entry.getValue().costMicroCents))
+        .toList();
+  }
+
+  private static Instant parseUsageFrom(String value, Instant fallback) {
+    return parseUsageInstant(value, fallback, false);
+  }
+
+  private static Instant parseUsageTo(String value, Instant fallback) {
+    return parseUsageInstant(value, fallback, true);
+  }
+
+  private static Instant parseUsageInstant(String value, Instant fallback, boolean dateEndExclusive) {
+    if (value == null || value.isBlank()) {
+      return fallback;
+    }
+    String trimmed = value.trim();
+    try {
+      return Instant.parse(trimmed);
+    } catch (RuntimeException ignored) {
+      try {
+        LocalDate date = LocalDate.parse(trimmed);
+        LocalDate adjusted = dateEndExclusive ? date.plusDays(1) : date;
+        return adjusted.atStartOfDay(ZoneOffset.UTC).toInstant();
+      } catch (RuntimeException ex) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "Invalid usage date parameter: " + value);
+      }
+    }
+  }
+
+  private static String normalizeModelFilter(String model) {
+    return model == null || model.isBlank() ? null : model.trim();
+  }
+
+  private record ModelUsageKey(Provider provider, String modelId) {}
+
+  private static final class UsageAccumulator {
+    private long calls;
+    private long promptTokens;
+    private long completionTokens;
+    private long totalTokens;
+    private long costMicroCents;
+
+    void add(UsageEventEntity event) {
+      calls++;
+      promptTokens += safeLong(event.getPromptTokens());
+      completionTokens += safeLong(event.getCompletionTokens());
+      totalTokens += totalTokens(event);
+      costMicroCents += safeLong(event.getCostMicroCents());
+    }
+  }
+
+  private static long totalTokens(UsageEventEntity event) {
+    Long total = event.getTotalTokens();
+    if (total != null) {
+      return Math.max(0L, total);
+    }
+    return safeLong(event.getPromptTokens()) + safeLong(event.getCompletionTokens());
+  }
+
+  private static long safeLong(Long value) {
+    return value == null ? 0L : Math.max(0L, value);
+  }
+
   public record CheckoutSessionRequest(
       @NotNull Plan plan, @NotNull StripeProperties.Interval interval) {}
 
@@ -266,7 +373,8 @@ public class BillingController {
       long totalCalls,
       long totalTokens,
       long totalCostMicroCents,
-      List<UsageItem> items) {}
+      List<UsageItem> items,
+      List<DailyUsageItem> daily) {}
 
   public record UsageItem(
       Provider provider,
@@ -276,4 +384,7 @@ public class BillingController {
       long completionTokens,
       long totalTokens,
       long costMicroCents) {}
+
+  public record DailyUsageItem(
+      LocalDate day, long calls, long totalTokens, long costMicroCents) {}
 }

@@ -5,12 +5,15 @@ const props = defineProps<{
   error: NuxtError
 }>()
 
+const { t } = useI18n()
 const statusCode = computed(() => props.error.statusCode || 500)
-const title = computed(() => statusCode.value === 404 ? 'Seite nicht gefunden' : 'Etwas ist schiefgelaufen')
+const title = computed(() =>
+  statusCode.value === 404 ? t('errors.pageNotFoundTitle') : t('errors.unexpectedTitle')
+)
 const description = computed(() =>
   statusCode.value === 404
-    ? 'Die angeforderte Seite existiert nicht oder wurde verschoben.'
-    : 'Bitte lade die Seite neu oder kehre zum Chat zurueck.'
+    ? t('errors.pageNotFoundDescription')
+    : t('errors.unexpectedDescription')
 )
 
 function goToChat() {
@@ -31,10 +34,10 @@ function goToChat() {
         </p>
         <div class="mt-6 flex gap-3">
           <UButton color="primary" icon="i-heroicons-arrow-path" @click="reloadNuxtApp()">
-            Neu laden
+            {{ t('common.reload') }}
           </UButton>
           <UButton color="neutral" variant="soft" icon="i-heroicons-chat-bubble-left-right" @click="goToChat">
-            Zum Chat
+            {{ t('errors.backToChat') }}
           </UButton>
         </div>
       </section>

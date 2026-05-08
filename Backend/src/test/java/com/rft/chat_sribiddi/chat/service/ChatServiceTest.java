@@ -8,12 +8,14 @@ import static org.mockito.Mockito.*;
 import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.billing.EntitlementService;
+import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.billing.UsageEventService;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
+import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.model.ToolCallLogEntity;
@@ -22,15 +24,20 @@ import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
+import com.rft.chat_sribiddi.observability.ChatMetrics;
 import com.rft.chat_sribiddi.tools.CalculatorTool;
 import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
 import com.rft.chat_sribiddi.tools.UrlFetcherTool;
+import com.rft.chat_sribiddi.tools.api.ToolRiskLevel;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.http.HttpClient;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -49,6 +56,7 @@ import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Pageable;
 
 @ExtendWith(MockitoExtension.class)
 class ChatServiceTest {
@@ -62,6 +70,7 @@ class ChatServiceTest {
   @Mock private com.rft.chat_sribiddi.auth.UserSettingsService userSettingsService;
   @Mock private EntitlementService entitlementService;
   @Mock private UsageEventService usageEventService;
+  @Mock private ChatMetrics chatMetrics;
   @Mock private HttpClient webSearchHttpClient;
   @Mock private ToolRegistry toolRegistry;
   @Mock private CalculatorTool calculatorTool;
@@ -79,10 +88,11 @@ class ChatServiceTest {
 
   private ChatService buildChatService(ChatProperties chatProperties) {
     return new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
-        apiKeyService, providerClientFactory, chatProperties, userSettingsService,
+        apiKeyService, providerClientFactory, chatProperties, new MediaValidationService(chatProperties), userSettingsService,
         new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
         toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
-        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), entitlementService, usageEventService);
+        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), entitlementService, usageEventService,
+        chatMetrics);
   }
 
   @BeforeEach
@@ -95,6 +105,7 @@ class ChatServiceTest {
     lenient()
         .when(entitlementService.resolveBillingMode(anyString()))
         .thenReturn(BillingMode.BYOK);
+    lenient().when(entitlementService.get(anyString())).thenReturn(entitlements(Plan.FREE));
     lenient().when(chatToolRepository.findByChatId(any())).thenReturn(List.of());
     lenient().when(toolRegistry.getAll()).thenReturn(List.of());
     lenient()
@@ -162,6 +173,83 @@ class ChatServiceTest {
     assertThat(savedMessages.getAllValues())
         .extracting(MessageEntity::getRole)
         .containsExactly(Role.USER, Role.ASSISTANT);
+  }
+
+  @Test
+  void listChats_usesLimitAndOffsetPageable() {
+    ChatProperties properties = new ChatProperties();
+    properties.setChatPageSize(25);
+    chatService = buildChatService(properties);
+    when(chatRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any()))
+        .thenReturn(List.of());
+
+    chatService.listChats(userId, 10, 20);
+
+    ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+    verify(chatRepository).findByUserIdOrderByCreatedAtDesc(eq(userId), pageable.capture());
+    assertThat(pageable.getValue().getPageSize()).isEqualTo(10);
+    assertThat(pageable.getValue().getOffset()).isEqualTo(20);
+  }
+
+  @Test
+  void listMessages_clampsLimitUsesOffsetAndReturnsChronologicalOrder() {
+    ChatProperties properties = new ChatProperties();
+    properties.setMessagePageSize(2);
+    chatService = buildChatService(properties);
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    MessageEntity newest = messageWithId(2L);
+    MessageEntity oldest = messageWithId(1L);
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(eq(chatId), any()))
+        .thenReturn(List.of(newest, oldest));
+
+    List<MessageEntity> result = chatService.listMessages(chatId, userId, 10, 3);
+
+    ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+    verify(messageRepository).findByChatIdOrderByCreatedAtDesc(eq(chatId), pageable.capture());
+    assertThat(pageable.getValue().getPageSize()).isEqualTo(2);
+    assertThat(pageable.getValue().getOffset()).isEqualTo(3);
+    assertThat(result).extracting(MessageEntity::getId).containsExactly(1L, 2L);
+  }
+
+  @Test
+  void streamSetupFailure_closesClientHolder() throws Exception {
+    AutoCloseable closeable = mock(AutoCloseable.class);
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null, null, null);
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, closeable));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", "key"))
+        .thenThrow(new RuntimeException("boom"));
+    Method method =
+        ChatService.class.getDeclaredMethod(
+            "createAndSubscribeStream",
+            String.class,
+            RequestDTO.class,
+            List.class,
+            UUID.class,
+            String.class,
+            BillingMode.class,
+            Plan.class);
+    method.setAccessible(true);
+
+    assertThatThrownBy(
+            () ->
+                method.invoke(
+                    chatService,
+                    userId,
+                    request,
+                    List.<Message>of(new UserMessage("hi")),
+                    chatId,
+                    null,
+                    BillingMode.BYOK,
+                    Plan.FREE))
+        .isInstanceOf(InvocationTargetException.class)
+        .hasCauseInstanceOf(RuntimeException.class);
+    verify(closeable).close();
   }
 
   @Test
@@ -285,6 +373,118 @@ class ChatServiceTest {
     assertThat(log.getInputPayload()).isEqualTo("{}");
     assertThat(log.getOutputPayload()).isNotBlank();
     assertThat(log.getDurationMs()).isGreaterThanOrEqualTo(0L);
+  }
+
+  @Test
+  void supportsTools_usesConfiguredProviderModelWildcards() {
+    ChatProperties properties = new ChatProperties();
+    properties.getToolDisabledModelPatterns().add("google:gemma-*");
+    properties.getToolDisabledModelPatterns().add("openrouter:*venice*uncensored*");
+    chatService = buildChatService(properties);
+
+    assertThat(chatService.supportsTools(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it")).isFalse();
+    assertThat(chatService.supportsTools(RequestDTO.Provider.GOOGLE, "gemini-2.5-flash")).isTrue();
+    assertThat(chatService.supportsTools(RequestDTO.Provider.OPENROUTER, "venice/uncensored")).isFalse();
+  }
+
+  @Test
+  void sendMessage_toolDisabledModelSkipsToolDefinitions() {
+    ChatProperties properties = new ChatProperties();
+    properties.getToolDisabledModelPatterns().add("google:gemma-*");
+    chatService = buildChatService(properties);
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", "goog-key"))
+        .thenReturn(
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gemma-3-27b-it").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("ok")))));
+
+    chatService.sendMessage(chatId, userId, request);
+
+    verify(requestSpec, never()).tools(any());
+  }
+
+  @Test
+  void sendMessage_highRiskToolWithoutConsentSkipsToolDefinition() {
+    RequestDTO request =
+        new RequestDTO("run code", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(RequestDTO.Provider.OPENAI, "gpt-5.2", "key"))
+        .thenReturn(org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("ok")))));
+    when(toolRegistry.getAll()).thenReturn(List.of(pythonInterpreterTool));
+    when(pythonInterpreterTool.getName()).thenReturn("python-interpreter");
+    when(pythonInterpreterTool.requiresPerCallConsent()).thenReturn(true);
+    when(chatToolRepository.findByChatIdAndToolName(chatId, "python-interpreter"))
+        .thenReturn(Optional.of(enabledTool("python-interpreter")));
+
+    chatService.sendMessage(chatId, userId, request);
+
+    verify(requestSpec, never()).tools(any());
+  }
+
+  @Test
+  void sendMessage_highRiskToolWithConsentWiresToolDefinition() {
+    RequestDTO request =
+        new RequestDTO(
+            "run code",
+            RequestDTO.Provider.OPENAI,
+            "gpt-5.2",
+            null,
+            null,
+            null,
+            List.of(new RequestDTO.ToolConsent("python-interpreter", "HIGH", Map.of())));
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key"))
+        .thenReturn(new ChatService.ClientHolder(chatClient, null));
+    when(providerClientFactory.buildOptions(RequestDTO.Provider.OPENAI, "gpt-5.2", "key"))
+        .thenReturn(org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("ok")))));
+    when(toolRegistry.getAll()).thenReturn(List.of(pythonInterpreterTool));
+    when(pythonInterpreterTool.getName()).thenReturn("python-interpreter");
+    when(pythonInterpreterTool.requiresPerCallConsent()).thenReturn(true);
+    when(pythonInterpreterTool.riskLevel()).thenReturn(ToolRiskLevel.HIGH);
+    when(chatToolRepository.findByChatIdAndToolName(chatId, "python-interpreter"))
+        .thenReturn(Optional.of(enabledTool("python-interpreter")));
+
+    chatService.sendMessage(chatId, userId, request);
+
+    verify(requestSpec).tools(any());
   }
 
   @Test
@@ -601,6 +801,10 @@ class ChatServiceTest {
     assertThat(assistantMsg.getPromptTokens()).isEqualTo(50L);
     assertThat(assistantMsg.getGenerationTokens()).isEqualTo(20L);
     assertThat(assistantMsg.getTotalTokens()).isEqualTo(70L);
+    verify(chatMetrics)
+        .recordRequest(RequestDTO.Provider.OPENAI, "gpt-5.2", Plan.FREE, "success");
+    verify(chatMetrics).recordTokens(RequestDTO.Provider.OPENAI, "gpt-5.2", "prompt", 50L);
+    verify(chatMetrics).recordTokens(RequestDTO.Provider.OPENAI, "gpt-5.2", "completion", 20L);
   }
 
   @Test
@@ -848,7 +1052,7 @@ class ChatServiceTest {
         new org.springframework.web.reactive.function.client.WebClientResponseException(
             400, "Bad Request", null, openAiBody.getBytes(), null);
 
-    String result = ChatService.extractProviderErrorMessage(ex);
+    String result = StreamErrorHandler.extractProviderMessage(ex);
 
     assertThat(result).isEqualTo("The model `gpt-invalid` does not exist");
   }
@@ -860,7 +1064,7 @@ class ChatServiceTest {
         new org.springframework.web.reactive.function.client.WebClientResponseException(
             500, "Internal Server Error", null, rawBody.getBytes(), null);
 
-    String result = ChatService.extractProviderErrorMessage(ex);
+    String result = StreamErrorHandler.extractProviderMessage(ex);
 
     assertThat(result).isEqualTo("Something went wrong");
   }
@@ -871,7 +1075,7 @@ class ChatServiceTest {
         new org.springframework.web.reactive.function.client.WebClientResponseException(
             400, "Bad Request", null, null, null);
 
-    String result = ChatService.extractProviderErrorMessage(ex);
+    String result = StreamErrorHandler.extractProviderMessage(ex);
 
     assertThat(result).contains("HTTP 400");
   }
@@ -882,7 +1086,7 @@ class ChatServiceTest {
         new org.springframework.web.reactive.function.client.WebClientResponseException(
             429, "Too Many Requests", null, null, null);
 
-    String result = ChatService.extractProviderErrorMessage(ex);
+    String result = StreamErrorHandler.extractProviderMessage(ex);
 
     assertThat(result).contains("rate limit exceeded");
     assertThat(result).contains("HTTP 429");
@@ -895,7 +1099,7 @@ class ChatServiceTest {
         new org.springframework.web.reactive.function.client.WebClientResponseException(
             429, "Too Many Requests", null, body.getBytes(), null);
 
-    String result = ChatService.extractProviderErrorMessage(ex);
+    String result = StreamErrorHandler.extractProviderMessage(ex);
 
     assertThat(result).isEqualTo("Rate limit exceeded");
   }
@@ -904,7 +1108,7 @@ class ChatServiceTest {
   void extractProviderErrorMessage_returnsGenericMessage_forNonProviderError() {
     var ex = new RuntimeException("Something unexpected");
 
-    String result = ChatService.extractProviderErrorMessage(ex);
+    String result = StreamErrorHandler.extractProviderMessage(ex);
 
     assertThat(result).isEqualTo("An error occurred while streaming the response.");
   }
@@ -912,7 +1116,7 @@ class ChatServiceTest {
   @Test
   void classifyStreamError_detectsTimeoutWithoutHttpStatus() {
     String result =
-        ChatService.classifyStreamError(
+        StreamErrorHandler.classify(
             new RuntimeException("response timeout while streaming"), null);
 
     assertThat(result).isEqualTo("TIMEOUT");
@@ -920,7 +1124,7 @@ class ChatServiceTest {
 
   @Test
   void classifyStreamError_detectsRateLimitFromHttpStatus() {
-    String result = ChatService.classifyStreamError(new RuntimeException("any"), 429);
+    String result = StreamErrorHandler.classify(new RuntimeException("any"), 429);
 
     assertThat(result).isEqualTo("RATE_LIMIT");
   }
@@ -928,8 +1132,8 @@ class ChatServiceTest {
   @Test
   void buildClientStreamErrorMessage_includesProviderModelStatusAndPartialHint() {
     String message =
-        ChatService.buildClientStreamErrorMessage(
-            new ChatService.StreamErrorDetails(
+        StreamErrorHandler.buildClientMessage(
+            new StreamErrorHandler.StreamErrorDetails(
                 RequestDTO.Provider.GOOGLE,
                 "gemma-4-31b-it",
                 503,
@@ -943,9 +1147,9 @@ class ChatServiceTest {
 
   @Test
   void expectedStreamFailures_includeProviderAndTimeoutKinds() {
-    assertThat(ChatService.isExpectedStreamFailure("TIMEOUT")).isTrue();
-    assertThat(ChatService.isExpectedStreamFailure("PROVIDER_ERROR")).isTrue();
-    assertThat(ChatService.isExpectedStreamFailure("UNKNOWN")).isFalse();
+    assertThat(StreamErrorHandler.isExpectedFailure("TIMEOUT")).isTrue();
+    assertThat(StreamErrorHandler.isExpectedFailure("PROVIDER_ERROR")).isTrue();
+    assertThat(StreamErrorHandler.isExpectedFailure("UNKNOWN")).isFalse();
   }
 
   // ── Auto-title tests ────────────────────────────────────────────────────────
@@ -1421,5 +1625,26 @@ class ChatServiceTest {
     assertThat(assistantMsg.getContext())
         .doesNotContain("including system prompt")
         .contains("instructions sent as user message");
+  }
+
+  private MessageEntity messageWithId(long id) {
+    MessageEntity message = new MessageEntity();
+    message.setId(id);
+    message.setChatId(chatId);
+    message.setMessage("message-" + id);
+    message.setRole(Role.USER);
+    return message;
+  }
+
+  private ChatToolEntity enabledTool(String toolName) {
+    ChatToolEntity entity = new ChatToolEntity();
+    entity.setChatId(chatId);
+    entity.setToolName(toolName);
+    entity.setEnabled(true);
+    return entity;
+  }
+
+  private static Entitlements entitlements(Plan plan) {
+    return new Entitlements(plan, 5, 5_242_880, 20_971_520, 20, Set.of("*"), 100, 1, null, null);
   }
 }

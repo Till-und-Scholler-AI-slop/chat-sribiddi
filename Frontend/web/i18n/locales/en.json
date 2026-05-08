@@ -9,7 +9,8 @@
     "hide": "Hide",
     "loading": "Loading…",
     "unknown": "Unknown",
-    "back": "Back"
+    "back": "Back",
+    "reload": "Reload"
   },
   "language": {
     "label": "Language",
@@ -42,6 +43,8 @@
     "renameChat": "Rename chat",
     "deleteChat": "Delete chat",
     "models": "Models",
+    "compare": "Compare",
+    "usage": "Usage",
     "settings": "Settings",
     "switchAccount": "Switch account",
     "switchGoogleAccount": "Switch Google account",
@@ -59,6 +62,7 @@
     "deleteConfirmAction": "Delete permanently"
   },
   "chat": {
+    "newChatPlaceholder": "New chat",
     "welcomeIntro": "Pick a model below and get started. Attach files, search the web and much more.",
     "startChat": "Start chat",
     "modelPlaceholder": "Select model",
@@ -79,6 +83,10 @@
     "startFailedDescription": "Is the backend running?",
     "editMessage": "Edit message",
     "saveAndRegenerate": "Save & regenerate",
+    "exportRunbook": "Export as runbook",
+    "runbookExportedTitle": "Runbook exported",
+    "runbookExportFailedTitle": "Runbook export failed",
+    "runbookFallbackFilename": "runbook.md",
     "webSearchActive": "Web search active",
     "webSearchInactive": "Web search disabled",
     "webSearchEnable": "Enable web search",
@@ -222,6 +230,19 @@
     "chatUiDescription": "Customize optional chat helpers shown before you send a message.",
     "preSendCostLabel": "Show pre-send cost estimate",
     "preSendCostDescription": "Displays a small estimated request cost next to the send button using the current chat context and model pricing.",
+    "billingModeHeading": "Billing mode",
+    "billingModeDescription": "Choose how chat requests should be paid for when a model can use more than one key source.",
+    "billingModeAutoLabel": "Automatic",
+    "billingModeAutoDescription": "Prefer your stored API key when available, otherwise use managed mode if your plan allows it.",
+    "billingModeByokLabel": "Bring your own keys",
+    "billingModeByokDescription": "Always use your saved provider keys and do not consume managed-mode quota.",
+    "billingModeManagedLabel": "Managed by chat-sribiddi",
+    "billingModeManagedDescription": "Use platform-managed keys for supported models on Premium and Max plans.",
+    "billingModeManagedUpgradeDescription": "Managed mode is available on Premium and Max plans.",
+    "billingModeManagedUnavailableTitle": "Managed mode unavailable",
+    "billingModeSavedTitle": "Billing mode saved",
+    "billingModeSavedDescription": "New chat requests will use this billing preference.",
+    "billingModeSaveFailed": "Could not save billing mode",
     "customInstructionsHeading": "Custom instructions",
     "customInstructionsDescription": "Add personal instructions that will be appended to the system prompt in every conversation. The base system prompt is always preserved.",
     "customInstructionsPlaceholder": "e.g. Always reply in German. Prefer concise bullet-point answers.",
@@ -251,7 +272,12 @@
     "payloadTooLarge": "Attachment is too large.",
     "rateLimit": "Too many requests. Please wait a moment.",
     "serverError": "Server error. Please try again later.",
-    "apiKey": "API key invalid or missing. Please check the settings."
+    "apiKey": "API key invalid or missing. Please check the settings.",
+    "pageNotFoundTitle": "Page not found",
+    "pageNotFoundDescription": "The requested page does not exist or has moved.",
+    "unexpectedTitle": "Something went wrong",
+    "unexpectedDescription": "Please reload the page or return to chat.",
+    "backToChat": "Back to chat"
   },
   "billing": {
     "title": "Billing",
@@ -302,6 +328,23 @@
       "dismiss": "Dismiss"
     }
   },
+  "usage": {
+    "title": "Usage dashboard",
+    "subtitle": "Analyze token usage, estimated cost, and model activity across the selected period.",
+    "range7": "7 days",
+    "range30": "30 days",
+    "range90": "90 days",
+    "modelFilterPlaceholder": "Filter by model",
+    "applyFilters": "Filter",
+    "loadFailedTitle": "Could not load usage",
+    "totalTokens": "Total tokens",
+    "estimatedCost": "Estimated cost",
+    "topModel": "Top model",
+    "tokensByModel": "Tokens by model",
+    "dailyTrend": "Daily trend",
+    "requestsCount": "{count} requests",
+    "noData": "No usage data is available for this period yet."
+  },
   "pricing": {
     "title": "Pricing",
     "subtitle": "Pick the plan that fits how you use Chat Sribiddi.",
@@ -351,6 +394,37 @@
         }
       }
     }
+  },
+  "compare": {
+    "title": "Model comparison",
+    "subtitle": "One prompt, multiple answers",
+    "addPanel": "Add column",
+    "clearResults": "Reset",
+    "promptPlaceholder": "Enter a prompt for all models",
+    "send": "Compare",
+    "stopAll": "Stop all",
+    "loadFailedTitle": "Comparison could not be loaded",
+    "missingPromptTitle": "Prompt missing",
+    "missingPromptDescription": "Please enter a prompt.",
+    "modelLoadFailedTitle": "Models could not be loaded",
+    "modelPlaceholder": "Select model",
+    "statusReady": "Ready",
+    "statusStreaming": "Running",
+    "statusError": "Error",
+    "pricingPerMillion": "{price} / 1M tokens",
+    "pricingPerMillionInOut": "{input} in / {output} out per 1M tokens",
+    "panelEmpty": "Ready to compare",
+    "userMessage": "Prompt",
+    "assistantMessage": "Answer",
+    "promptTokens": "Input",
+    "outputTokens": "Output",
+    "totalTokens": "Total",
+    "cost": "Cost",
+    "keepChat": "Open in chat",
+    "discardChat": "Discard",
+    "removePanel": "Remove column",
+    "kept": "Kept",
+    "keepSuccessTitle": "Chat kept"
   },
   "legal": {
     "backToLogin": "Back to login",

@@ -166,58 +166,42 @@ class BillingControllerTest {
 
   @Test
   void usage_aggregatesEventsFromTrailing30Days() {
-    UsageEventRepository.UsageAggregate agg =
-        new UsageEventRepository.UsageAggregate() {
-          @Override
-          public Provider getProvider() {
-            return Provider.OPENROUTER;
-          }
+    UsageEventEntity first = usageEvent("openai/gpt-4o-mini", 100L, 200L, 300L, 4_500L);
+    UsageEventEntity second = usageEvent("openai/gpt-4o-mini", 50L, 60L, null, 1_500L);
+    when(usageEventRepository.findForDashboard(
+            eq(42L), eq(NOW.minus(BillingController.USAGE_WINDOW)), eq(NOW), eq(null)))
+        .thenReturn(List.of(first, second));
 
-          @Override
-          public String getModelId() {
-            return "openai/gpt-4o-mini";
-          }
-
-          @Override
-          public long getCalls() {
-            return 3L;
-          }
-
-          @Override
-          public long getPromptTokens() {
-            return 100L;
-          }
-
-          @Override
-          public long getCompletionTokens() {
-            return 200L;
-          }
-
-          @Override
-          public long getTotalTokens() {
-            return 300L;
-          }
-
-          @Override
-          public long getCostMicroCents() {
-            return 4_500L;
-          }
-        };
-    when(usageEventRepository.aggregateSince(
-            eq(42L), eq(NOW.minus(BillingController.USAGE_WINDOW))))
-        .thenReturn(List.of(agg));
-
-    BillingUsageResponse body = controller.usage(null, request).getBody();
+    BillingUsageResponse body = controller.usage(null, request, null, null, null).getBody();
 
     assertThat(body).isNotNull();
     assertThat(body.since()).isEqualTo(NOW.minus(BillingController.USAGE_WINDOW));
     assertThat(body.until()).isEqualTo(NOW);
-    assertThat(body.totalCalls()).isEqualTo(3L);
-    assertThat(body.totalTokens()).isEqualTo(300L);
-    assertThat(body.totalCostMicroCents()).isEqualTo(4_500L);
+    assertThat(body.totalCalls()).isEqualTo(2L);
+    assertThat(body.totalTokens()).isEqualTo(410L);
+    assertThat(body.totalCostMicroCents()).isEqualTo(6_000L);
     assertThat(body.items()).hasSize(1);
     assertThat(body.items().get(0).modelId()).isEqualTo("openai/gpt-4o-mini");
-    assertThat(body.items().get(0).calls()).isEqualTo(3L);
+    assertThat(body.items().get(0).calls()).isEqualTo(2L);
+    assertThat(body.daily()).hasSize(1);
+    assertThat(body.daily().get(0).totalTokens()).isEqualTo(410L);
+  }
+
+  @Test
+  void usage_acceptsDateFiltersAndModelFilter() {
+    when(usageEventRepository.findForDashboard(
+            eq(42L),
+            eq(Instant.parse("2026-04-01T00:00:00Z")),
+            eq(Instant.parse("2026-04-21T00:00:00Z")),
+            eq("gpt")))
+        .thenReturn(List.of());
+
+    BillingUsageResponse body =
+        controller.usage(null, request, "2026-04-01", "2026-04-20", " gpt ").getBody();
+
+    assertThat(body).isNotNull();
+    assertThat(body.since()).isEqualTo(Instant.parse("2026-04-01T00:00:00Z"));
+    assertThat(body.until()).isEqualTo(Instant.parse("2026-04-21T00:00:00Z"));
   }
 
   @Test
@@ -238,5 +222,18 @@ class BillingControllerTest {
     } catch (ReflectiveOperationException e) {
       throw new IllegalStateException(e);
     }
+  }
+
+  private static UsageEventEntity usageEvent(
+      String modelId, Long promptTokens, Long completionTokens, Long totalTokens, Long cost) {
+    UsageEventEntity event = new UsageEventEntity();
+    event.setProvider(Provider.OPENROUTER);
+    event.setModelId(modelId);
+    event.setPromptTokens(promptTokens);
+    event.setCompletionTokens(completionTokens);
+    event.setTotalTokens(totalTokens);
+    event.setCostMicroCents(cost);
+    event.setCreatedAt(NOW.minusSeconds(3_600));
+    return event;
   }
 }

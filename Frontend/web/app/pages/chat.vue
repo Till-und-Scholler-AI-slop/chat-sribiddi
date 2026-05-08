@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { MediaAttachment, ModelOption } from '~/composables/useChatApi'
+import type { ModelOption } from '~/composables/useChatApi'
 import { isModelLocked } from '~/composables/useChatApi'
 import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/chat-helpers'
 
@@ -40,28 +40,36 @@ const {
   webSearchEnabled
 } = useChatStore()
 const { settings } = useUserSettings()
+const { exportRunbook } = useChatApi()
 
 const input = ref('')
-const attachments = ref<MediaAttachment[]>([])
-const fileInput = ref<HTMLInputElement | null>(null)
 const initializing = ref(true)
+const exportingRunbook = ref(false)
 const toast = useToast()
-const messagesContainer = ref<HTMLElement | null>(null)
-const skipNextSmoothScroll = ref(false)
-let streamingRafId: number | null = null
-
-const scrollToBottom = (behavior: 'smooth' | 'auto' = 'smooth') => {
-  nextTick(() => {
-    const el = messagesContainer.value
-    if (el) {
-      el.scrollTo({ top: el.scrollHeight, behavior })
-    }
-  })
-}
-
-// Edit state
-const editingMessageId = ref<string | null>(null)
-const editingText = ref('')
+const {
+  attachments,
+  fileInput,
+  isDragOver,
+  clearAttachments,
+  removeAttachment,
+  handleFiles
+} = useFileAttachments({
+  fileReadFailedMessage: name => t('chat.fileReadFailed', { name }),
+  onUploadFailed: reason => {
+    toast.add({
+      title: t('chat.uploadFailedTitle'),
+      description: tt(reason, 'chat.attachmentReadFallback'),
+      color: 'error'
+    })
+  }
+})
+const {
+  messagesContainer,
+  scrollToBottom,
+  skipNextSmooth,
+  scrollAfterMessageLengthChange,
+  scheduleStreamingScroll
+} = useChatScroll()
 
 const selectedModel = computed<ModelOption | null>({
   get: () => {
@@ -80,6 +88,25 @@ const selectedModel = computed<ModelOption | null>({
       setModelForChat(activeConversation.value.session.chatId, value)
       saveLastUsedModel(value)
     }
+  }
+})
+
+const {
+  editingMessageId,
+  editingText,
+  startEditMessage,
+  cancelEditMessage,
+  submitEditMessage
+} = useMessageEditing({
+  activeConversation,
+  selectedModel,
+  editMessage,
+  onEditFailed: err => {
+    toast.add({
+      title: t('chat.editFailedTitle'),
+      description: tt(err, 'chat.editFailedDescription'),
+      color: 'error'
+    })
   }
 })
 
@@ -240,95 +267,7 @@ const preSendCompletionRateLabel = computed(() =>
   formatRatePerMillion(selectedModel.value?.completionPrice)
 )
 
-const toDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-    reader.onerror = () => reject(new Error(t('chat.fileReadFailed', { name: file.name })))
-    reader.readAsDataURL(file)
-  })
-
-const isDragOver = ref(false)
-
-const clearAttachments = () => {
-  attachments.value = []
-  if (fileInput.value) {
-    fileInput.value.value = ''
-  }
-}
-
-const removeAttachment = (index: number) => {
-  attachments.value.splice(index, 1)
-}
-
-const processFileList = async (files: File[]) => {
-  if (files.length === 0) return
-  const results = await Promise.allSettled(
-    files.map(async file => ({
-      name: file.name,
-      mimeType: file.type || 'application/octet-stream',
-      data: await toDataUrl(file)
-    }))
-  )
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      attachments.value.push(result.value)
-    } else {
-      toast.add({
-        title: t('chat.uploadFailedTitle'),
-        description: tt(result.reason, 'chat.attachmentReadFallback'),
-        color: 'error'
-      })
-    }
-  }
-}
-
-const handleFiles = async (event: Event) => {
-  const inputNode = event.target as HTMLInputElement
-  const files = Array.from(inputNode.files || [])
-  await processFileList(files)
-  inputNode.value = ''
-}
-
-const handleDragOver = (event: DragEvent) => {
-  const types = event.dataTransfer?.types
-  if (types && Array.from(types).includes('Files')) {
-    event.preventDefault()
-    isDragOver.value = true
-  }
-}
-
-const handleDragLeave = (event: DragEvent) => {
-  // Clear the drag state only when the drag pointer leaves the browser window
-  if (!event.relatedTarget) {
-    isDragOver.value = false
-  }
-}
-
-const handleDrop = async (event: DragEvent) => {
-  event.preventDefault()
-  isDragOver.value = false
-  const types = event.dataTransfer?.types
-  if (!types || !Array.from(types).includes('Files')) {
-    return
-  }
-  const files = Array.from(event.dataTransfer?.files || [])
-  await processFileList(files)
-}
-
-const handlePaste = async (event: ClipboardEvent) => {
-  const files = Array.from(event.clipboardData?.files || [])
-  if (files.length > 0) {
-    event.preventDefault()
-    await processFileList(files)
-  }
-}
-
 onMounted(async () => {
-  document.addEventListener('paste', handlePaste)
-  document.addEventListener('dragover', handleDragOver)
-  document.addEventListener('dragleave', handleDragLeave)
-  document.addEventListener('drop', handleDrop)
   try {
     await ensureModels()
     await loadChatsFromBackend()
@@ -351,13 +290,6 @@ onMounted(async () => {
   }
 })
 
-onUnmounted(() => {
-  document.removeEventListener('paste', handlePaste)
-  document.removeEventListener('dragover', handleDragOver)
-  document.removeEventListener('dragleave', handleDragLeave)
-  document.removeEventListener('drop', handleDrop)
-})
-
 watch(activeChatId, async newId => {
   if (!newId) return
   const conversation = conversations.value.find(c => c.session.chatId === newId)
@@ -368,7 +300,7 @@ watch(activeChatId, async newId => {
   }
 
   if (conversation.messages.length === 0) {
-    skipNextSmoothScroll.value = true
+    skipNextSmooth()
     await loadMessagesForChat(newId)
   }
   scrollToBottom('auto')
@@ -377,14 +309,7 @@ watch(activeChatId, async newId => {
 // Scroll smoothly when a new message is added to the conversation
 watch(
   () => activeConversation.value?.messages?.length,
-  (newLength) => {
-    if (!newLength) return
-    if (skipNextSmoothScroll.value) {
-      skipNextSmoothScroll.value = false
-      return
-    }
-    scrollToBottom('smooth')
-  },
+  newLength => scrollAfterMessageLengthChange(newLength),
 )
 
 // Auto-load tool calls when a message indicates it has them
@@ -424,14 +349,7 @@ watch(
     const last = msgs?.[msgs.length - 1]
     return last ? firstText(last.parts) : undefined
   },
-  (newText) => {
-    if (!newText) return
-    if (streamingRafId !== null) return
-    streamingRafId = requestAnimationFrame(() => {
-      streamingRafId = null
-      scrollToBottom('auto')
-    })
-  },
+  newText => scheduleStreamingScroll(newText),
 )
 
 const welcomeSuggestions = computed(() => [
@@ -491,6 +409,34 @@ const handleStop = () => {
   }
 }
 
+const downloadRunbook = async () => {
+  const conversation = activeConversation.value
+  if (!conversation || exportingRunbook.value) return
+
+  exportingRunbook.value = true
+  try {
+    const result = await exportRunbook(conversation.session.chatId)
+    const blob = new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = result.filename || t('chat.runbookFallbackFilename')
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    toast.add({ title: t('chat.runbookExportedTitle'), color: 'success' })
+  } catch (err) {
+    toast.add({
+      title: t('chat.runbookExportFailedTitle'),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    exportingRunbook.value = false
+  }
+}
+
 const handleReload = async () => {
   const conversation = activeConversation.value
   const model = selectedModel.value
@@ -502,39 +448,6 @@ const handleReload = async () => {
     toast.add({
       title: t('chat.retryFailedTitle'),
       description: tt(err, 'chat.retryFailedDescription'),
-      color: 'error'
-    })
-  }
-}
-
-const startEditMessage = (messageId: string, currentText: string) => {
-  editingMessageId.value = messageId
-  editingText.value = currentText
-}
-
-const cancelEditMessage = () => {
-  editingMessageId.value = null
-  editingText.value = ''
-}
-
-const submitEditMessage = async () => {
-  const msgId = editingMessageId.value
-  const newText = editingText.value.trim()
-  if (!msgId || !newText) return
-
-  const conversation = activeConversation.value
-  const model = selectedModel.value
-  if (!conversation || !model) return
-
-  editingMessageId.value = null
-  editingText.value = ''
-
-  try {
-    await editMessage(conversation.session.chatId, msgId, newText, model)
-  } catch (err) {
-    toast.add({
-      title: t('chat.editFailedTitle'),
-      description: tt(err, 'chat.editFailedDescription'),
       color: 'error'
     })
   }
@@ -589,13 +502,26 @@ const submitEditMessage = async () => {
           <header class="chat-page-header">
             <div class="chat-page-header__titles">
               <h1 class="chat-page-header__title">
-                {{ activeConversation.session.title || 'Neuer Chat' }}
+                {{ activeConversation.session.title || t('chat.newChatPlaceholder') }}
               </h1>
               <span v-if="selectedModel" class="chat-page-header__subtitle">
                 {{ providerLabel(selectedModel.provider) }} · {{ selectedModel.label }}
               </span>
             </div>
             <div class="chat-page-header__meta">
+              <UTooltip :text="t('chat.exportRunbook')">
+                <UButton
+                  icon="i-heroicons-arrow-down-tray"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  :loading="exportingRunbook"
+                  :disabled="!activeConversation.messages.length"
+                  :aria-label="t('chat.exportRunbook')"
+                  class="btn-interactive"
+                  @click="downloadRunbook"
+                />
+              </UTooltip>
               <UBadge
                 v-if="selectedModel"
                 color="primary"
@@ -739,13 +665,13 @@ const submitEditMessage = async () => {
 
           <UChatPrompt v-model="input" :error="promptError" @submit="handleSubmit">
             <template #header>
-              <UTooltip text="Anhänge hinzufügen">
+              <UTooltip :text="t('chat.addAttachments')">
                 <UButton
                   icon="i-heroicons-paper-clip"
                   color="neutral"
                   variant="ghost"
                   size="sm"
-                  aria-label="Anhänge hinzufügen"
+                  :aria-label="t('chat.addAttachments')"
                   class="btn-interactive"
                   @click="fileInput?.click()"
                 />
@@ -756,7 +682,7 @@ const submitEditMessage = async () => {
                 color="neutral"
                 variant="ghost"
                 size="sm"
-                aria-label="Anhänge entfernen"
+                :aria-label="t('chat.clearAttachments')"
                 class="btn-interactive"
                 @click="clearAttachments"
               />

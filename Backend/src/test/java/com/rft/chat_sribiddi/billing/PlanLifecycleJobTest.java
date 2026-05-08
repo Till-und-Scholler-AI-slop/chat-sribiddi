@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.rft.chat_sribiddi.audit.AuditLogService;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
@@ -25,12 +26,13 @@ class PlanLifecycleJobTest {
 
   @Mock private SubscriptionRepository subscriptionRepository;
   @Mock private UserRepository userRepository;
+  @Mock private AuditLogService auditLogService;
 
   private PlanLifecycleJob job;
 
   @BeforeEach
   void setUp() {
-    job = new PlanLifecycleJob(subscriptionRepository, userRepository);
+    job = new PlanLifecycleJob(subscriptionRepository, userRepository, auditLogService);
   }
 
   @Test
@@ -51,6 +53,16 @@ class PlanLifecycleJobTest {
         .markExpiredIfStillActive(eq(11L), eq(PlanLifecycleJob.EXPIRED_STATUS), any(), any());
     verify(userRepository)
         .downgradeToFreeIfExpired(eq(42L), eq(PlanLifecycleJob.USER_EXPIRED_STATUS), any());
+    verify(auditLogService)
+        .recordPlanStateChange(
+            eq(42L),
+            eq(Plan.PREMIUM),
+            eq(Plan.FREE),
+            eq("active"),
+            eq(PlanLifecycleJob.USER_EXPIRED_STATUS),
+            eq("plan_lifecycle_job"),
+            eq("subscription_expired"),
+            any());
   }
 
   @Test
@@ -101,29 +113,46 @@ class PlanLifecycleJobTest {
   }
 
   @Test
-  void processPaymentFailedGracePeriod_delegatesToBulkConditionalUpdate() {
-    when(userRepository.downgradeAllByStatusAndValidUntilBefore(
+  void processPaymentFailedGracePeriod_conditionallyDowngradesAndAuditsUsers() {
+    User user = newUser(21L);
+    user.setPlan(Plan.PREMIUM);
+    user.setPlanStatus(StripeWebhookProcessor.PAYMENT_FAILED_STATUS);
+    user.setPlanValidUntil(Instant.now().minus(Duration.ofDays(4)));
+    when(userRepository.findByPlanStatusAndPlanValidUntilBefore(
+            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS), any()))
+        .thenReturn(List.of(user));
+    when(userRepository.downgradePaymentFailedUserIfStillOverdue(
+            eq(21L),
             eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
             eq(PlanLifecycleJob.USER_DOWNGRADED_STATUS),
             any()))
-        .thenReturn(2);
+        .thenReturn(1);
 
     job.processPaymentFailedGracePeriod();
 
     verify(userRepository)
-        .downgradeAllByStatusAndValidUntilBefore(
+        .downgradePaymentFailedUserIfStillOverdue(
+            eq(21L),
             eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
             eq(PlanLifecycleJob.USER_DOWNGRADED_STATUS),
+            any());
+    verify(auditLogService)
+        .recordPlanStateChange(
+            eq(21L),
+            eq(Plan.PREMIUM),
+            eq(Plan.FREE),
+            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
+            eq(PlanLifecycleJob.USER_DOWNGRADED_STATUS),
+            eq("plan_lifecycle_job"),
+            eq("payment_failed_grace_elapsed"),
             any());
   }
 
   @Test
   void processPaymentFailedGracePeriod_usesThreeDayCutoff() {
-    when(userRepository.downgradeAllByStatusAndValidUntilBefore(
-            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
-            eq(PlanLifecycleJob.USER_DOWNGRADED_STATUS),
-            any()))
-        .thenReturn(0);
+    when(userRepository.findByPlanStatusAndPlanValidUntilBefore(
+            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS), any()))
+        .thenReturn(List.of());
 
     Instant before = Instant.now().minus(Duration.ofDays(3));
     job.processPaymentFailedGracePeriod();
@@ -131,9 +160,8 @@ class PlanLifecycleJobTest {
 
     ArgumentCaptor<Instant> cutoffCap = ArgumentCaptor.forClass(Instant.class);
     verify(userRepository)
-        .downgradeAllByStatusAndValidUntilBefore(
+        .findByPlanStatusAndPlanValidUntilBefore(
             eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
-            eq(PlanLifecycleJob.USER_DOWNGRADED_STATUS),
             cutoffCap.capture());
     assertThat(cutoffCap.getValue()).isBetween(before, after);
   }

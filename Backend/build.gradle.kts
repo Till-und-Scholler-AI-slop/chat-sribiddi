@@ -4,6 +4,7 @@ plugins {
     id("io.spring.dependency-management") version "1.1.7"
 }
 val springAiVersion by extra("2.0.0-M4")
+val bucket4jVersion by extra("8.18.0")
 val dotenvJavaVersion by extra("3.2.0")
 val stripeJavaVersion by extra("32.0.0")
 
@@ -38,6 +39,8 @@ dependencies {
     implementation("com.github.ben-manes.caffeine:caffeine")
     implementation("org.springframework.boot:spring-boot-starter-cache")
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    implementation("com.bucket4j:bucket4j_jdk17-redis-common:$bucket4jVersion")
+    implementation("com.bucket4j:bucket4j_jdk17-lettuce:$bucket4jVersion")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("org.springframework.ai:spring-ai-starter-model-google-genai")

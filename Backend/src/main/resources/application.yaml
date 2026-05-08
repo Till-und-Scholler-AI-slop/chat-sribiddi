@@ -160,7 +160,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info}
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info,prometheus}
   endpoint:
     health:
       show-details: never
@@ -177,11 +177,20 @@ app:
     max-media-attachment-bytes: ${CHAT_MAX_MEDIA_ATTACHMENT_BYTES:5242880}   # 5 MB
     max-media-total-bytes: ${CHAT_MAX_MEDIA_TOTAL_BYTES:20971520}           # 20 MB
     stream-timeout-ms: ${CHAT_STREAM_TIMEOUT_MS:1800000}                     # 30 min
+    tool-disabled-model-patterns:
+      - google:gemma-*
+      - openrouter:venice/*
+      - openrouter:*venice*uncensored*
   rate-limit:
     enabled: ${RATE_LIMIT_ENABLED:true}
-    anonymous-requests-per-minute: ${RATE_LIMIT_ANONYMOUS_PER_MINUTE:60}
-    authenticated-requests-per-minute: ${RATE_LIMIT_AUTHENTICATED_PER_MINUTE:300}
+    backend: ${RATE_LIMIT_BACKEND:redis}
+    anonymous-requests-per-minute: ${RATE_LIMIT_ANONYMOUS_PER_MINUTE:10}
+    free-requests-per-minute: ${RATE_LIMIT_FREE_PER_MINUTE:30}
+    premium-requests-per-minute: ${RATE_LIMIT_PREMIUM_PER_MINUTE:120}
+    max-requests-per-minute: ${RATE_LIMIT_MAX_PER_MINUTE:300}
     bucket-ttl: ${RATE_LIMIT_BUCKET_TTL:10m}
+    redis-failure-retry-after-seconds: ${RATE_LIMIT_REDIS_FAILURE_RETRY_AFTER_SECONDS:60}
+    trusted-proxies: ${RATE_LIMIT_TRUSTED_PROXIES:127.0.0.1,::1}
   ai:
     openai:
       connect-timeout: ${OPENAI_CONNECT_TIMEOUT:10s}
@@ -203,6 +212,16 @@ app:
   tools:
     user-agent: ${TOOLS_USER_AGENT:ChatSribiddi/1.0 (Tool)}
     python-enabled: ${TOOLS_PYTHON_ENABLED:false}
+    python-sandbox:
+      docker-binary: ${TOOLS_PYTHON_DOCKER_BINARY:docker}
+      image: ${TOOLS_PYTHON_IMAGE:python:3.13-alpine}
+      timeout: ${TOOLS_PYTHON_TIMEOUT:10s}
+      max-output-bytes: ${TOOLS_PYTHON_MAX_OUTPUT_BYTES:10240}
+      max-code-length: ${TOOLS_PYTHON_MAX_CODE_LENGTH:10000}
+      memory: ${TOOLS_PYTHON_MEMORY:128m}
+      cpus: ${TOOLS_PYTHON_CPUS:0.5}
+      pids-limit: ${TOOLS_PYTHON_PIDS_LIMIT:64}
+      tmpfs: ${TOOLS_PYTHON_TMPFS:/tmp:rw,noexec,nosuid,size=16m}
   web-search:
     max-results: ${WEB_SEARCH_MAX_RESULTS:5}
     request-timeout: ${WEB_SEARCH_REQUEST_TIMEOUT:10s}

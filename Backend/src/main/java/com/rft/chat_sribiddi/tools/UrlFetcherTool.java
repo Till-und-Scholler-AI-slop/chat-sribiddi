@@ -2,6 +2,7 @@ package com.rft.chat_sribiddi.tools;
 
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolResult;
+import com.rft.chat_sribiddi.tools.api.ToolRiskLevel;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -54,6 +55,11 @@ public class UrlFetcherTool implements ChatTool {
     return "Fetch and read the content of a web page URL. "
         + "Returns the page text content (HTML stripped). "
         + "Use this when the user wants you to read or summarize a specific webpage.";
+  }
+
+  @Override
+  public ToolRiskLevel riskLevel() {
+    return ToolRiskLevel.HIGH;
   }
 
   @Override

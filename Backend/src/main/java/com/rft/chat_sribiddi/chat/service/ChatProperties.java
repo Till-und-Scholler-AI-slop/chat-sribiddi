@@ -1,5 +1,7 @@
 package com.rft.chat_sribiddi.chat.service;
 
+import java.util.ArrayList;
+import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -30,4 +32,12 @@ public class ChatProperties {
 
   /** Maximum character length for auto-generated chat titles (default: 100). */
   private int maxChatTitleLength = 100;
+
+  /**
+   * Provider/model wildcard patterns that must not receive Spring AI tool definitions.
+   *
+   * <p>Format: {@code provider:model-pattern}, e.g. {@code google:gemma-*}. Matching is
+   * case-insensitive and supports {@code *}/{@code ?} wildcards.
+   */
+  private List<String> toolDisabledModelPatterns = new ArrayList<>();
 }

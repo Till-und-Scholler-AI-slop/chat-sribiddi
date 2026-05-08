@@ -47,6 +47,12 @@ export type MediaAttachment = {
   name?: string
 }
 
+export type ToolConsent = {
+  toolName: string
+  riskLevel: 'LOW' | 'HIGH'
+  args?: Record<string, unknown>
+}
+
 export type ChatSession = {
   chatId: string
   title?: string | null
@@ -89,6 +95,11 @@ export type SendMessageResponse = {
   promptTokens?: number | null
   generationTokens?: number | null
   totalTokens?: number | null
+}
+
+export type RunbookExport = {
+  filename: string
+  markdown: string
 }
 
 export type StreamEvent = {
@@ -210,6 +221,7 @@ type SendMessageInput = {
   modelId: string
   media?: Array<Pick<MediaAttachment, 'mimeType' | 'data'>>
   webSearchEnabled?: boolean
+  toolConsents?: ToolConsent[]
 }
 
 export const DEFAULT_BACKEND_BASE_URL = 'http://localhost:8080'
@@ -565,6 +577,10 @@ export function useChatApi() {
     await requestJson<unknown>(`/chats/${chatId}`, { method: 'DELETE' })
   }
 
+  const exportRunbook = async (chatId: string) => {
+    return requestJson<RunbookExport>(`/chats/${chatId}/export/runbook`, { method: 'POST' })
+  }
+
   const deleteAccount = async () => {
     await requestJson<unknown>('/account', { method: 'DELETE' })
   }
@@ -669,6 +685,7 @@ export function useChatApi() {
     editAndStreamMessage,
     updateChat,
     deleteChat,
+    exportRunbook,
     deleteAccount,
     logout,
     checkSession,
