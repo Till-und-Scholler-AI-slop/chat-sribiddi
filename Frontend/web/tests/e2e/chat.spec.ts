@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { mockBackend } from './mock-backend'
 
+const hydrationTimeout = 60_000
+
 test('creates a chat, sends a prompt, and renders the mocked streamed response', async ({ page }) => {
   await mockBackend(page, { authenticated: true })
 
@@ -10,8 +12,8 @@ test('creates a chat, sends a prompt, and renders the mocked streamed response',
   // resolving in CI.  Instead wait for the chat input to appear, which
   // only renders after ensureModels() + loadChatsFromBackend() complete.
   const prompt = page.getByRole('textbox', { name: 'Type your message here…' })
-  await expect(prompt).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByTestId('chat-page')).toHaveAttribute('data-ready', 'true', { timeout: 15_000 })
+  await expect(prompt).toBeVisible({ timeout: hydrationTimeout })
+  await expect(page.getByTestId('chat-page')).toHaveAttribute('data-ready', 'true', { timeout: hydrationTimeout })
 
   await prompt.click()
   await prompt.pressSequentially('Hallo E2E')

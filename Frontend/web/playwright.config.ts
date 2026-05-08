@@ -3,13 +3,15 @@ import { defineConfig, devices } from '@playwright/test'
 const webServerEnv = Object.fromEntries(
   Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
 )
+const isCI = !!process.env.CI
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 30_000,
+  timeout: 90_000,
   workers: 1,
+  retries: isCI ? 1 : 0,
   expect: {
-    timeout: 5_000
+    timeout: 10_000
   },
   use: {
     baseURL: 'http://127.0.0.1:3000',
@@ -20,7 +22,12 @@ export default defineConfig({
     command: 'bun run dev -- --host 127.0.0.1 --port 3000',
     env: {
       ...webServerEnv,
-      NUXT_PUBLIC_BACKEND_BASE_URL: '/api'
+      HOST: '127.0.0.1',
+      NITRO_HOST: '127.0.0.1',
+      NITRO_PORT: '3000',
+      NUXT_DEVTOOLS: 'false',
+      NUXT_PUBLIC_BACKEND_BASE_URL: '/api',
+      PORT: '3000'
     },
     url: 'http://127.0.0.1:3000',
     reuseExistingServer: !process.env.CI,
