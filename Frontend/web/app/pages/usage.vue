@@ -118,9 +118,10 @@ onMounted(loadUsage)
 </script>
 
 <template>
-  <UDashboardPanel>
-    <template #body>
-      <UContainer class="py-10 max-w-6xl space-y-8">
+  <div>
+    <UDashboardPanel>
+      <template #body>
+        <UContainer class="py-10 max-w-6xl space-y-8">
         <header class="space-y-3">
           <h1 class="font-serif-display text-4xl sm:text-5xl text-gray-900 dark:text-gray-50">
             {{ t('usage.title') }}
@@ -254,9 +255,10 @@ onMounted(loadUsage)
             </div>
           </UCard>
         </div>
-      </UContainer>
-    </template>
-  </UDashboardPanel>
+        </UContainer>
+      </template>
+    </UDashboardPanel>
+  </div>
 </template>
 
 <style scoped>

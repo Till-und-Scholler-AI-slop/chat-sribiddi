@@ -210,7 +210,7 @@ onMounted(async () => {
             <div v-for="index in 6" :key="index" class="skeleton-shimmer h-44" />
           </div>
 
-          <UEmptyState
+          <UEmpty
             v-else-if="!filteredModels.length"
             icon="i-heroicons-cpu-chip"
             :title="t('models.noModelsFoundTitle')"
