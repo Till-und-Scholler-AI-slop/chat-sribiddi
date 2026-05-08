@@ -5,10 +5,13 @@ test('creates a chat, sends a prompt, and renders the mocked streamed response',
   await mockBackend(page, { authenticated: true })
 
   await page.goto('/chat')
-  await page.waitForLoadState('networkidle')
 
+  // Don't use networkidle — parallel model/chats requests prevent it from
+  // resolving in CI.  Instead wait for the chat input to appear, which
+  // only renders after ensureModels() + loadChatsFromBackend() complete.
   const prompt = page.getByRole('textbox', { name: 'Type your message here…' })
-  await expect(prompt).toBeVisible()
+  await expect(prompt).toBeVisible({ timeout: 15_000 })
+
   await prompt.click()
   await prompt.pressSequentially('Hallo E2E')
   await page.getByRole('button', { name: 'Send prompt' }).click()
