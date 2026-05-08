@@ -14,20 +14,19 @@ import org.springframework.stereotype.Component;
  *
  * <p>Used by the provider-client layer to decide whether to call a provider with the user's own
  * stored key (BYOK) or with a server-managed key (MANAGED). The resolver enforces plan/entitlement
- * rules via {@link EntitlementService} and raises {@link PlanRestrictionException} when the
- * requested combination is not permitted.
+ * rules via {@link EntitlementService} for managed-mode calls and raises
+ * {@link PlanRestrictionException} when the requested combination is not permitted.
  *
  * <p>Resolution rules (BILL-6):
  * <ol>
- *   <li>{@code requestedMode == BYOK} and a user key exists → {@link BillingMode#BYOK} (after
- *       passing {@link EntitlementService#assertCanUseModel} for BYOK, which also validates
- *       {@code modelId} and applies any plan-level price caps).</li>
- *   <li>{@code requestedMode == AUTO}: prefer BYOK when a user key is present (same entitlement
- *       check as the explicit BYOK path); otherwise fall back to {@link BillingMode#MANAGED} if
- *       the plan/model allows it.</li>
- *   <li>{@code requestedMode == MANAGED}: use the server-side env key for the provider
- *       (e.g. {@code OPENAI_API_KEY}, {@code GOOGLE_API_KEY}, {@code CLAUDE_API_KEY},
- *       {@code OPENROUTER_API_KEY}) after the managed-mode entitlement check passes.</li>
+ *   <li>A stored user key always wins → {@link BillingMode#BYOK}. BYOK calls validate the request
+ *       shape but do not apply plan-level model price caps; the user's provider account decides
+ *       which models the key can actually use.</li>
+ *   <li>{@code requestedMode == AUTO}: prefer BYOK when a user key is present; otherwise fall back
+ *       to {@link BillingMode#MANAGED} if the plan/model allows it.</li>
+ *   <li>{@code requestedMode == MANAGED} and no user key exists: use the server-side env key for
+ *       the provider (e.g. {@code OPENROUTER_API_KEY}) after the managed-mode entitlement check
+ *       passes.</li>
  *   <li>Otherwise → {@link PlanRestrictionException}.</li>
  * </ol>
  */
@@ -63,12 +62,17 @@ public class BillingModeResolver {
   public ResolvedKey resolve(
       String userId, Provider provider, String modelId, BillingMode requestedMode) {
     Objects.requireNonNull(provider, "provider must not be null");
+    rejectNonChatProvider(provider);
     BillingMode mode = requestedMode == null ? BillingMode.AUTO : requestedMode;
+    Optional<String> userKey = lookupUserKey(userId, provider);
+
+    if (userKey.isPresent()) {
+      return resolveByok(userId, provider, modelId, userKey);
+    }
 
     return switch (mode) {
-      case BYOK -> resolveByok(userId, provider, modelId, lookupUserKey(userId, provider));
-      case AUTO -> resolveAuto(userId, provider, modelId, lookupUserKey(userId, provider));
-      case MANAGED -> resolveManaged(userId, provider, modelId);
+      case BYOK -> resolveByok(userId, provider, modelId, userKey);
+      case AUTO, MANAGED -> resolveManaged(userId, provider, modelId);
     };
   }
 
@@ -81,22 +85,10 @@ public class BillingModeResolver {
           "BYOK billing mode requested but no stored API key found for provider %s"
               .formatted(provider));
     }
-    // Entitlement checks (price cap, blank model id, …) apply regardless of billing mode — the
-    // user's plan still gates which models they can pick through the app, even when they bring
-    // their own API key.
+    // BYOK only validates request shape here. Plan/model price gates are managed-mode limits and
+    // must not block users who pay the provider directly with their own key.
     entitlementService.assertCanUseModel(userId, provider, modelId, BillingMode.BYOK);
     return new ResolvedKey(userKey.get(), BillingMode.BYOK);
-  }
-
-  private ResolvedKey resolveAuto(
-      String userId, Provider provider, String modelId, Optional<String> userKey) {
-    if (userKey.isPresent()) {
-      // Same entitlement gating as the explicit BYOK path.
-      entitlementService.assertCanUseModel(userId, provider, modelId, BillingMode.BYOK);
-      return new ResolvedKey(userKey.get(), BillingMode.BYOK);
-    }
-    // No user key → fall back to MANAGED if the plan/model allows it.
-    return resolveManaged(userId, provider, modelId);
   }
 
   private ResolvedKey resolveManaged(String userId, Provider provider, String modelId) {
@@ -118,7 +110,14 @@ public class BillingModeResolver {
     if (userId == null || userId.isBlank()) {
       return Optional.empty();
     }
-    return apiKeyService.getKey(userId, provider).filter(k -> !k.isBlank());
+    Optional<String> stored = apiKeyService.getKey(userId, provider);
+    return stored == null ? Optional.empty() : stored.filter(k -> !k.isBlank());
+  }
+
+  private void rejectNonChatProvider(Provider provider) {
+    if (provider == Provider.BRAVE_SEARCH) {
+      throw new IllegalArgumentException("BRAVE_SEARCH is not a chat model provider");
+    }
   }
 
   private Plan resolvePlan(String userId) {

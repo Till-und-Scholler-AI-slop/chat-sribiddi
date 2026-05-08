@@ -30,6 +30,11 @@ germinai.de {
     reverse_proxy 127.0.0.1:8080
   }
 
+  # Stripe calls this public webhook path directly; Spring verifies Stripe-Signature.
+  handle /billing/webhook {
+    reverse_proxy 127.0.0.1:8080
+  }
+
   # Frontend app (Nuxt).
   handle {
     reverse_proxy 127.0.0.1:3000

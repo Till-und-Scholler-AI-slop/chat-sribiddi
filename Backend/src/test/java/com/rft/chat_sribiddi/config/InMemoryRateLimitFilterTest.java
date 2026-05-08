@@ -53,4 +53,15 @@ class InMemoryRateLimitFilterTest {
     assertThat(secondResponse.getStatus()).isEqualTo(429);
     assertThat(secondResponse.getHeader(HttpHeaders.RETRY_AFTER)).isEqualTo("60");
   }
+
+  @Test
+  void shouldNotFilter_skipsBillingWebhook() throws ServletException {
+    RateLimitProperties properties = new RateLimitProperties();
+    var filter =
+        new InMemoryRateLimitFilter(
+            properties, Clock.fixed(Instant.parse("2026-04-29T12:00:00Z"), ZoneOffset.UTC));
+
+    assertThat(filter.shouldNotFilter(new MockHttpServletRequest("POST", "/billing/webhook")))
+        .isTrue();
+  }
 }

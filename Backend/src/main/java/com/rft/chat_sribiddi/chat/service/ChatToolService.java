@@ -8,6 +8,8 @@ import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
+import com.rft.chat_sribiddi.billing.EntitlementService;
+import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import java.util.List;
@@ -27,6 +29,7 @@ public class ChatToolService {
   private final ChatToolRepository chatToolRepository;
   private final ToolRegistry toolRegistry;
   private final ApiKeyService apiKeyService;
+  private final EntitlementService entitlementService;
 
   private static final Set<String> DEFAULT_ENABLED_TOOLS =
       Set.of("calculator", "current-datetime", "brave-search");
@@ -48,6 +51,12 @@ public class ChatToolService {
     ensureChatExists(chatId, userId);
     String toolName = request.toolName().trim();
     ensureToolRegistered(toolName);
+    if (request.enabled() && !isToolAllowedForUser(toolName, userId)) {
+      throw new PlanRestrictionException(
+          PlanRestrictionException.Reason.TOOL_NOT_ALLOWED,
+          entitlementService.get(userId).plan(),
+          "Tool '%s' is not available on the current plan".formatted(toolName));
+    }
 
     ChatToolEntity entity =
         chatToolRepository
@@ -72,7 +81,13 @@ public class ChatToolService {
 
   private boolean isToolAvailableAndEnabled(
       UUID chatId, String toolName, boolean requiresUserConfig, String userId) {
-    return isToolEnabledForUser(toolName, requiresUserConfig, userId) && isToolEnabled(chatId, toolName);
+    return isToolAllowedForUser(toolName, userId)
+        && isToolEnabledForUser(toolName, requiresUserConfig, userId)
+        && isToolEnabled(chatId, toolName);
+  }
+
+  private boolean isToolAllowedForUser(String toolName, String userId) {
+    return entitlementService.get(userId).allowsTool(toolName);
   }
 
   private boolean isToolEnabledForUser(String toolName, boolean requiresUserConfig, String userId) {

@@ -9,9 +9,9 @@ import java.util.Set;
  * or the {@link com.rft.chat_sribiddi.auth.User} directly.
  *
  * <p>{@code maxModelInputUsdPerMillion} / {@code maxModelOutputUsdPerMillion} express the
- * price-based gating applied to model selection: when non-null, a model is allowed only if its
- * prompt/completion price is at or below these thresholds (USD per 1M tokens). When null, there
- * is no price cap (Premium/Max).
+ * price-based gating applied to managed-mode model selection: when non-null, a model is allowed
+ * only if its prompt/completion price is at or below these thresholds (USD per 1M tokens). When
+ * null, there is no price cap (Max).
  */
 public record Entitlements(
     Plan plan,
@@ -32,9 +32,8 @@ public record Entitlements(
     return allowedTools.contains("*") || allowedTools.contains(toolId);
   }
 
-  /** True when there is no price cap on model selection for this plan. */
+  /** True when there is no price cap on managed-mode model selection for this plan. */
   public boolean allModelsAllowed() {
     return maxModelInputUsdPerMillion == null && maxModelOutputUsdPerMillion == null;
   }
 }
-

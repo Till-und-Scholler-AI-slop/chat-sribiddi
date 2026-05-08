@@ -122,9 +122,10 @@ public class EntitlementService {
   }
 
   /**
-   * Verifies that the user's plan allows the given model, assuming a BYOK call (no managed-mode
-   * provider restriction applied). See {@link #assertCanUseModel(String, Provider, String,
-   * BillingMode)} for the managed-aware variant.
+   * Verifies that the model request is valid for a BYOK call. BYOK is not plan-gated because the
+   * user's own provider account pays for and constrains model access. See
+   * {@link #assertCanUseModel(String, Provider, String, BillingMode)} for the managed-aware
+   * variant.
    */
   public void assertCanUseModel(String userId, Provider provider, String modelId) {
     assertCanUseModel(userId, provider, modelId, BillingMode.BYOK);
@@ -135,12 +136,13 @@ public class EntitlementService {
    *
    * <p>Rules:
    * <ul>
+   *   <li>BYOK calls only validate that a model id was provided. Plan price caps do not apply.
    *   <li>Managed-mode calls must target a provider listed in
    *       {@code app.billing.model-access.managed-providers} (default {@code [OPENROUTER]}) — our
    *       paid tiers route 100% through OpenRouter; direct OpenAI/Google/Claude are BYOK-only.
-   *   <li>Free users are restricted to models whose prompt and completion prices are at or below
-   *       the configured price thresholds.
-   *   <li>Premium/Max have no price cap.
+   *   <li>Free/Premium managed-mode users are restricted to models whose prompt and completion
+   *       prices are at or below the configured price thresholds.
+   *   <li>Max managed-mode users have no price cap.
    * </ul>
    *
    * @throws PlanRestrictionException with reason {@link
@@ -150,13 +152,18 @@ public class EntitlementService {
       String userId, Provider provider, String modelId, BillingMode billingMode) {
     Objects.requireNonNull(provider, "provider must not be null");
     Objects.requireNonNull(billingMode, "billingMode must not be null");
-    Entitlements entitlements = get(userId);
     if (modelId == null || modelId.isBlank()) {
+      Entitlements entitlements = get(userId);
       throw new PlanRestrictionException(
           PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
           entitlements.plan(),
           "Model id must not be blank");
     }
+    if (billingMode == BillingMode.BYOK) {
+      return;
+    }
+
+    Entitlements entitlements = get(userId);
     if (billingMode == BillingMode.MANAGED
         && !billingProperties.getModelAccess().allowsManagedProvider(provider)) {
       Set<Provider> allowed = billingProperties.getModelAccess().getManagedProviders();
@@ -248,16 +255,16 @@ public class EntitlementService {
   }
 
   /**
-   * Resolves the effective {@link BillingMode} for the given user. Uses the user's
-   * {@code billingModePreference}; {@link BillingMode#AUTO} is treated as
-   * {@link BillingMode#BYOK} so that users who bring their own API key are never counted
-   * against managed-mode quotas. Unknown users default to {@link BillingMode#BYOK}.
+   * Resolves the requested {@link BillingMode} preference for the given user. The actual API key
+   * and effective mode are chosen by {@link BillingModeResolver}; this method deliberately returns
+   * {@link BillingMode#AUTO} unchanged so AUTO can prefer BYOK when a user key exists and fall back
+   * to managed mode when the plan/model allows it.
    */
   public BillingMode resolveBillingMode(String userId) {
     return resolveUser(userId)
         .map(User::getBillingModePreference)
-        .map(mode -> mode == null || mode == BillingMode.AUTO ? BillingMode.BYOK : mode)
-        .orElse(BillingMode.BYOK);
+        .map(mode -> mode == null ? BillingMode.AUTO : mode)
+        .orElse(BillingMode.AUTO);
   }
 
   /**
@@ -269,6 +276,8 @@ public class EntitlementService {
    * <p>Rules:
    *
    * <ul>
+   *   <li>If the user has a stored key for this provider, all returned models are marked
+   *       {@link AvailabilityFlag#ALWAYS}; BYOK model access is not plan-gated.
    *   <li>Direct providers (anything not listed under {@code app.billing.model-access
    *       .managed-providers}) → {@link AvailabilityFlag#BYOK_ONLY}. The platform never pays for
    *       these endpoints; users must bring their own key regardless of plan.
@@ -291,10 +300,32 @@ public class EntitlementService {
    */
   public List<ModelOption> annotateModelsForPlan(
       String userId, Provider provider, List<ModelOption> models) {
+    return annotateModelsForPlan(userId, provider, models, false);
+  }
+
+  /**
+   * Annotates a provider model catalog with an explicit BYOK hint. When {@code hasUserKey} is
+   * {@code true}, model availability reflects the effective BYOK path: no plan upgrade is needed
+   * for any model returned by that provider catalog.
+   */
+  public List<ModelOption> annotateModelsForPlan(
+      String userId, Provider provider, List<ModelOption> models, boolean hasUserKey) {
     if (models == null || models.isEmpty()) {
       return models == null ? List.of() : models;
     }
     Objects.requireNonNull(provider, "provider must not be null");
+    if (hasUserKey) {
+      return models.stream()
+          .filter(Objects::nonNull)
+          .map(
+              opt -> {
+                ModelOption copy = opt.copy();
+                copy.setAvailability(AvailabilityFlag.ALWAYS);
+                copy.setRequiredPlan(null);
+                return copy;
+              })
+          .toList();
+    }
     Entitlements entitlements = get(userId);
     boolean managedProvider = billingProperties.getModelAccess().allowsManagedProvider(provider);
     return models.stream()
@@ -322,14 +353,26 @@ public class EntitlementService {
   }
 
   /**
-   * @deprecated Use {@link #annotateModelsForPlan(String, Provider, List)} instead. Kept for
-   *     backwards compatibility — no longer filters models and returns the annotated copies
-   *     produced by that method for the OpenRouter provider.
+   * Returns only models that the current user can actually select for the effective billing path.
+   * The returned options are still annotated, but every returned model has
+   * {@link AvailabilityFlag#ALWAYS}. This is the preferred shape for model-picker APIs: users
+   * should not see plan-locked models unless a dedicated comparison/upsell surface asks for them.
+   */
+  public List<ModelOption> filterUsableModelsForPlan(
+      String userId, Provider provider, List<ModelOption> models, boolean hasUserKey) {
+    return annotateModelsForPlan(userId, provider, models, hasUserKey).stream()
+        .filter(model -> model.getAvailability() == AvailabilityFlag.ALWAYS)
+        .toList();
+  }
+
+  /**
+   * @deprecated Use {@link #filterUsableModelsForPlan(String, Provider, List, boolean)} instead.
+   *     Kept for backwards compatibility with the older OpenRouter-only filtering API.
    */
   @Deprecated
   public List<ModelCatalogProperties.ModelOption> filterOpenRouterModelsForPlan(
       String userId, List<ModelCatalogProperties.ModelOption> models) {
-    return annotateModelsForPlan(userId, Provider.OPENROUTER, models);
+    return filterUsableModelsForPlan(userId, Provider.OPENROUTER, models, false);
   }
 
   /**

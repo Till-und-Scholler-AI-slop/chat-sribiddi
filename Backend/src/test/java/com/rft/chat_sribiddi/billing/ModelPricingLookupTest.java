@@ -60,6 +60,20 @@ class ModelPricingLookupTest {
   }
 
   @Test
+  void remember_usesLiveCatalogPricingForLaterLookups() {
+    lookup.remember(
+        Provider.OPENROUTER,
+        List.of(opt("anthropic/claude-sonnet-4", "0.000003", "0.000015")));
+
+    Optional<ModelPricingLookup.Pricing> price =
+        lookup.find(Provider.OPENROUTER, "anthropic/claude-sonnet-4");
+
+    assertThat(price).isPresent();
+    assertThat(price.get().inputUsdPerMillion()).isEqualTo(3.0);
+    assertThat(price.get().outputUsdPerMillion()).isEqualTo(15.0);
+  }
+
+  @Test
   void find_returnsZeroForExplicitlyFreeOpenRouterModel() {
     catalog.setOpenrouter(List.of(opt("some/free-model", "0", "0")));
 

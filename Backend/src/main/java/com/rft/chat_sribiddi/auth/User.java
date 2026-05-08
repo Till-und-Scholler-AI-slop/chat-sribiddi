@@ -25,6 +25,7 @@ public class User {
   @Column(unique = true)
   private String email;
 
+  @Column(unique = true, nullable = false)
   private String providerId;
 
   @Column(columnDefinition = "TEXT")

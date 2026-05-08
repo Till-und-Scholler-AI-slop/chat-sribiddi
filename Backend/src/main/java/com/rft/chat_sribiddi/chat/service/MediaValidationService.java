@@ -1,6 +1,7 @@
 package com.rft.chat_sribiddi.chat.service;
 
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
+import com.rft.chat_sribiddi.billing.Entitlements;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -17,18 +18,32 @@ public class MediaValidationService {
   private final ChatProperties chatProperties;
 
   public List<MediaAttachment> validateAttachments(List<MediaAttachment> mediaAttachments) {
+    return validateAttachments(mediaAttachments, null);
+  }
+
+  public List<MediaAttachment> validateAttachments(
+      List<MediaAttachment> mediaAttachments, Entitlements entitlements) {
     if (mediaAttachments == null || mediaAttachments.isEmpty()) {
       return List.of();
     }
 
-    if (mediaAttachments.size() > chatProperties.getMaxMediaAttachments()) {
+    int maxAttachments = maxAttachments(entitlements);
+    if (mediaAttachments.size() > maxAttachments) {
       throw new IllegalArgumentException(
-          "media supports up to %d attachments".formatted(chatProperties.getMaxMediaAttachments()));
+          "media supports up to %d attachments".formatted(maxAttachments));
     }
 
+    long totalBytes = 0L;
+    long maxTotalBytes = maxTotalBytes(entitlements);
     for (int i = 0; i < mediaAttachments.size(); i++) {
-      if (mediaAttachments.get(i) == null) {
+      MediaAttachment attachment = mediaAttachments.get(i);
+      if (attachment == null) {
         throw new IllegalArgumentException("media[%d] must not be null".formatted(i));
+      }
+      totalBytes += validateAttachmentPayload(i, attachment, entitlements);
+      if (totalBytes > maxTotalBytes) {
+        throw new IllegalArgumentException(
+            "combined media size exceeds %d bytes".formatted(maxTotalBytes));
       }
     }
 
@@ -36,6 +51,11 @@ public class MediaValidationService {
   }
 
   public List<Media> toMediaPayload(List<MediaAttachment> mediaAttachments) {
+    return toMediaPayload(mediaAttachments, null);
+  }
+
+  public List<Media> toMediaPayload(
+      List<MediaAttachment> mediaAttachments, Entitlements entitlements) {
     long totalBytes = 0;
     List<Media> media = new ArrayList<>(mediaAttachments.size());
 
@@ -44,16 +64,18 @@ public class MediaValidationService {
       String normalized = normalizeEncodedData(attachment.data());
       long estimatedDecodedBytes = estimateDecodedBytes(normalized);
 
-      if (estimatedDecodedBytes > chatProperties.getMaxMediaAttachmentBytes()) {
+      long maxAttachmentBytes = maxAttachmentBytes(entitlements);
+      if (estimatedDecodedBytes > maxAttachmentBytes) {
         throw new IllegalArgumentException(
             "media[%d] exceeds %d bytes"
-                .formatted(i, chatProperties.getMaxMediaAttachmentBytes()));
+                .formatted(i, maxAttachmentBytes));
       }
 
       totalBytes += estimatedDecodedBytes;
-      if (totalBytes > chatProperties.getMaxMediaTotalBytes()) {
+      long maxTotalBytes = maxTotalBytes(entitlements);
+      if (totalBytes > maxTotalBytes) {
         throw new IllegalArgumentException(
-            "combined media size exceeds %d bytes".formatted(chatProperties.getMaxMediaTotalBytes()));
+            "combined media size exceeds %d bytes".formatted(maxTotalBytes));
       }
 
       byte[] content;
@@ -63,9 +85,9 @@ public class MediaValidationService {
         throw new IllegalArgumentException("media[%d].data is not valid base64".formatted(i), e);
       }
 
-      if (content.length > chatProperties.getMaxMediaAttachmentBytes()) {
+      if (content.length > maxAttachmentBytes) {
         throw new IllegalArgumentException(
-            "media[%d] exceeds %d bytes".formatted(i, chatProperties.getMaxMediaAttachmentBytes()));
+            "media[%d] exceeds %d bytes".formatted(i, maxAttachmentBytes));
       }
 
       media.add(
@@ -74,6 +96,60 @@ public class MediaValidationService {
     }
 
     return media;
+  }
+
+  private long validateAttachmentPayload(
+      int index, MediaAttachment attachment, Entitlements entitlements) {
+    String normalized = normalizeEncodedData(attachment.data());
+    long estimatedDecodedBytes = estimateDecodedBytes(normalized);
+    long maxAttachmentBytes = maxAttachmentBytes(entitlements);
+    if (estimatedDecodedBytes > maxAttachmentBytes) {
+      throw new IllegalArgumentException(
+          "media[%d] exceeds %d bytes".formatted(index, maxAttachmentBytes));
+    }
+
+    byte[] content;
+    try {
+      content = Base64.getDecoder().decode(normalized);
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException("media[%d].data is not valid base64".formatted(index), e);
+    }
+
+    if (content.length > maxAttachmentBytes) {
+      throw new IllegalArgumentException(
+          "media[%d] exceeds %d bytes".formatted(index, maxAttachmentBytes));
+    }
+
+    try {
+      MimeTypeUtils.parseMimeType(attachment.mimeType());
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException("media[%d].mimeType is not valid".formatted(index), e);
+    }
+    return content.length;
+  }
+
+  private int maxAttachments(Entitlements entitlements) {
+    int global = Math.max(0, chatProperties.getMaxMediaAttachments());
+    if (entitlements == null || entitlements.maxAttachments() <= 0) {
+      return global;
+    }
+    return Math.min(global, entitlements.maxAttachments());
+  }
+
+  private long maxAttachmentBytes(Entitlements entitlements) {
+    long global = Math.max(0L, chatProperties.getMaxMediaAttachmentBytes());
+    if (entitlements == null || entitlements.maxAttachmentBytes() <= 0) {
+      return global;
+    }
+    return Math.min(global, entitlements.maxAttachmentBytes());
+  }
+
+  private long maxTotalBytes(Entitlements entitlements) {
+    long global = Math.max(0L, chatProperties.getMaxMediaTotalBytes());
+    if (entitlements == null || entitlements.maxTotalAttachmentBytes() <= 0) {
+      return global;
+    }
+    return Math.min(global, entitlements.maxTotalAttachmentBytes());
   }
 
   static String normalizeEncodedData(String encodedData) {

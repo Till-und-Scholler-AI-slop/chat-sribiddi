@@ -9,17 +9,18 @@ import java.time.Clock;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-@Component
-@Order(Ordered.LOWEST_PRECEDENCE)
+/**
+ * Legacy in-memory servlet filter kept for focused unit coverage. Runtime rate limiting is handled
+ * by {@link RateLimitFilter}, which delegates to either Redis or in-memory {@link RateLimiter}
+ * implementations based on {@code app.rate-limit.backend}; keeping this class out of component
+ * scanning prevents double rate limiting.
+ */
 public class InMemoryRateLimitFilter extends OncePerRequestFilter {
 
   private final RateLimitProperties properties;
@@ -41,6 +42,7 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
     String path = request.getRequestURI();
     return !properties.isEnabled()
         || "OPTIONS".equalsIgnoreCase(request.getMethod())
+        || "/billing/webhook".equals(path)
         || "/actuator/health".equals(path)
         || "/actuator/info".equals(path);
   }

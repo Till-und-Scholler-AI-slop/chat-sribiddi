@@ -24,6 +24,9 @@ Caddy routing conventions:
   callback. This path is used by Spring Security's default redirect endpoint.
 - `/oauth2/*` is routed directly to the backend as an optional non-`/api`
   authorization entrypoint.
+- `/billing/webhook` is routed directly to the backend for Stripe webhook
+  deliveries. Stripe authenticates this path with the `Stripe-Signature`
+  header; do not put secrets in Caddy config.
 - Everything else is routed to the Nuxt frontend.
 
 Frontend/backend URL conventions:
@@ -83,6 +86,7 @@ startup:
 curl -sS https://germinai.de/api/actuator/health
 curl -sS -D - -o /tmp/germinai-secured.txt https://germinai.de/api/secured
 curl -sS -D - -o /tmp/germinai-oauth.txt https://germinai.de/api/oauth2/authorization/google
+curl -sS -D - -o /tmp/germinai-stripe-webhook.txt -X POST https://germinai.de/billing/webhook
 curl -sS -D - -o /tmp/germinai-login.html https://germinai.de/login
 ```
 
@@ -92,6 +96,9 @@ Expected results:
 - `/api/secured`: HTTP `401` without a session. This proves the backend is
   reachable and auth protection is active.
 - `/api/oauth2/authorization/google`: HTTP `302` to `accounts.google.com`.
+- `/billing/webhook`: HTTP `400` without a `Stripe-Signature` header, or HTTP
+  `503` if `STRIPE_WEBHOOK_SECRET` is intentionally unset. This proves the
+  public Stripe path reaches the backend rather than Nuxt.
 - `/login`: HTTP `200` from Nuxt.
 
 For an end-to-end browser smoke check, the login button should be visible and a

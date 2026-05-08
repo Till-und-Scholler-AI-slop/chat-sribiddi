@@ -9,6 +9,8 @@ import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.billing.EntitlementService;
 import com.rft.chat_sribiddi.billing.Entitlements;
+import com.rft.chat_sribiddi.billing.BillingModeResolver;
+import com.rft.chat_sribiddi.billing.ManagedApiKeyProperties;
 import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.billing.UsageEventService;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
@@ -30,7 +32,6 @@ import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
 import com.rft.chat_sribiddi.tools.UrlFetcherTool;
 import com.rft.chat_sribiddi.tools.api.ToolRiskLevel;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.http.HttpClient;
 import java.util.Base64;
@@ -87,12 +88,19 @@ class ChatServiceTest {
   private String userId;
 
   private ChatService buildChatService(ChatProperties chatProperties) {
+    ManagedApiKeyProperties managedKeys = new ManagedApiKeyProperties();
+    managedKeys.setOpenai("srv-openai");
+    managedKeys.setGoogle("srv-google");
+    managedKeys.setClaude("srv-claude");
+    managedKeys.setOpenrouter("srv-openrouter");
+    BillingModeResolver billingModeResolver =
+        new BillingModeResolver(apiKeyService, entitlementService, managedKeys);
     return new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
         apiKeyService, providerClientFactory, chatProperties, new MediaValidationService(chatProperties), userSettingsService,
         new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
         toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
-        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), entitlementService, usageEventService,
-        chatMetrics);
+        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), billingModeResolver,
+        entitlementService, usageEventService, chatMetrics);
   }
 
   @BeforeEach
@@ -148,7 +156,7 @@ class ChatServiceTest {
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", "stored-key"))
@@ -173,6 +181,27 @@ class ChatServiceTest {
     assertThat(savedMessages.getAllValues())
         .extracting(MessageEntity::getRole)
         .containsExactly(Role.USER, Role.ASSISTANT);
+  }
+
+  @Test
+  void sendMessage_usesTierContextLimitWhenBuildingPrompt() {
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(entitlementService.get(userId))
+        .thenReturn(
+            new Entitlements(
+                Plan.FREE, 5, 5_242_880, 20_971_520, 1, Set.of("*"), 100, 1, 0.0, 0.0));
+    setupSendMessageMocks(chat, "key");
+
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
+
+    chatService.sendMessage(chatId, userId, request);
+
+    ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+    verify(messageRepository).findByChatIdOrderByCreatedAtDesc(eq(chatId), pageable.capture());
+    assertThat(pageable.getValue().getPageSize()).isEqualTo(1);
   }
 
   @Test
@@ -219,55 +248,41 @@ class ChatServiceTest {
     AutoCloseable closeable = mock(AutoCloseable.class);
     RequestDTO request =
         new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null, null, null);
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key"))
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
+        .thenReturn(List.of());
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, closeable));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", "key"))
         .thenThrow(new RuntimeException("boom"));
-    Method method =
-        ChatService.class.getDeclaredMethod(
-            "createAndSubscribeStream",
-            String.class,
-            RequestDTO.class,
-            List.class,
-            UUID.class,
-            String.class,
-            BillingMode.class,
-            Plan.class);
-    method.setAccessible(true);
 
-    assertThatThrownBy(
-            () ->
-                method.invoke(
-                    chatService,
-                    userId,
-                    request,
-                    List.<Message>of(new UserMessage("hi")),
-                    chatId,
-                    null,
-                    BillingMode.BYOK,
-                    Plan.FREE))
-        .isInstanceOf(InvocationTargetException.class)
-        .hasCauseInstanceOf(RuntimeException.class);
+    assertThatThrownBy(() -> chatService.streamMessage(chatId, userId, request))
+        .isInstanceOf(RuntimeException.class);
     verify(closeable).close();
   }
 
   @Test
   void sendMessage_freeUserWithPremiumModel_throwsPlanRestriction() {
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", null, null, null);
+        new RequestDTO(
+            "hi", RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.BYOK);
+    when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.AUTO);
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENROUTER)).thenReturn(Optional.empty());
     doThrow(
             new PlanRestrictionException(
                 PlanRestrictionException.Reason.MODEL_NOT_ALLOWED, Plan.FREE, "Premium model"))
         .when(entitlementService)
         .assertCanUseModel(
-            userId, RequestDTO.Provider.OPENAI, "gpt-5.2-2025-12-11", BillingMode.BYOK);
+            userId, RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", BillingMode.MANAGED);
 
     assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
         .isInstanceOfSatisfying(
@@ -284,13 +299,15 @@ class ChatServiceTest {
   @Test
   void sendMessage_freeUserOverDailyCap_throwsPlanRestriction() {
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-4.1-mini", null, null, null);
+        new RequestDTO(
+            "hi", RequestDTO.Provider.OPENROUTER, "openai/gpt-4.1-mini", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENROUTER)).thenReturn(Optional.empty());
     doThrow(
             new PlanRestrictionException(
                 PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED,
@@ -308,7 +325,7 @@ class ChatServiceTest {
 
     verify(entitlementService)
         .assertCanUseModel(
-            userId, RequestDTO.Provider.OPENAI, "gpt-4.1-mini", BillingMode.MANAGED);
+            userId, RequestDTO.Provider.OPENROUTER, "openai/gpt-4.1-mini", BillingMode.MANAGED);
     verifyNoInteractions(providerClientFactory);
     verifyNoInteractions(usageEventService);
     verify(entitlementService, never()).incrementCounter(anyString());
@@ -327,7 +344,7 @@ class ChatServiceTest {
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
@@ -400,7 +417,7 @@ class ChatServiceTest {
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
-    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", "goog-key"))
         .thenReturn(
@@ -427,7 +444,7 @@ class ChatServiceTest {
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(RequestDTO.Provider.OPENAI, "gpt-5.2", "key"))
         .thenReturn(org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
@@ -465,7 +482,7 @@ class ChatServiceTest {
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(RequestDTO.Provider.OPENAI, "gpt-5.2", "key"))
         .thenReturn(org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
@@ -511,7 +528,7 @@ class ChatServiceTest {
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
         .thenReturn(List.of(latestUserMessage));
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.CLAUDE, "claude-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.CLAUDE, "claude-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.CLAUDE, "claude-sonnet-4-5", "claude-key"))
@@ -555,7 +572,7 @@ class ChatServiceTest {
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
         .thenReturn(List.of());
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.OPENAI, "gpt-5.2", "key"))
@@ -608,7 +625,7 @@ class ChatServiceTest {
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
         .thenReturn(List.of(concurrentNewerUserMessage, persistedCurrentUserMessage));
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.CLAUDE, "claude-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.CLAUDE, "claude-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.CLAUDE, "claude-sonnet-4-5", "claude-key"))
@@ -656,11 +673,11 @@ class ChatServiceTest {
         .hasMessageContaining("media[0] must not be null");
 
     verify(messageRepository, never()).save(any());
-    verify(providerClientFactory, never()).getClient(any(), anyString());
+    verify(providerClientFactory, never()).getClient(any(), anyString(), any());
   }
 
   @Test
-  void sendMessage_withOversizedMedia_throwsBadRequest_andSkipsProviderCall() {
+  void sendMessage_withOversizedMedia_throwsBadRequest_andSkipsPersistence() {
     String oversized = Base64.getEncoder().encodeToString(new byte[6 * 1024 * 1024]);
     RequestDTO request =
         new RequestDTO(
@@ -675,18 +692,12 @@ class ChatServiceTest {
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
 
-    MessageEntity latestUserMessage = new MessageEntity();
-    latestUserMessage.setId(100L);
-    latestUserMessage.setRole(Role.USER);
-    latestUserMessage.setMessage("describe image");
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
-        .thenReturn(List.of(latestUserMessage));
-
     assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("exceeds");
 
-    verify(providerClientFactory, never()).getClient(any(), anyString());
+    verify(messageRepository, never()).save(any());
+    verify(providerClientFactory, never()).getClient(any(), anyString(), any());
   }
 
   @Test
@@ -769,7 +780,7 @@ class ChatServiceTest {
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
@@ -818,7 +829,7 @@ class ChatServiceTest {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.GOOGLE, "gemini", "goog-key"))
@@ -855,7 +866,7 @@ class ChatServiceTest {
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
@@ -906,7 +917,7 @@ class ChatServiceTest {
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
@@ -939,23 +950,23 @@ class ChatServiceTest {
     // (so the user does not lose a cap slot for a failed call), but the usage event
     // MUST still be recorded for analytics/auditing.
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
-    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
-        .thenReturn(Optional.of("stored-key"));
     when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENROUTER)).thenReturn(Optional.empty());
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+    when(providerClientFactory.getClient(
+            RequestDTO.Provider.OPENROUTER, "srv-openrouter", BillingMode.MANAGED))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
-            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+            RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", "srv-openrouter"))
         .thenReturn(
-            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("openai/gpt-5.2").build());
     when(chatClient.prompt()).thenReturn(requestSpec);
     when(requestSpec.options(any())).thenReturn(requestSpec);
     when(requestSpec.messages(anyList())).thenReturn(requestSpec);
@@ -972,8 +983,8 @@ class ChatServiceTest {
     verify(usageEventService)
         .record(
             eq(userId),
-            eq(RequestDTO.Provider.OPENAI),
-            eq("gpt-5.2"),
+            eq(RequestDTO.Provider.OPENROUTER),
+            eq("openai/gpt-5.2"),
             any(),
             any(),
             any(),
@@ -988,7 +999,7 @@ class ChatServiceTest {
     // BILL-14 refund path: on a successful managed-mode stream, both record() and
     // incrementCounter() must be invoked (user consumes exactly one daily cap slot).
     RequestDTO request =
-        new RequestDTO("hi", RequestDTO.Provider.OPENAI, "gpt-5.2", null, null, null);
+        new RequestDTO("hi", RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", null, null, null);
 
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
@@ -996,16 +1007,16 @@ class ChatServiceTest {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(chatRepository.existsById(chatId)).thenReturn(true);
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
-    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
-        .thenReturn(Optional.of("stored-key"));
     when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENROUTER)).thenReturn(Optional.empty());
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+    when(providerClientFactory.getClient(
+            RequestDTO.Provider.OPENROUTER, "srv-openrouter", BillingMode.MANAGED))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
-            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
+            RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", "srv-openrouter"))
         .thenReturn(
-            org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+            org.springframework.ai.chat.prompt.ChatOptions.builder().model("openai/gpt-5.2").build());
     when(chatClient.prompt()).thenReturn(requestSpec);
     when(requestSpec.options(any())).thenReturn(requestSpec);
     when(requestSpec.messages(anyList())).thenReturn(requestSpec);
@@ -1023,8 +1034,8 @@ class ChatServiceTest {
     verify(usageEventService)
         .record(
             eq(userId),
-            eq(RequestDTO.Provider.OPENAI),
-            eq("gpt-5.2"),
+            eq(RequestDTO.Provider.OPENROUTER),
+            eq("openai/gpt-5.2"),
             eq(10L),
             eq(5L),
             eq(15L),
@@ -1159,7 +1170,7 @@ class ChatServiceTest {
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of(apiKey));
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, apiKey))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, apiKey, BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(RequestDTO.Provider.OPENAI, "gpt-5.2", apiKey))
         .thenReturn(
@@ -1294,7 +1305,7 @@ class ChatServiceTest {
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
@@ -1339,7 +1350,7 @@ class ChatServiceTest {
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
@@ -1390,7 +1401,7 @@ class ChatServiceTest {
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(
             RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key"))
@@ -1506,7 +1517,7 @@ class ChatServiceTest {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", "goog-key"))
         .thenReturn(
@@ -1551,7 +1562,7 @@ class ChatServiceTest {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(RequestDTO.Provider.GOOGLE, "gemini-2.5-flash", "goog-key"))
         .thenReturn(
@@ -1584,7 +1595,7 @@ class ChatServiceTest {
     when(chatRepository.existsById(chatId)).thenReturn(true);
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
 
-    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key"))
+    when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key", BillingMode.BYOK))
         .thenReturn(new ChatService.ClientHolder(chatClient, null));
     when(providerClientFactory.buildOptions(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", "goog-key"))
         .thenReturn(
