@@ -9,11 +9,27 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class InMemoryRateLimitFilterTest {
+
+  @Test
+  void springContextInstantiatesFilterUsingInjectedPropertiesConstructor() {
+    try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+      context.register(RateLimitProperties.class, InMemoryRateLimitFilter.class);
+      context.refresh();
+
+      InMemoryRateLimitFilter filter = context.getBean(InMemoryRateLimitFilter.class);
+      RateLimitProperties injectedProperties = context.getBean(RateLimitProperties.class);
+
+      assertThat(filter).isNotNull();
+      assertThat(ReflectionTestUtils.getField(filter, "properties")).isSameAs(injectedProperties);
+    }
+  }
 
   @Test
   void doFilterInternal_returns429AfterAnonymousLimit() throws ServletException, IOException {
