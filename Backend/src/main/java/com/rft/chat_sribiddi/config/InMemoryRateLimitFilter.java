@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
@@ -25,6 +26,7 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
   private final Clock clock;
   private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
 
+  @Autowired
   public InMemoryRateLimitFilter(RateLimitProperties properties) {
     this(properties, Clock.systemUTC());
   }
