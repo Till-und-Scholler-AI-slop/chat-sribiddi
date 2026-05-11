@@ -23,8 +23,8 @@ class DefaultProviderClientFactoryTest {
   }
 
   @Test
-  void getClient_google_returnsInitializedClientHolder() {
-    ChatService.ClientHolder holder = factory.getClient(Provider.GOOGLE, "fake-api-key");
+  void getClient_google_returnsInitializedClientHandle() {
+    ProviderClientHandle holder = factory.getClient(Provider.GOOGLE, "fake-api-key");
 
     assertThat(holder).isNotNull();
     assertThat(holder.client()).isNotNull();
@@ -32,11 +32,11 @@ class DefaultProviderClientFactoryTest {
   }
 
   @Test
-  void getClient_google_cachedHolder_returnsSameInstanceForSameKey() {
-    ChatService.ClientHolder first = factory.getClient(Provider.GOOGLE, "fake-api-key");
-    first.close(); // must not destroy the cached ClientHolder
+  void getClient_google_cachedHandle_returnsSameInstanceForSameKey() {
+    ProviderClientHandle first = factory.getClient(Provider.GOOGLE, "fake-api-key");
+    first.close(); // must not destroy the cached ProviderClientHandle
 
-    ChatService.ClientHolder second = factory.getClient(Provider.GOOGLE, "fake-api-key");
+    ProviderClientHandle second = factory.getClient(Provider.GOOGLE, "fake-api-key");
 
     assertThat(second).isSameAs(first);
     assertThat(second.client()).isSameAs(first.client());
@@ -44,8 +44,8 @@ class DefaultProviderClientFactoryTest {
 
   @Test
   void getClient_google_differentKeys_returnSeparateHoldersWithDistinctClients() {
-    ChatService.ClientHolder holder1 = factory.getClient(Provider.GOOGLE, "key-alpha");
-    ChatService.ClientHolder holder2 = factory.getClient(Provider.GOOGLE, "key-beta");
+    ProviderClientHandle holder1 = factory.getClient(Provider.GOOGLE, "key-alpha");
+    ProviderClientHandle holder2 = factory.getClient(Provider.GOOGLE, "key-beta");
 
     assertThat(holder1).isNotSameAs(holder2);
     assertThat(holder1.client()).isNotSameAs(holder2.client());
@@ -75,16 +75,16 @@ class DefaultProviderClientFactoryTest {
 
   @Test
   void getClient_sameKey_differentBillingModes_returnSeparateHolders() {
-    ChatService.ClientHolder byok =
+    ProviderClientHandle byok =
         factory.getClient(Provider.GOOGLE, "shared-key", BillingMode.BYOK);
-    ChatService.ClientHolder managed =
+    ProviderClientHandle managed =
         factory.getClient(Provider.GOOGLE, "shared-key", BillingMode.MANAGED);
 
     assertThat(managed).isNotSameAs(byok);
     assertThat(managed.client()).isNotSameAs(byok.client());
 
     // Subsequent calls with the same mode+key must still hit the cached entry.
-    ChatService.ClientHolder byokAgain =
+    ProviderClientHandle byokAgain =
         factory.getClient(Provider.GOOGLE, "shared-key", BillingMode.BYOK);
     assertThat(byokAgain).isSameAs(byok);
   }
@@ -93,8 +93,8 @@ class DefaultProviderClientFactoryTest {
   void getClient_twoArgOverload_defaultsToByokCachePartition() {
     // The legacy 2-arg call site must land in the same cache entry as an explicit BYOK call
     // to guarantee the existing BYOK path is behaviourally unchanged.
-    ChatService.ClientHolder legacy = factory.getClient(Provider.GOOGLE, "byok-key");
-    ChatService.ClientHolder explicit =
+    ProviderClientHandle legacy = factory.getClient(Provider.GOOGLE, "byok-key");
+    ProviderClientHandle explicit =
         factory.getClient(Provider.GOOGLE, "byok-key", BillingMode.BYOK);
 
     assertThat(explicit).isSameAs(legacy);

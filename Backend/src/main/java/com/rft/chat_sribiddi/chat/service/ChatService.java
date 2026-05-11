@@ -203,7 +203,7 @@ public class ChatService {
     ChatResponse chatResponse;
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
     boolean providerCallSucceeded = false;
-    try (ClientHolder clientHolder =
+    try (ProviderClientHandle clientHolder =
         providerClientFactory.getClient(
             requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.billingMode())) {
       var options =
@@ -396,7 +396,7 @@ public class ChatService {
       String userId, RequestDTO requestDTO, List<Message> promptMessages,
       UUID chatId, String updatedTitle, ResolvedCall resolvedCall, Plan plan) {
     SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
-    ClientHolder clientHolder =
+    ProviderClientHandle clientHolder =
         providerClientFactory.getClient(
             requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.billingMode());
     try {
@@ -445,7 +445,7 @@ public class ChatService {
   private void subscribeToStream(
       ChatClient.ChatClientRequestSpec promptSpec,
       SseEmitter emitter,
-      ClientHolder clientHolder,
+      ProviderClientHandle clientHolder,
       String userId,
       Provider provider,
       String modelId,
@@ -577,7 +577,7 @@ public class ChatService {
       long streamedTextUtf8Bytes,
       AtomicReference<Usage> lastUsage,
       SseEmitter emitter,
-      ClientHolder clientHolder,
+      ProviderClientHandle clientHolder,
       ChatMetrics.StreamSample streamSample) {
     StreamErrorHandler.StreamErrorDetails streamErrorDetails =
         StreamErrorHandler.describe(provider, modelId, streamedTextUtf8Bytes, error);
@@ -620,7 +620,7 @@ public class ChatService {
       StringBuilder fullText, AtomicReference<Usage> lastUsage,
       UUID chatId, String assistantContext, String updatedTitle,
       ToolExecutionCollector toolExecutionCollector,
-      SseEmitter emitter, ClientHolder clientHolder, ChatMetrics.StreamSample streamSample) {
+      SseEmitter emitter, ProviderClientHandle clientHolder, ChatMetrics.StreamSample streamSample) {
     AtomicReference<Long> savedMessageId = new AtomicReference<>();
     try (clientHolder) {
       String assistantResponse = fullText.toString();
@@ -896,22 +896,6 @@ public class ChatService {
       log.warn("Failed to send SSE chat-deleted error event", e);
     } finally {
       emitter.complete();
-    }
-  }
-
-  public record ClientHolder(
-      org.springframework.ai.chat.client.ChatClient client, AutoCloseable closeable)
-      implements AutoCloseable {
-    @Override
-    public void close() {
-      if (closeable == null) {
-        return;
-      }
-      try {
-        closeable.close();
-      } catch (Exception e) {
-        log.warn("Failed to close provider client", e);
-      }
     }
   }
 
