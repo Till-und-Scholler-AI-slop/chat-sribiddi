@@ -95,6 +95,7 @@ class ChatServiceTest {
     managedKeys.setOpenrouter("srv-openrouter");
     BillingModeResolver billingModeResolver =
         new BillingModeResolver(apiKeyService, entitlementService, managedKeys);
+    MediaValidationService mediaValidationService = new MediaValidationService(chatProperties);
     PromptToolBinder promptToolBinder =
         new PromptToolBinder(
             chatProperties,
@@ -108,9 +109,11 @@ class ChatServiceTest {
             pythonInterpreterTool,
             new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(),
             entitlementService);
+    PromptMessageBuilder promptMessageBuilder =
+        new PromptMessageBuilder(messageRepository, chatProperties, mediaValidationService);
     return new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
-        providerClientFactory, chatProperties, new MediaValidationService(chatProperties), userSettingsService,
-        promptToolBinder, billingModeResolver,
+        providerClientFactory, chatProperties, mediaValidationService, userSettingsService,
+        promptToolBinder, promptMessageBuilder, billingModeResolver,
         entitlementService, usageEventService, chatMetrics);
   }
 
@@ -1480,29 +1483,6 @@ class ChatServiceTest {
     assertThatThrownBy(() -> chatService.editAndStreamMessage(chatId, userId, 10L, request))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Only user messages can be edited");
-  }
-
-  // ── supportsSystemInstruction tests ─────────────────────────────────────────
-
-  @Test
-  void supportsSystemInstruction_returnsFalse_forGoogleGemmaModel() {
-    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it")).isFalse();
-    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.GOOGLE, "gemma-3-4b-it")).isFalse();
-    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.GOOGLE, "gemma-4-27b-it")).isFalse();
-  }
-
-  @Test
-  void supportsSystemInstruction_returnsTrue_forGoogleGeminiModel() {
-    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.GOOGLE, "gemini-2.5-flash")).isTrue();
-    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.GOOGLE, "gemini-3.1-pro-preview")).isTrue();
-  }
-
-  @Test
-  void supportsSystemInstruction_returnsTrue_forNonGoogleProviders() {
-    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.OPENAI, "gpt-5.2")).isTrue();
-    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.CLAUDE, "claude-sonnet-4")).isTrue();
-    // OpenRouter may route to Gemma but uses OpenAI-compatible API which supports system messages
-    assertThat(ChatService.supportsSystemInstruction(RequestDTO.Provider.OPENROUTER, "google/gemma-3-27b-it")).isTrue();
   }
 
   @Test

@@ -18,6 +18,7 @@ import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
+import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.PromptMessageRequest;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
 import com.rft.chat_sribiddi.billing.BillingModeResolver;
 import com.rft.chat_sribiddi.billing.EntitlementService;
@@ -42,15 +43,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AbstractMessage;
-import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.Generation;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
@@ -64,9 +61,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @Service
 @RequiredArgsConstructor
 public class ChatService {
-
-  private static final String SYSTEM_PROMPT =
-      "You are a helpful assistant. Your answer must be structured in markdown.";
 
   private static final String EVENT_ERROR = "error";
 
@@ -86,6 +80,7 @@ public class ChatService {
   private final MediaValidationService mediaValidationService;
   private final UserSettingsService userSettingsService;
   private final PromptToolBinder promptToolBinder;
+  private final PromptMessageBuilder promptMessageBuilder;
   private final BillingModeResolver billingModeResolver;
   private final EntitlementService entitlementService;
   private final UsageEventService usageEventService;
@@ -264,9 +259,8 @@ public class ChatService {
     assistantMessage.setMessage(assistantResponse);
     assistantMessage.setRole(Role.ASSISTANT);
     assistantMessage.setContext(
-        buildAssistantContext(
-            prep.promptMessages().size(),
-            supportsSystemInstruction(requestDTO.provider(), requestDTO.modelId())));
+        promptMessageBuilder.assistantContext(
+            prep.promptMessages().size(), requestDTO.provider(), requestDTO.modelId()));
     assistantMessage.setCreatedAt(Instant.now());
     assistantMessage.setPromptTokens(promptTokens);
     assistantMessage.setGenerationTokens(generationTokens);
@@ -355,8 +349,15 @@ public class ChatService {
     String customInstructions =
         userSettingsService.getCustomInstructions(userId).orElse(null);
     List<Message> promptMessages =
-        buildPromptMessages(chatId, validatedMedia, messageId, customInstructions,
-            requestDTO.provider(), requestDTO.modelId(), resolvedCall.entitlements());
+        promptMessageBuilder.build(
+            new PromptMessageRequest(
+                chatId,
+                validatedMedia,
+                messageId,
+                customInstructions,
+                requestDTO.provider(),
+                requestDTO.modelId(),
+                resolvedCall.entitlements()));
 
     return createAndSubscribeStream(
         userId, requestDTO, promptMessages, chatId, null, resolvedCall, plan);
@@ -388,8 +389,15 @@ public class ChatService {
     String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
     String customInstructions = userSettingsService.getCustomInstructions(userId).orElse(null);
     List<Message> promptMessages =
-        buildPromptMessages(chatId, validatedMedia, persistedUserMessage.getId(), customInstructions,
-            requestDTO.provider(), requestDTO.modelId(), entitlements);
+        promptMessageBuilder.build(
+            new PromptMessageRequest(
+                chatId,
+                validatedMedia,
+                persistedUserMessage.getId(),
+                customInstructions,
+                requestDTO.provider(),
+                requestDTO.modelId(),
+                entitlements));
     return new MessagePreparation(updatedTitle, promptMessages);
   }
 
@@ -417,9 +425,8 @@ public class ChatService {
           toolExecutionCollector,
           promptSpec);
       String assistantContext =
-          buildAssistantContext(
-              promptMessages.size(),
-              supportsSystemInstruction(requestDTO.provider(), requestDTO.modelId()));
+          promptMessageBuilder.assistantContext(
+              promptMessages.size(), requestDTO.provider(), requestDTO.modelId());
       subscribeToStream(
           promptSpec,
           emitter,
@@ -981,88 +988,6 @@ public class ChatService {
         .map(String.class::cast)
         .filter(s -> !s.isEmpty())
         .orElse(null);
-  }
-
-  private List<Message> buildPromptMessages(
-      UUID chatId, List<MediaAttachment> mediaAttachments, Long targetUserMessageId,
-      String customInstructions,
-      RequestDTO.Provider provider,
-      String modelId,
-      Entitlements entitlements) {
-    List<MessageEntity> latestMessages =
-        new ArrayList<>(
-            messageRepository.findByChatIdOrderByCreatedAtDesc(
-                chatId, PageRequest.of(0, contextMessageLimit(entitlements))));
-
-    List<Message> messages = new ArrayList<>();
-    String instructionContent =
-        (customInstructions != null && !customInstructions.isBlank())
-            ? SYSTEM_PROMPT + "\n\n" + customInstructions
-            : SYSTEM_PROMPT;
-    if (supportsSystemInstruction(provider, modelId)) {
-      messages.add(new SystemMessage(instructionContent));
-    } else {
-      // Gemma models do not support system instructions - inject as a leading user message instead
-      // so that the system prompt and any custom instructions are still applied.
-      messages.add(
-          new UserMessage(
-              "System instructions for this conversation. Follow them when responding.\n\n"
-                  + instructionContent));
-    }
-
-    List<MessageEntity> ordered = latestMessages.reversed();
-    for (MessageEntity entity : ordered) {
-      if (!mediaAttachments.isEmpty()
-          && targetUserMessageId != null
-          && entity.getRole() == Role.USER
-          && targetUserMessageId.equals(entity.getId())) {
-        messages.add(toUserMessage(entity, mediaAttachments, entitlements));
-        continue;
-      }
-      messages.add(toChatMessage(entity));
-    }
-    return messages;
-  }
-
-  private int contextMessageLimit(Entitlements entitlements) {
-    int configured = chatProperties.getContextMessageLimit();
-    if (entitlements == null || entitlements.contextMessageLimit() <= 0) {
-      return Math.max(1, configured);
-    }
-    return Math.max(1, Math.min(configured, entitlements.contextMessageLimit()));
-  }
-
-  /**
-   * Returns {@code false} for Google Gemma models, which do not support system instructions.
-   * All other providers and models support system instructions normally.
-   */
-  static boolean supportsSystemInstruction(RequestDTO.Provider provider, String modelId) {
-    return !(provider == RequestDTO.Provider.GOOGLE
-        && modelId != null
-        && modelId.startsWith("gemma-"));
-  }
-
-  private static String buildAssistantContext(int messageCount, boolean hasSystemInstruction) {
-    if (hasSystemInstruction) {
-      return "Contains last %d messages including system prompt".formatted(messageCount);
-    }
-    return "Contains last %d messages (instructions sent as user message)".formatted(messageCount);
-  }
-
-  private Message toChatMessage(MessageEntity entity) {
-    return switch (entity.getRole()) {
-      case ASSISTANT -> new AssistantMessage(entity.getMessage());
-      case SYSTEM -> new SystemMessage(entity.getMessage());
-      default -> new UserMessage(entity.getMessage());
-    };
-  }
-
-  private UserMessage toUserMessage(
-      MessageEntity entity, List<MediaAttachment> mediaAttachments, Entitlements entitlements) {
-    return UserMessage.builder()
-        .text(entity.getMessage())
-        .media(mediaValidationService.toMediaPayload(mediaAttachments, entitlements))
-        .build();
   }
 
   private MessageEntity persistMessage(UUID chatId, String message, String context) {
