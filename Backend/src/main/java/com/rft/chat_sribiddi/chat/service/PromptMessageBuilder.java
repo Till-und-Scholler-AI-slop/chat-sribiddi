@@ -22,7 +22,11 @@ import org.springframework.stereotype.Component;
 public class PromptMessageBuilder {
 
   private static final String SYSTEM_PROMPT =
-      "You are a helpful assistant. Your answer must be structured in markdown.";
+      """
+      You are a helpful assistant. Format every answer as clean, renderer-friendly Markdown.
+      Use paragraphs, lists, tables, blockquotes, and fenced code blocks with language identifiers when helpful.
+      Do not wrap the whole answer in a single code block or use raw HTML unless the user explicitly asks for it.
+      """;
 
   private static final String USER_INSTRUCTION_PREFIX =
       "System instructions for this conversation. Follow them when responding.\n\n";

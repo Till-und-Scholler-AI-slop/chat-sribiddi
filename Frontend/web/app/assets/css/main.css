@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+@import "markstream-vue/index.css" layer(components);
 
 /* ── Color Palette ──────────────────────────────────────────────────────
  * Warm paper/ink tokens drive the new look. Two themes are exposed:
@@ -270,19 +271,6 @@ body {
   transform: scale(0.97);
 }
 
-/* ── Streaming Cursor ───────────────────────────────────────────────── */
-.streaming-cursor > :last-child::after {
-  content: '▍';
-  display: inline;
-  color: var(--ui-primary);
-  margin-left: 1px;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .streaming-cursor > :last-child::after {
-    animation: pulse-soft 1s ease-in-out infinite;
-  }
-}
-
 /* ── Typing Indicator Dots ──────────────────────────────────────────── */
 .typing-dots {
   display: inline-flex;
@@ -446,113 +434,64 @@ body {
   }
 }
 
-/* ── Markdown Body ──────────────────────────────────────────────────── */
+/* ── Markstream Markdown Body ───────────────────────────────────────── */
 .markdown-body {
   font-size: 0.95rem;
   line-height: 1.6;
   color: inherit;
 }
-.markdown-body h1,
-.markdown-body h2,
-.markdown-body h3,
-.markdown-body h4 {
-  font-weight: 700;
-  line-height: 1.3;
-  margin: 0.75em 0 0.35em;
-  letter-spacing: -0.01em;
-}
-.markdown-body p {
-  margin: 0.4em 0;
-}
-.markdown-body ul,
-.markdown-body ol {
-  margin: 0.4em 0 0.4em 1.2em;
-  padding: 0;
-}
-.markdown-body code {
-  background: color-mix(in srgb, currentColor 8%, transparent);
-  padding: 0.15em 0.35em;
-  border-radius: 4px;
-  font-size: 0.85em;
-  font-family: var(--font-mono);
-}
-.markdown-body pre {
-  background: color-mix(in srgb, currentColor 8%, transparent);
-  padding: 0.75em;
-  border-radius: 8px;
-  overflow-x: auto;
-  font-family: var(--font-mono);
-}
-.markdown-body .code-block-wrapper {
-  position: relative;
-}
-.markdown-body .copy-code-btn {
-  position: absolute;
-  top: 0.4rem;
-  right: 0.4rem;
-  padding: 0.3rem;
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
+.markdown-body .markstream-vue {
+  --ms-font-sans: var(--font-sans);
+  --ms-font-mono: var(--font-mono);
+  --ms-text-body: 0.95rem;
+  --ms-leading-body: 1.6;
+  --ms-radius: 0.5rem;
+  --ms-flow-paragraph-y: 0.4em;
+  --ms-flow-list-y: 0.4em;
+  --ms-flow-list-item-y: 0.2em;
+  --ms-flow-list-indent: 1.2em;
+  --ms-flow-heading-1-mt: 0.75em;
+  --ms-flow-heading-1-mb: 0.35em;
+  --ms-flow-heading-2-mt: 0.75em;
+  --ms-flow-heading-2-mb: 0.35em;
+  --ms-flow-heading-3-mt: 0.75em;
+  --ms-flow-heading-3-mb: 0.35em;
+  --ms-flow-heading-4-mt: 0.75em;
+  --ms-flow-heading-4-mb: 0.35em;
+  --ms-flow-codeblock-y: 0.75em;
+  --ms-flow-table-y: 0.75em;
+  --ms-flow-blockquote-y: 0.75em;
+  --inline-code-bg: color-mix(in srgb, currentColor 8%, transparent);
+  --inline-code-fg: currentColor;
+  --code-bg: color-mix(in oklab, var(--paper-2) 88%, var(--ink) 4%);
+  --code-fg: var(--ink);
+  --code-border: var(--hair);
+  --code-header-bg: color-mix(in oklab, var(--paper-2) 74%, var(--ink) 8%);
+  --code-action-fg: color-mix(in oklab, var(--ink) 58%, transparent);
+  --code-action-hover-bg: color-mix(in srgb, currentColor 8%, transparent);
+  --code-action-hover-fg: currentColor;
+  --link-color: var(--color-gray-500);
+  --focus-ring: var(--ui-primary);
   color: inherit;
-  opacity: 0;
-  transition:
-    opacity var(--duration-fast) var(--ease-smooth),
-    color var(--duration-fast) var(--ease-smooth),
-    transform var(--duration-fast) var(--ease-smooth);
-  line-height: 0;
+  font-size: inherit;
+  line-height: inherit;
 }
-.markdown-body .copy-code-btn:hover {
-  transform: scale(1.05);
+.markdown-body .markstream-vue .heading-node {
+  letter-spacing: 0;
 }
-.markdown-body .copy-code-btn:active {
-  transform: scale(0.95);
-}
-.markdown-body .copy-code-btn:focus,
-.markdown-body .copy-code-btn:focus-visible {
-  opacity: 1;
-  outline: 2px solid var(--ui-primary);
-  outline-offset: 2px;
-}
-.markdown-body .code-block-wrapper:hover .copy-code-btn {
-  opacity: 0.6;
-}
-.markdown-body .code-block-wrapper:hover .copy-code-btn:hover {
-  opacity: 1;
-}
-@media (hover: none) {
-  .markdown-body .copy-code-btn {
-    opacity: 0.6;
-  }
-}
-.markdown-body .copy-code-btn .check-icon {
-  display: none;
-}
-.markdown-body .copy-code-btn.copied .copy-icon {
-  display: none;
-}
-.markdown-body .copy-code-btn.copied .check-icon {
-  display: block;
-}
-.markdown-body .copy-code-btn.copied {
-  color: var(--ui-primary);
-  opacity: 1;
-}
-.markdown-body a {
-  color: var(--color-gray-500);
+.markdown-body .markstream-vue .link-node {
   text-decoration: underline;
   text-underline-offset: 2px;
   transition: color var(--duration-fast) var(--ease-smooth);
 }
-.markdown-body a:hover {
+.markdown-body .markstream-vue .link-node:hover {
   color: var(--color-gray-400);
 }
-.dark .markdown-body a {
-  color: var(--color-gray-500);
-}
-.dark .markdown-body a:hover {
-  color: var(--color-gray-400);
+.dark .markdown-body .markstream-vue {
+  --code-bg: color-mix(in oklab, var(--paper-2) 80%, black 16%);
+  --code-fg: var(--ink);
+  --code-border: color-mix(in oklab, var(--hair) 80%, var(--ink) 8%);
+  --code-header-bg: color-mix(in oklab, var(--paper-2) 66%, black 20%);
 }
 
 /* ── Skeleton Shimmer ───────────────────────────────────────────────── */

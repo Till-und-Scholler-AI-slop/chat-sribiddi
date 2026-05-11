@@ -21,6 +21,10 @@ test('creates a chat, sends a prompt, and renders the mocked streamed response',
   await page.getByTestId('chat-submit').click()
 
   await expect(page.getByText('Hallo E2E')).toBeVisible()
-  await expect(page.getByText('Mocked response')).toBeVisible()
+  await expect(page.locator('.msg-assistant > .markdown-body > .markstream-vue')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Markstream check' })).toBeVisible()
+  await expect(page.getByText('Alpha item')).toBeVisible()
+  await expect(page.getByText('Beta item')).toBeVisible()
+  await expect(page.getByText('const ok = true')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'E2E Chat' })).toBeVisible()
 })

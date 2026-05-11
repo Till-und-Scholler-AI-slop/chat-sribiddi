@@ -596,7 +596,7 @@ const handleReload = async () => {
                           <div :class="message?.role === 'user' ? 'msg-user' : message?.role === 'assistant' ? 'msg-assistant' : ''">
                             <MarkdownMessage
                               :text="firstText(parts)"
-                              :class="message?.role === 'assistant' && status === 'streaming' && isLastMessage(message) ? 'streaming-cursor' : ''"
+                              :streaming="message?.role === 'assistant' && status === 'streaming' && isLastMessage(message)"
                             />
                           <div v-if="getFileParts(parts).length" class="flex flex-wrap gap-1.5 mt-2">
                             <UBadge

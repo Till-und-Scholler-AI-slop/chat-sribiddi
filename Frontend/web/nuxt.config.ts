@@ -1,9 +1,81 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import { fileURLToPath } from 'node:url'
+
+const markstreamCodeRendererStub = fileURLToPath(
+    new URL('./app/utils/markstreamCodeRendererStub.ts', import.meta.url)
+)
+
+const knownSourcemapWarningPlugins = [
+    'nuxt:module-preload-polyfill',
+    '@tailwindcss/vite:generate:build'
+]
+
+type RollupBuildLog = {
+    code?: string
+    message?: string
+    plugin?: string
+}
+
+function isKnownSourcemapWarning(log: RollupBuildLog): boolean {
+    const text = `${log.plugin ?? ''} ${log.message ?? ''}`
+
+    return log.code === 'SOURCEMAP_BROKEN'
+        && text.includes('Sourcemap is likely to be incorrect')
+        && knownSourcemapWarningPlugins.some(plugin => text.includes(plugin))
+}
+
+function manualChunks(id: string): string | undefined {
+    const normalizedId = id.split('\\').join('/')
+
+    if (
+        normalizedId.includes('/node_modules/stream-markdown-parser/')
+        || normalizedId.includes('/node_modules/markdown-it')
+    ) {
+        return 'markdown-parser'
+    }
+
+    if (
+        normalizedId.includes('/node_modules/markstream-vue/')
+        || normalizedId.includes('/node_modules/markstream-core/')
+        || normalizedId.includes('/node_modules/@chenglou/pretext/')
+    ) {
+        return 'markstream-vue'
+    }
+}
+
 export default defineNuxtConfig({
     compatibilityDate: '2025-07-15',
     devtools: {enabled: process.env.NUXT_DEVTOOLS !== 'false'},
     modules: ['@nuxt/ui', '@nuxt/eslint', '@nuxtjs/i18n'],
     css: ['~/assets/css/main.css'],
+    sourcemap: false,
+    vite: {
+        optimizeDeps: {
+            include: ['markstream-vue']
+        },
+        resolve: {
+            alias: {
+                'stream-markdown': markstreamCodeRendererStub
+            }
+        },
+        build: {
+            sourcemap: false,
+            rollupOptions: {
+                output: {
+                    manualChunks,
+                    onlyExplicitManualChunks: true
+                },
+                onLog(level, log, handler) {
+                    if (isKnownSourcemapWarning(log)) return
+                    handler(level, log)
+                },
+                onwarn(warning, defaultHandler) {
+                    if (isKnownSourcemapWarning(warning)) return
+                    defaultHandler(warning)
+                }
+            }
+        }
+    },
     i18n: {
         // German is the default locale; English is fully supported as a second locale.
         // See AGENTS.md for the project i18n conventions (every user-facing string must be
