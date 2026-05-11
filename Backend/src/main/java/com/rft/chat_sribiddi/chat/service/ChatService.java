@@ -19,11 +19,12 @@ import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
 import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.PromptMessageRequest;
+import com.rft.chat_sribiddi.chat.service.ChatUsageRecorder.ChatUsage;
+import com.rft.chat_sribiddi.chat.service.ChatUsageRecorder.TokenUsage;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
 import com.rft.chat_sribiddi.billing.BillingModeResolver;
 import com.rft.chat_sribiddi.billing.EntitlementService;
 import com.rft.chat_sribiddi.billing.Entitlements;
-import com.rft.chat_sribiddi.billing.UsageEventService;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import com.rft.chat_sribiddi.observability.ChatMetrics;
 import jakarta.transaction.Transactional;
@@ -81,9 +82,9 @@ public class ChatService {
   private final UserSettingsService userSettingsService;
   private final PromptToolBinder promptToolBinder;
   private final PromptMessageBuilder promptMessageBuilder;
+  private final ChatUsageRecorder chatUsageRecorder;
   private final BillingModeResolver billingModeResolver;
   private final EntitlementService entitlementService;
-  private final UsageEventService usageEventService;
   private final ChatMetrics chatMetrics;
 
   @Transactional
@@ -202,7 +203,7 @@ public class ChatService {
       log.trace("Prompt messages: {}", prep.promptMessages());
     }
 
-    Plan plan = resolvePlanForMetrics(userId);
+    Plan plan = chatUsageRecorder.resolvePlan(userId);
 
     ChatResponse chatResponse;
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
@@ -227,7 +228,7 @@ public class ChatService {
       chatResponse = promptSpec.call().chatResponse();
       providerCallSucceeded = true;
     } catch (RuntimeException | Error error) {
-      chatMetrics.recordRequest(requestDTO.provider(), requestDTO.modelId(), plan, "error");
+      chatUsageRecorder.recordRequestMetric(requestDTO.provider(), requestDTO.modelId(), plan, false);
       throw error;
     }
 
@@ -242,17 +243,7 @@ public class ChatService {
             .map(AbstractMessage::getText)
             .orElse("");
 
-    Long promptTokens = null;
-    Long generationTokens = null;
-    Long totalTokens = null;
-
-    Optional<Usage> usageOpt = extractUsage(chatResponse);
-    if (usageOpt.isPresent()) {
-      Usage usage = usageOpt.get();
-      promptTokens = safeLong(usage.getPromptTokens());
-      generationTokens = safeLong(usage.getCompletionTokens());
-      totalTokens = safeLong(usage.getTotalTokens());
-    }
+    TokenUsage tokenUsage = chatUsageRecorder.tokenUsage(extractUsage(chatResponse).orElse(null));
 
     MessageEntity assistantMessage = new MessageEntity();
     assistantMessage.setChatId(chatId);
@@ -262,26 +253,30 @@ public class ChatService {
         promptMessageBuilder.assistantContext(
             prep.promptMessages().size(), requestDTO.provider(), requestDTO.modelId()));
     assistantMessage.setCreatedAt(Instant.now());
-    assistantMessage.setPromptTokens(promptTokens);
-    assistantMessage.setGenerationTokens(generationTokens);
-    assistantMessage.setTotalTokens(totalTokens);
+    assistantMessage.setPromptTokens(tokenUsage.promptTokens());
+    assistantMessage.setGenerationTokens(tokenUsage.generationTokens());
+    assistantMessage.setTotalTokens(tokenUsage.totalTokens());
     saveMessageOrThrowIfChatMissing(assistantMessage);
     persistToolCallLogs(assistantMessage, toolExecutionCollector, assistantResponse);
-    recordUsageAndMaybeIncrementCounter(
-        userId,
-        requestDTO.provider(),
-        requestDTO.modelId(),
-        promptTokens,
-        generationTokens,
-        totalTokens,
-        assistantMessage.getId(),
-        resolvedCall.billingMode(),
-        plan,
-        providerCallSucceeded);
+    chatUsageRecorder.recordUsage(
+        new ChatUsage(
+            userId,
+            requestDTO.provider(),
+            requestDTO.modelId(),
+            tokenUsage,
+            assistantMessage.getId(),
+            resolvedCall.billingMode(),
+            plan,
+            providerCallSucceeded));
 
     log.debug("Message persisted successfully");
 
-    return new SendMessageResponseDTO(assistantResponse, promptTokens, generationTokens, totalTokens, prep.updatedTitle());
+    return new SendMessageResponseDTO(
+        assistantResponse,
+        tokenUsage.promptTokens(),
+        tokenUsage.generationTokens(),
+        tokenUsage.totalTokens(),
+        prep.updatedTitle());
   }
 
   /**
@@ -295,7 +290,7 @@ public class ChatService {
             .orElseThrow(() -> new ChatNotFoundException(chatId));
 
     ResolvedCall resolvedCall = resolveCall(userId, requestDTO);
-    Plan plan = resolvePlanForMetrics(userId);
+    Plan plan = chatUsageRecorder.resolvePlan(userId);
     MessagePreparation prep =
         prepareUserMessage(chatId, chat, userId, requestDTO, resolvedCall.entitlements());
 
@@ -335,7 +330,7 @@ public class ChatService {
     // Run entitlement checks before mutating chat history so that a rejected request
     // never leaves the database in a half-edited state.
     ResolvedCall resolvedCall = resolveCall(userId, requestDTO);
-    Plan plan = resolvePlanForMetrics(userId);
+    Plan plan = chatUsageRecorder.resolvePlan(userId);
     List<MediaAttachment> validatedMedia =
         mediaValidationService.validateAttachments(requestDTO.media(), resolvedCall.entitlements());
     String userContext = buildMediaContext(validatedMedia);
@@ -591,7 +586,7 @@ public class ChatService {
     StreamErrorHandler.StreamErrorDetails streamErrorDetails =
         StreamErrorHandler.describe(provider, modelId, streamedTextUtf8Bytes, error);
     logStreamingError(chatId, streamErrorDetails, error);
-    TokenUsage tokenUsage = toTokenUsage(lastUsage.get());
+    TokenUsage tokenUsage = chatUsageRecorder.tokenUsage(lastUsage.get());
     try (clientHolder) {
       emitter.send(
           SseEmitter.event()
@@ -613,17 +608,8 @@ public class ChatService {
     } finally {
       // Stream did not complete normally — do not increment the managed-mode counter,
       // regardless of whether the error originated from the provider or the client.
-      recordUsageAndMaybeIncrementCounter(
-          userId,
-          provider,
-          modelId,
-          tokenUsage.promptTokens(),
-          tokenUsage.generationTokens(),
-          tokenUsage.totalTokens(),
-          null,
-          billingMode,
-          plan,
-          false);
+      chatUsageRecorder.recordUsage(
+          new ChatUsage(userId, provider, modelId, tokenUsage, null, billingMode, plan, false));
       chatMetrics.recordStreamEnd(streamSample);
       emitter.complete();
     }
@@ -642,11 +628,7 @@ public class ChatService {
     AtomicReference<Long> savedMessageId = new AtomicReference<>();
     try (clientHolder) {
       String assistantResponse = fullText.toString();
-      Usage usage = lastUsage.get();
-
-      Long promptTokens = usage != null ? safeLong(usage.getPromptTokens()) : null;
-      Long generationTokens = usage != null ? safeLong(usage.getCompletionTokens()) : null;
-      Long totalTokens = usage != null ? safeLong(usage.getTotalTokens()) : null;
+      TokenUsage tokenUsage = chatUsageRecorder.tokenUsage(lastUsage.get());
 
       MessageEntity assistantMessage = new MessageEntity();
       assistantMessage.setChatId(chatId);
@@ -654,9 +636,9 @@ public class ChatService {
       assistantMessage.setRole(Role.ASSISTANT);
       assistantMessage.setContext(assistantContext);
       assistantMessage.setCreatedAt(Instant.now());
-      assistantMessage.setPromptTokens(promptTokens);
-      assistantMessage.setGenerationTokens(generationTokens);
-      assistantMessage.setTotalTokens(totalTokens);
+      assistantMessage.setPromptTokens(tokenUsage.promptTokens());
+      assistantMessage.setGenerationTokens(tokenUsage.generationTokens());
+      assistantMessage.setTotalTokens(tokenUsage.totalTokens());
 
       if (!chatRepository.existsById(chatId)) {
         log.warn("Chat {} was deleted during streaming — skipping assistant message save", chatId);
@@ -678,9 +660,9 @@ public class ChatService {
                   new StreamEventDTO(
                       "done",
                       null,
-                      promptTokens,
-                      generationTokens,
-                      totalTokens,
+                      tokenUsage.promptTokens(),
+                      tokenUsage.generationTokens(),
+                      tokenUsage.totalTokens(),
                       updatedTitle,
                       assistantMessage.getId(),
                       !toolExecutionCollector.isEmpty(),
@@ -696,18 +678,17 @@ public class ChatService {
       log.warn("Failed to send SSE done event", e);
       emitter.complete();
     } finally {
-      TokenUsage tokenUsage = toTokenUsage(lastUsage.get());
-      recordUsageAndMaybeIncrementCounter(
-          userId,
-          provider,
-          modelId,
-          tokenUsage.promptTokens(),
-          tokenUsage.generationTokens(),
-          tokenUsage.totalTokens(),
-          savedMessageId.get(),
-          billingMode,
-          plan,
-          true);
+      TokenUsage tokenUsage = chatUsageRecorder.tokenUsage(lastUsage.get());
+      chatUsageRecorder.recordUsage(
+          new ChatUsage(
+              userId,
+              provider,
+              modelId,
+              tokenUsage,
+              savedMessageId.get(),
+              billingMode,
+              plan,
+              true));
       chatMetrics.recordStreamEnd(streamSample);
     }
   }
@@ -726,66 +707,6 @@ public class ChatService {
 
   private record ResolvedCall(
       String apiKey, BillingMode billingMode, Entitlements entitlements) {}
-
-  private Plan resolvePlanForMetrics(String userId) {
-    try {
-      var entitlements = entitlementService.get(userId);
-      return entitlements == null ? null : entitlements.plan();
-    } catch (Exception ex) {
-      log.debug("Unable to resolve plan for chat metrics user={}", userId, ex);
-      return null;
-    }
-  }
-
-  private void recordUsageAndMaybeIncrementCounter(
-      String userId,
-      Provider provider,
-      String modelId,
-      Long promptTokens,
-      Long generationTokens,
-      Long totalTokens,
-      Long messageId,
-      BillingMode billingMode,
-      Plan plan,
-      boolean providerCallSucceeded) {
-    chatMetrics.recordRequest(provider, modelId, plan, providerCallSucceeded ? "success" : "error");
-    chatMetrics.recordTokens(provider, modelId, "prompt", promptTokens);
-    chatMetrics.recordTokens(provider, modelId, "completion", generationTokens);
-    try {
-      usageEventService.record(
-          userId,
-          provider,
-          modelId,
-          promptTokens,
-          generationTokens,
-          totalTokens,
-          messageId,
-          billingMode);
-    } catch (Exception ex) {
-      log.warn("Failed to record usage event for user {}", userId, ex);
-    }
-    if (billingMode == BillingMode.MANAGED && providerCallSucceeded) {
-      try {
-        entitlementService.incrementCounter(userId);
-      } catch (Exception ex) {
-        log.warn("Failed to increment managed usage counter for user {}", userId, ex);
-      }
-    }
-  }
-
-  private TokenUsage toTokenUsage(Usage usage) {
-    if (usage == null) {
-      return TokenUsage.EMPTY;
-    }
-    return new TokenUsage(
-        safeLong(usage.getPromptTokens()),
-        safeLong(usage.getCompletionTokens()),
-        safeLong(usage.getTotalTokens()));
-  }
-
-  private record TokenUsage(Long promptTokens, Long generationTokens, Long totalTokens) {
-    private static final TokenUsage EMPTY = new TokenUsage(null, null, null);
-  }
 
   /**
    * Saves the streamed assistant message. Returns {@code true} on success,
@@ -1051,10 +972,6 @@ public class ChatService {
     } finally {
       emitter.complete();
     }
-  }
-
-  private static Long safeLong(Number value) {
-    return value == null ? null : value.longValue();
   }
 
   public record ClientHolder(

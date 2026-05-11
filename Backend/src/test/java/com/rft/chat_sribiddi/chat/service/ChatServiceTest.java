@@ -111,10 +111,12 @@ class ChatServiceTest {
             entitlementService);
     PromptMessageBuilder promptMessageBuilder =
         new PromptMessageBuilder(messageRepository, chatProperties, mediaValidationService);
+    ChatUsageRecorder chatUsageRecorder =
+        new ChatUsageRecorder(entitlementService, usageEventService, chatMetrics);
     return new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
         providerClientFactory, chatProperties, mediaValidationService, userSettingsService,
-        promptToolBinder, promptMessageBuilder, billingModeResolver,
-        entitlementService, usageEventService, chatMetrics);
+        promptToolBinder, promptMessageBuilder, chatUsageRecorder, billingModeResolver,
+        entitlementService, chatMetrics);
   }
 
   @BeforeEach
