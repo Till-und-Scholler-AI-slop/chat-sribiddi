@@ -35,10 +35,10 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
   private final OpenAiProviderProperties openAiProperties;
   private final GoogleProviderProperties googleProperties;
   private final OpenRouterProviderProperties openRouterProperties;
-  private final Cache<String, ChatService.ClientHolder> openAiCache;
-  private final Cache<String, ChatService.ClientHolder> googleCache;
-  private final Cache<String, ChatService.ClientHolder> claudeCache;
-  private final Cache<String, ChatService.ClientHolder> openRouterCache;
+  private final Cache<String, ProviderClientHandle> openAiCache;
+  private final Cache<String, ProviderClientHandle> googleCache;
+  private final Cache<String, ProviderClientHandle> claudeCache;
+  private final Cache<String, ProviderClientHandle> openRouterCache;
 
   public DefaultProviderClientFactory(
       OpenAiProviderProperties openAiProperties,
@@ -53,12 +53,12 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
     this.openRouterCache = buildCache();
   }
 
-  private Cache<String, ChatService.ClientHolder> buildCache() {
+  private Cache<String, ProviderClientHandle> buildCache() {
     return Caffeine.newBuilder()
         .expireAfterAccess(30, TimeUnit.MINUTES)
         .maximumSize(200)
         .removalListener(
-            (String _, ChatService.ClientHolder holder, RemovalCause _) -> {
+            (String _, ProviderClientHandle holder, RemovalCause _) -> {
               try {
                 holder.close();
               } catch (Exception e) {
@@ -69,7 +69,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
   }
 
   @Override
-  public ChatService.ClientHolder getClient(
+  public ProviderClientHandle getClient(
       Provider provider, String apiKey, BillingMode billingMode) {
     if (apiKey == null || apiKey.isBlank()) {
       throw new IllegalArgumentException("API key is required for provider %s".formatted(provider));
@@ -101,7 +101,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                         .build();
                 ChatClient client =
                     ChatClient.create(OpenAiChatModel.builder().openAiApi(openAiApi).build());
-                return new ChatService.ClientHolder(client, null);
+                return new ProviderClientHandle(client, null);
               });
       case GOOGLE ->
           googleCache.get(
@@ -112,7 +112,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                 GoogleGenAiChatModel model =
                     GoogleGenAiChatModel.builder().genAiClient(googleClient).build();
                 ChatClient chatClient = ChatClient.create(model);
-                return new ChatService.ClientHolder(chatClient, null);
+                return new ProviderClientHandle(chatClient, null);
               });
       case CLAUDE ->
           claudeCache.get(
@@ -123,7 +123,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                 ChatClient chatClient =
                     ChatClient.create(
                         AnthropicChatModel.builder().anthropicClient(anthropicClient).build());
-                return new ChatService.ClientHolder(chatClient, null);
+                return new ProviderClientHandle(chatClient, null);
               });
       case OPENROUTER ->
           openRouterCache.get(
@@ -147,7 +147,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                         .build();
                 ChatClient chatClient =
                     ChatClient.create(OpenAiChatModel.builder().openAiApi(openRouterApi).build());
-                return new ChatService.ClientHolder(chatClient, null);
+                return new ProviderClientHandle(chatClient, null);
               });
       case BRAVE_SEARCH ->
           throw new UnsupportedOperationException("BRAVE_SEARCH is not a chat model provider");

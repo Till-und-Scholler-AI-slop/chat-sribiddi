@@ -1,4 +1,5 @@
-import type { ModelOption, StreamEvent, TokenUsage } from '~/composables/useChatApi'
+import type { StreamEvent } from '~/composables/chat-stream'
+import type { ModelOption, TokenUsage } from '~/composables/useChatApi'
 import { isModelLocked, PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { calculateMessageCost } from '~/composables/chat-helpers'
 
