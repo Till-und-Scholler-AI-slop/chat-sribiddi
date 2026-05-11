@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import {
-  isModelLocked,
   isTerminalStreamEvent,
+  parseSseEvents
+} from '../chat-stream'
+import {
+  isModelLocked,
   modelEndpointPath,
   normalizeAvailability,
   normalizeBaseUrl,
   normalizeRequiredPlan,
-  parseSseEvents,
   REQUEST_USER_ID_HEADER,
   useChatApi,
   withRequestUserId
