@@ -20,7 +20,6 @@ import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.net.http.HttpClient;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -83,8 +82,7 @@ class PromptToolBinderTest {
     when(customTool.getName()).thenReturn("custom-tool");
     when(toolRegistry.getAll()).thenReturn(List.of(customTool));
     when(entitlementService.get("user-123")).thenReturn(entitlements("*"));
-    when(chatToolRepository.findByChatIdAndToolName(chatId, "custom-tool"))
-        .thenReturn(Optional.of(enabledTool("custom-tool")));
+    when(chatToolRepository.findByChatId(chatId)).thenReturn(List.of(enabledTool("custom-tool")));
 
     binder.bindTools(
         chatId,
@@ -118,6 +116,7 @@ class PromptToolBinderTest {
 
     verify(promptSpec, never()).tools(any());
     verify(chatToolRepository, never()).findByChatIdAndToolName(any(), anyString());
+    verify(chatToolRepository, never()).findByChatId(any());
   }
 
   private static ChatToolEntity enabledTool(String toolName) {

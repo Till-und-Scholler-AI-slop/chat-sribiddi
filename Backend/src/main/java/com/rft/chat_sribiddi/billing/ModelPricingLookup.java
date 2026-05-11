@@ -32,6 +32,8 @@ public class ModelPricingLookup {
 
   private final ModelCatalogProperties catalog;
   private final Map<String, Pricing> livePricingByProviderAndModel = new ConcurrentHashMap<>();
+  private final Map<String, Optional<Pricing>> configuredPricingByProviderAndModel =
+      new ConcurrentHashMap<>();
 
   /** Model pricing in USD per 1,000,000 tokens. */
   public record Pricing(double inputUsdPerMillion, double outputUsdPerMillion) {}
@@ -49,15 +51,14 @@ public class ModelPricingLookup {
     if (live != null) {
       return Optional.of(live);
     }
-    Optional<ModelOption> match =
-        listFor(provider).stream().filter(opt -> modelId.equals(opt.getId())).findFirst();
-    if (match.isPresent()) {
-      Double prompt = parseUsdPerMillion(match.get().getPromptPrice());
-      Double completion = parseUsdPerMillion(match.get().getCompletionPrice());
-      if (prompt != null && completion != null) {
-        return Optional.of(new Pricing(prompt, completion));
-      }
+
+    Optional<Pricing> configured =
+        configuredPricingByProviderAndModel.computeIfAbsent(
+            key(provider, modelId), ignored -> findConfiguredPricing(provider, modelId));
+    if (configured.isPresent()) {
+      return configured;
     }
+
     // OpenRouter free-model convention: ids ending with ':free' are zero-cost.
     if (provider == Provider.OPENROUTER && modelId.endsWith(":free")) {
       return Optional.of(new Pricing(0.0, 0.0));
@@ -83,6 +84,21 @@ public class ModelPricingLookup {
         livePricingByProviderAndModel.put(key(provider, model.getId()), new Pricing(prompt, completion));
       }
     }
+  }
+
+  private Optional<Pricing> findConfiguredPricing(Provider provider, String modelId) {
+    Optional<ModelOption> match =
+        listFor(provider).stream().filter(opt -> modelId.equals(opt.getId())).findFirst();
+    if (match.isEmpty()) {
+      return Optional.empty();
+    }
+
+    Double prompt = parseUsdPerMillion(match.get().getPromptPrice());
+    Double completion = parseUsdPerMillion(match.get().getCompletionPrice());
+    if (prompt == null || completion == null) {
+      return Optional.empty();
+    }
+    return Optional.of(new Pricing(prompt, completion));
   }
 
   private static String key(Provider provider, String modelId) {

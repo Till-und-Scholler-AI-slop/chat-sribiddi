@@ -24,9 +24,11 @@ import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.net.http.HttpClient;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -71,11 +73,20 @@ public class PromptToolBinder {
           modelId);
       return;
     }
+    Entitlements entitlements = resolveEntitlements(userId);
+    if (entitlements == null) {
+      return;
+    }
+
+    Map<String, Boolean> enabledByToolName = null;
     for (ChatTool tool : toolRegistry.getAll()) {
-      if (!isToolAllowedForUser(userId, tool.getName())) {
+      if (!entitlements.allowsTool(tool.getName())) {
         continue;
       }
-      if (!isToolEnabledForChat(chatId, tool.getName())) {
+      if (enabledByToolName == null) {
+        enabledByToolName = loadToolOverrides(chatId);
+      }
+      if (!isToolEnabledForChat(tool.getName(), enabledByToolName)) {
         continue;
       }
       if (tool.requiresPerCallConsent() && !hasToolConsent(tool, toolConsents)) {
@@ -188,25 +199,30 @@ public class PromptToolBinder {
     return patternIndex == pattern.length();
   }
 
-  private boolean isToolAllowedForUser(String userId, String toolName) {
+  private Entitlements resolveEntitlements(String userId) {
     try {
-      Entitlements entitlements = entitlementService.get(userId);
-      return entitlements != null && entitlements.allowsTool(toolName);
+      return entitlementService.get(userId);
     } catch (RuntimeException ex) {
-      log.debug("Unable to resolve tool entitlement user={} tool={}", userId, toolName, ex);
-      return false;
+      log.debug("Unable to resolve tool entitlements user={}", userId, ex);
+      return null;
     }
   }
 
-  private boolean isToolEnabledForChat(UUID chatId, String toolName) {
-    return chatToolRepository
-        .findByChatIdAndToolName(chatId, toolName)
-        .map(ChatToolEntity::isEnabled)
-        .orElseGet(
-            () ->
-                switch (toolName) {
-                  case "calculator", "current-datetime", "brave-search" -> true;
-                  default -> false;
-                });
+  private Map<String, Boolean> loadToolOverrides(UUID chatId) {
+    return chatToolRepository.findByChatId(chatId).stream()
+        .collect(
+            Collectors.toMap(
+                ChatToolEntity::getToolName, ChatToolEntity::isEnabled, (first, second) -> second));
+  }
+
+  private boolean isToolEnabledForChat(String toolName, Map<String, Boolean> enabledByToolName) {
+    Boolean configured = enabledByToolName.get(toolName);
+    if (configured != null) {
+      return configured;
+    }
+    return switch (toolName) {
+      case "calculator", "current-datetime", "brave-search" -> true;
+      default -> false;
+    };
   }
 }

@@ -9,17 +9,22 @@ import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.billing.EntitlementService;
+import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.http.HttpStatus;
 
 @Service
 @RequiredArgsConstructor
@@ -34,14 +39,24 @@ public class ChatToolService {
   private static final Set<String> DEFAULT_ENABLED_TOOLS =
       Set.of("calculator", "current-datetime", "brave-search");
 
+  @Transactional(readOnly = true)
   public List<AvailableToolDTO> listAvailableTools(UUID chatId, String userId) {
     ensureChatExists(chatId, userId);
-    return toolRegistry.getAll().stream()
-        .map(tool -> new AvailableToolDTO(
-            tool.getName(),
-            tool.getDisplayName(),
-            tool.getDescription(),
-            isToolAvailableAndEnabled(chatId, tool.getName(), tool.requiresUserConfig(), userId)))
+    Collection<ChatTool> tools = toolRegistry.getAll();
+    Entitlements entitlements = entitlementService.get(userId);
+    Map<String, Boolean> enabledByToolName = loadToolOverrides(chatId);
+    boolean braveSearchConfigured = isBraveSearchConfigNeeded(tools, entitlements)
+        && apiKeyService.getKey(userId, Provider.BRAVE_SEARCH).isPresent();
+
+    return tools.stream()
+        .map(
+            tool ->
+                new AvailableToolDTO(
+                    tool.getName(),
+                    tool.getDisplayName(),
+                    tool.getDescription(),
+                    isToolAvailableAndEnabled(
+                        tool, entitlements, enabledByToolName, braveSearchConfigured)))
         .toList();
   }
 
@@ -51,10 +66,11 @@ public class ChatToolService {
     ensureChatExists(chatId, userId);
     String toolName = request.toolName().trim();
     ensureToolRegistered(toolName);
-    if (request.enabled() && !isToolAllowedForUser(toolName, userId)) {
+    Entitlements entitlements = entitlementService.get(userId);
+    if (request.enabled() && !entitlements.allowsTool(toolName)) {
       throw new PlanRestrictionException(
           PlanRestrictionException.Reason.TOOL_NOT_ALLOWED,
-          entitlementService.get(userId).plan(),
+          entitlements.plan(),
           "Tool '%s' is not available on the current plan".formatted(toolName));
     }
 
@@ -72,30 +88,24 @@ public class ChatToolService {
     return ChatToolResponseDTO.from(chatToolRepository.save(entity));
   }
 
-  public boolean isToolEnabled(UUID chatId, String toolName) {
-    return chatToolRepository
-        .findByChatIdAndToolName(chatId, toolName)
-        .map(ChatToolEntity::isEnabled)
-        .orElse(DEFAULT_ENABLED_TOOLS.contains(toolName));
-  }
-
   private boolean isToolAvailableAndEnabled(
-      UUID chatId, String toolName, boolean requiresUserConfig, String userId) {
-    return isToolAllowedForUser(toolName, userId)
-        && isToolEnabledForUser(toolName, requiresUserConfig, userId)
-        && isToolEnabled(chatId, toolName);
+      ChatTool tool,
+      Entitlements entitlements,
+      Map<String, Boolean> enabledByToolName,
+      boolean braveSearchConfigured) {
+    String toolName = tool.getName();
+    return entitlements.allowsTool(toolName)
+        && isToolEnabledForUser(toolName, tool.requiresUserConfig(), braveSearchConfigured)
+        && isToolEnabledForChat(toolName, enabledByToolName);
   }
 
-  private boolean isToolAllowedForUser(String toolName, String userId) {
-    return entitlementService.get(userId).allowsTool(toolName);
-  }
-
-  private boolean isToolEnabledForUser(String toolName, boolean requiresUserConfig, String userId) {
+  private boolean isToolEnabledForUser(
+      String toolName, boolean requiresUserConfig, boolean braveSearchConfigured) {
     if (!requiresUserConfig) {
       return true;
     }
     return switch (toolName) {
-      case "brave-search" -> apiKeyService.getKey(userId, Provider.BRAVE_SEARCH).isPresent();
+      case "brave-search" -> braveSearchConfigured;
       default -> false;
     };
   }
@@ -107,9 +117,28 @@ public class ChatToolService {
   }
 
   private void ensureToolRegistered(String toolName) {
-    boolean exists = toolRegistry.getAll().stream().anyMatch(tool -> tool.getName().equals(toolName));
-    if (!exists) {
+    if (!toolRegistry.has(toolName)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown tool: " + toolName);
     }
+  }
+
+  private Map<String, Boolean> loadToolOverrides(UUID chatId) {
+    return chatToolRepository.findByChatId(chatId).stream()
+        .collect(
+            Collectors.toMap(
+                ChatToolEntity::getToolName, ChatToolEntity::isEnabled, (first, second) -> second));
+  }
+
+  private boolean isToolEnabledForChat(String toolName, Map<String, Boolean> enabledByToolName) {
+    return enabledByToolName.getOrDefault(toolName, DEFAULT_ENABLED_TOOLS.contains(toolName));
+  }
+
+  private boolean isBraveSearchConfigNeeded(Collection<ChatTool> tools, Entitlements entitlements) {
+    return tools.stream()
+        .anyMatch(
+            tool ->
+                "brave-search".equals(tool.getName())
+                    && tool.requiresUserConfig()
+                    && entitlements.allowsTool(tool.getName()));
   }
 }

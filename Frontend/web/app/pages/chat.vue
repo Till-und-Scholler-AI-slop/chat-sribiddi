@@ -328,6 +328,7 @@ watch(
   })),
   (newSnapshots, oldSnapshots) => {
     if (!newSnapshots) return
+    const oldSnapshotsById = new Map(oldSnapshots?.map(snapshot => [snapshot.id, snapshot]) ?? [])
 
     for (const snapshot of newSnapshots) {
       if (snapshot.role !== 'assistant') continue
@@ -335,7 +336,7 @@ watch(
       if (snapshot.toolCount !== 0) continue
       if (isToolCallLoading(snapshot.id)) continue
 
-      const prev = oldSnapshots?.find(p => p.id === snapshot.id)
+      const prev = oldSnapshotsById.get(snapshot.id)
       const justBecameToolAware =
         !prev || (prev.hasTools === false && snapshot.hasTools === true)
 

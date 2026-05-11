@@ -3,6 +3,8 @@ import { PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { favoriteModelKey } from '~/composables/chat-helpers'
 import { useUserSettings } from '~/composables/useUserSettings'
 
+const PROVIDER_RANK = new Map(PROVIDERS.map((provider, index) => [provider, index]))
+
 export function useModelStore() {
   const { fetchModels } = useChatApi()
   const { settings } = useUserSettings()
@@ -20,8 +22,10 @@ export function useModelStore() {
     return models.value[0] || null
   })
 
+  const favoriteModelKeys = computed(() => new Set(settings.value.favoriteModels))
+
   const isFavorite = (model: ModelOption): boolean =>
-    settings.value.favoriteModels.includes(favoriteModelKey(model))
+    favoriteModelKeys.value.has(favoriteModelKey(model))
 
   const toggleFavorite = (model: ModelOption) => {
     const key = favoriteModelKey(model)
@@ -39,7 +43,7 @@ export function useModelStore() {
       const bFav = isFavorite(b) ? 0 : 1
       if (aFav !== bFav) return aFav - bFav
       if (a.provider !== b.provider) {
-        return PROVIDERS.indexOf(a.provider) - PROVIDERS.indexOf(b.provider)
+        return (PROVIDER_RANK.get(a.provider) ?? 0) - (PROVIDER_RANK.get(b.provider) ?? 0)
       }
       return a.label.localeCompare(b.label)
     })
