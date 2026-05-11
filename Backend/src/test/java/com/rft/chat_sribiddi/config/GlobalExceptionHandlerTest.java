@@ -44,4 +44,24 @@ class GlobalExceptionHandlerTest {
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     assertThat(response.getBody()).containsEntry("message", "Invalid model");
   }
+
+  @Test
+  void handleOpenAiService_preserves429Status() {
+    var ex =
+        com.openai.errors.RateLimitException.builder()
+            .headers(com.openai.core.http.Headers.builder().build())
+            .error(
+                com.openai.models.ErrorObject.builder()
+                    .code("rate_limit_exceeded")
+                    .message("Rate limit exceeded")
+                    .param(java.util.Optional.empty())
+                    .type("rate_limit_error")
+                    .build())
+            .build();
+
+    var response = handler.handleOpenAiService(ex);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    assertThat(response.getBody()).containsEntry("message", "Rate limit exceeded");
+  }
 }

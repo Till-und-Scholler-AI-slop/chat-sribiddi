@@ -9,7 +9,6 @@ import org.springframework.stereotype.Component;
 public class OpenRouterProviderProperties {
 
   private String baseUrl = "https://openrouter.ai/api/v1";
-  private String completionsPath = "/chat/completions";
   private String modelCatalogUrl = "https://openrouter.ai/api/v1/models";
   private Set<String> allowedModelCatalogHosts = Set.of("openrouter.ai");
 
@@ -29,14 +28,6 @@ public class OpenRouterProviderProperties {
 
   public void setBaseUrl(String baseUrl) {
     this.baseUrl = baseUrl;
-  }
-
-  public String getCompletionsPath() {
-    return completionsPath;
-  }
-
-  public void setCompletionsPath(String completionsPath) {
-    this.completionsPath = completionsPath;
   }
 
   public String getModelCatalogUrl() {

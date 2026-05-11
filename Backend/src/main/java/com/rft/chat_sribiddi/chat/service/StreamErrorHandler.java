@@ -1,7 +1,10 @@
 package com.rft.chat_sribiddi.chat.service;
 
+import com.anthropic.errors.AnthropicServiceException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openai.errors.OpenAIServiceException;
+import com.openai.models.ErrorObject;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
@@ -34,7 +37,29 @@ public final class StreamErrorHandler {
     if (error instanceof RestClientResponseException restEx) {
       return formatProviderError(restEx.getResponseBodyAsString(), restEx.getStatusCode().value());
     }
+    if (error instanceof OpenAIServiceException openAiEx) {
+      return formatProviderError(openAiEx);
+    }
+    if (error instanceof AnthropicServiceException anthropicEx) {
+      return formatProviderError(anthropicEx);
+    }
     return "An error occurred while streaming the response.";
+  }
+
+  public static String formatProviderError(OpenAIServiceException ex) {
+    try {
+      String message = ex.body().convert(ErrorObject.class).message();
+      if (message != null && !message.isBlank()) {
+        return message;
+      }
+    } catch (Exception e) {
+      log.debug("Failed to extract OpenAI SDK error body", e);
+    }
+    return formatProviderError(ex.body().toString(), ex.statusCode());
+  }
+
+  public static String formatProviderError(AnthropicServiceException ex) {
+    return formatProviderError(ex.body().toString(), ex.statusCode());
   }
 
   public static String formatProviderError(String responseBody, int statusCode) {
@@ -120,6 +145,12 @@ public final class StreamErrorHandler {
         }
         case RestClientResponseException restEx -> {
           return restEx.getStatusCode().value();
+        }
+        case OpenAIServiceException openAiEx -> {
+          return openAiEx.statusCode();
+        }
+        case AnthropicServiceException anthropicEx -> {
+          return anthropicEx.statusCode();
         }
         default -> {
           current = current.getCause();

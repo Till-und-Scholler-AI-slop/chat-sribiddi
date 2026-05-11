@@ -1,12 +1,12 @@
 plugins {
     java
-    id("org.springframework.boot") version "4.0.3"
+    id("org.springframework.boot") version "4.0.6"
     id("io.spring.dependency-management") version "1.1.7"
 }
-val springAiVersion by extra("2.0.0-M4")
+val springAiVersion by extra("2.0.0-M6")
 val bucket4jVersion by extra("8.18.0")
 val dotenvJavaVersion by extra("3.2.0")
-val stripeJavaVersion by extra("32.0.0")
+val stripeJavaVersion by extra("32.1.0")
 
 group = "com.rft"
 version = "0.0.1-SNAPSHOT"
@@ -34,6 +34,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.flywaydb:flyway-database-postgresql")
+    implementation("org.springframework:spring-webflux")
     implementation("io.github.cdimascio:dotenv-java:$dotenvJavaVersion")
     implementation("org.springframework.boot:spring-boot-starter-oauth2-client")
     implementation("com.github.ben-manes.caffeine:caffeine")

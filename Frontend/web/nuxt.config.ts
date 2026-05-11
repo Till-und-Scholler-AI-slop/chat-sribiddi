@@ -62,8 +62,7 @@ export default defineNuxtConfig({
             sourcemap: false,
             rollupOptions: {
                 output: {
-                    manualChunks,
-                    onlyExplicitManualChunks: true
+                    manualChunks
                 },
                 onLog(level, log, handler) {
                     if (isKnownSourcemapWarning(log)) return

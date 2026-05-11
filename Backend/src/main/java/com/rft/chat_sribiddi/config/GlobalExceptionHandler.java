@@ -1,5 +1,7 @@
 package com.rft.chat_sribiddi.config;
 
+import com.anthropic.errors.AnthropicServiceException;
+import com.openai.errors.OpenAIServiceException;
 import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.service.StreamErrorHandler;
@@ -97,6 +99,20 @@ public class GlobalExceptionHandler {
     HttpStatus mappedStatus = mapProviderStatus(ex.getStatusCode());
     String message = StreamErrorHandler.formatProviderError(
         ex.getResponseBodyAsString(), ex.getStatusCode().value());
+    return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
+  }
+
+  @ExceptionHandler(OpenAIServiceException.class)
+  public ResponseEntity<Map<String, String>> handleOpenAiService(OpenAIServiceException ex) {
+    HttpStatus mappedStatus = mapProviderStatus(HttpStatusCode.valueOf(ex.statusCode()));
+    String message = StreamErrorHandler.formatProviderError(ex);
+    return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
+  }
+
+  @ExceptionHandler(AnthropicServiceException.class)
+  public ResponseEntity<Map<String, String>> handleAnthropicService(AnthropicServiceException ex) {
+    HttpStatus mappedStatus = mapProviderStatus(HttpStatusCode.valueOf(ex.statusCode()));
+    String message = StreamErrorHandler.formatProviderError(ex);
     return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
   }
 

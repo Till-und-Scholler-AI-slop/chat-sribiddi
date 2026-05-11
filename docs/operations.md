@@ -162,6 +162,10 @@ https://germinai.de/login/oauth2/code/google
 Production startup must be validated through CI/deploy, not only focused unit
 tests. The following issues have previously broken the VPS:
 
+- Spring AI 2.0.0-M6 uses the official OpenAI Java SDK for OpenAI-compatible
+  chat requests. For OpenRouter, configure `OPENROUTER_BASE_URL` with the API
+  root such as `https://openrouter.ai/api/v1`; there is no separate
+  `OPENROUTER_COMPLETIONS_PATH` override.
 - Spring Boot 4 uses Jackson 3 under the `tools.jackson.*` package for its
   auto-configured mapper. Services that inject the Boot-managed mapper should
   use `tools.jackson.databind.ObjectMapper`, not `com.fasterxml.jackson.databind.ObjectMapper`.

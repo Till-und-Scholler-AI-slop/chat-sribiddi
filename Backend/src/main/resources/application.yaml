@@ -206,7 +206,6 @@ app:
       read-timeout: ${MODEL_CATALOG_READ_TIMEOUT:15s}
     openrouter:
       base-url: ${OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
-      completions-path: ${OPENROUTER_COMPLETIONS_PATH:/chat/completions}
       model-catalog-url: ${OPENROUTER_MODEL_CATALOG_URL:https://openrouter.ai/api/v1/models}
       allowed-model-catalog-hosts: ${OPENROUTER_ALLOWED_MODEL_CATALOG_HOSTS:openrouter.ai}
       # Attribution headers sent with every OpenRouter request (HTTP-Referer, X-Title). Required
