@@ -201,7 +201,7 @@ public class ChatService {
           providerClientFactory.buildOptions(
               requestDTO.provider(), requestDTO.modelId(), resolvedCall.apiKey());
       var client = clientHolder.client();
-      var promptSpec = client.prompt().options(options).messages(prep.promptMessages());
+      var promptSpec = client.prompt().options(options.mutate()).messages(prep.promptMessages());
       promptToolBinder.bindTools(
           chatId,
           userId,
@@ -395,7 +395,7 @@ public class ChatService {
           providerClientFactory.buildOptions(
               requestDTO.provider(), requestDTO.modelId(), resolvedCall.apiKey());
       var client = clientHolder.client();
-      var promptSpec = client.prompt().options(options).messages(promptMessages);
+      var promptSpec = client.prompt().options(options.mutate()).messages(promptMessages);
       ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
       promptToolBinder.bindTools(
           chatId,

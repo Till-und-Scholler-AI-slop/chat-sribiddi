@@ -1126,6 +1126,26 @@ class ChatServiceTest {
   }
 
   @Test
+  void extractProviderErrorMessage_parsesOpenAiSdkServiceException() {
+    var ex =
+        com.openai.errors.UnexpectedStatusCodeException.builder()
+            .statusCode(400)
+            .headers(com.openai.core.http.Headers.builder().build())
+            .error(
+                com.openai.models.ErrorObject.builder()
+                    .code("model_not_found")
+                    .message("Invalid model")
+                    .param(java.util.Optional.empty())
+                    .type("invalid_request_error")
+                    .build())
+            .build();
+
+    String result = StreamErrorHandler.extractProviderMessage(ex);
+
+    assertThat(result).isEqualTo("Invalid model");
+  }
+
+  @Test
   void extractProviderErrorMessage_returnsGenericMessage_forNonProviderError() {
     var ex = new RuntimeException("Something unexpected");
 

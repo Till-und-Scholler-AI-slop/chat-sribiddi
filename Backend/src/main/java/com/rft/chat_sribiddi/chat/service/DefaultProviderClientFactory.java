@@ -1,6 +1,9 @@
 package com.rft.chat_sribiddi.chat.service;
 
 import com.anthropic.client.AnthropicClient;
+import com.openai.client.OpenAIClient;
+import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.core.Timeout;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
@@ -8,7 +11,9 @@ import com.google.genai.Client;
 import com.google.genai.types.HttpOptions;
 import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
-import java.net.http.HttpClient;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.anthropic.AnthropicChatModel;
@@ -20,12 +25,9 @@ import org.springframework.ai.google.genai.GoogleGenAiChatModel;
 import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 @Slf4j
 @Primary
@@ -86,21 +88,11 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
           openAiCache.get(
               cacheKey,
               _ -> {
-                HttpClient httpClient =
-                    HttpClient.newBuilder()
-                        .connectTimeout(openAiProperties.getConnectTimeout())
-                        .build();
-                JdkClientHttpRequestFactory requestFactory =
-                    new JdkClientHttpRequestFactory(httpClient);
-                requestFactory.setReadTimeout(openAiProperties.getReadTimeout());
-
-                OpenAiApi openAiApi =
-                    OpenAiApi.builder()
-                        .apiKey(apiKey)
-                        .restClientBuilder(RestClient.builder().requestFactory(requestFactory))
-                        .build();
                 ChatClient client =
-                    ChatClient.create(OpenAiChatModel.builder().openAiApi(openAiApi).build());
+                    ChatClient.create(
+                        OpenAiChatModel.builder()
+                            .openAiClient(buildOpenAiClient(apiKey))
+                            .build());
                 return new ProviderClientHandle(client, null);
               });
       case GOOGLE ->
@@ -129,24 +121,11 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
           openRouterCache.get(
               cacheKey,
               _ -> {
-                HttpClient httpClient =
-                    HttpClient.newBuilder()
-                        .connectTimeout(openAiProperties.getConnectTimeout())
-                        .build();
-                JdkClientHttpRequestFactory requestFactory =
-                    new JdkClientHttpRequestFactory(httpClient);
-                requestFactory.setReadTimeout(openAiProperties.getReadTimeout());
-
-                OpenAiApi openRouterApi =
-                    OpenAiApi.builder()
-                        .apiKey(apiKey)
-                        .baseUrl(openRouterProperties.getBaseUrl())
-                        .completionsPath(openRouterProperties.getCompletionsPath())
-                        .headers(buildOpenRouterAttributionHeaders())
-                        .restClientBuilder(RestClient.builder().requestFactory(requestFactory))
-                        .build();
                 ChatClient chatClient =
-                    ChatClient.create(OpenAiChatModel.builder().openAiApi(openRouterApi).build());
+                    ChatClient.create(
+                        OpenAiChatModel.builder()
+                            .openAiClient(buildOpenRouterClient(apiKey))
+                            .build());
                 return new ProviderClientHandle(chatClient, null);
               });
       case BRAVE_SEARCH ->
@@ -176,10 +155,34 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
         .build();
   }
 
+  private OpenAIClient buildOpenAiClient(String apiKey) {
+    return OpenAIOkHttpClient.builder()
+        .apiKey(apiKey)
+        .timeout(buildOpenAiTimeout())
+        .build();
+  }
+
+  private OpenAIClient buildOpenRouterClient(String apiKey) {
+    return OpenAIOkHttpClient.builder()
+        .apiKey(apiKey)
+        .baseUrl(openRouterProperties.getBaseUrl())
+        .headers(buildOpenRouterAttributionHeaderMap())
+        .timeout(buildOpenAiTimeout())
+        .build();
+  }
+
+  private Timeout buildOpenAiTimeout() {
+    return Timeout.builder()
+        .connect(openAiProperties.getConnectTimeout())
+        .read(openAiProperties.getReadTimeout())
+        .request(openAiProperties.getReadTimeout())
+        .build();
+  }
+
   /**
    * Builds the OpenRouter attribution headers ({@code HTTP-Referer}, {@code X-Title}) from the
    * configured {@link OpenRouterProviderProperties}. Blank values are omitted so the resulting
-   * {@link HttpHeaders} is always safe to attach to the {@link OpenAiApi} builder.
+   * {@link HttpHeaders} is always safe to attach to the OpenAI SDK client builder.
    */
   HttpHeaders buildOpenRouterAttributionHeaders() {
     HttpHeaders headers = new HttpHeaders();
@@ -191,6 +194,13 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
     if (appName != null && !appName.isBlank()) {
       headers.set("X-Title", appName);
     }
+    return headers;
+  }
+
+  private Map<String, List<String>> buildOpenRouterAttributionHeaderMap() {
+    Map<String, List<String>> headers = new LinkedHashMap<>();
+    buildOpenRouterAttributionHeaders()
+        .forEach((name, values) -> headers.put(name, List.copyOf(values)));
     return headers;
   }
 }
