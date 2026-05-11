@@ -1,13 +1,40 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 import { fileURLToPath } from 'node:url'
 
-const markstreamCodeRendererStub = fileURLToPath(
-    new URL('./app/utils/markstreamCodeRendererStub.ts', import.meta.url)
+const markstreamCodeRenderer = fileURLToPath(
+    new URL('./app/utils/markstreamCodeRenderer.ts', import.meta.url)
 )
 
 const knownSourcemapWarningPlugins = [
     'nuxt:module-preload-polyfill',
     '@tailwindcss/vite:generate:build'
+]
+
+const markdownHighlightOptimizeDeps = [
+    '@shikijs/langs/bash',
+    '@shikijs/langs/css',
+    '@shikijs/langs/dockerfile',
+    '@shikijs/langs/go',
+    '@shikijs/langs/html',
+    '@shikijs/langs/java',
+    '@shikijs/langs/javascript',
+    '@shikijs/langs/json',
+    '@shikijs/langs/jsx',
+    '@shikijs/langs/kotlin',
+    '@shikijs/langs/markdown',
+    '@shikijs/langs/python',
+    '@shikijs/langs/rust',
+    '@shikijs/langs/sql',
+    '@shikijs/langs/swift',
+    '@shikijs/langs/tsx',
+    '@shikijs/langs/typescript',
+    '@shikijs/langs/vue',
+    '@shikijs/langs/xml',
+    '@shikijs/langs/yaml',
+    '@shikijs/themes/github-dark-dimmed',
+    '@shikijs/themes/github-light',
+    'shiki/core',
+    'shiki/engine/javascript'
 ]
 
 type RollupBuildLog = {
@@ -35,6 +62,14 @@ function manualChunks(id: string): string | undefined {
     }
 
     if (
+        normalizedId.includes('/node_modules/shiki/')
+        || normalizedId.includes('/node_modules/shiki-stream/')
+        || normalizedId.includes('/node_modules/@shikijs/')
+    ) {
+        return 'markdown-highlight'
+    }
+
+    if (
         normalizedId.includes('/node_modules/markstream-vue/')
         || normalizedId.includes('/node_modules/markstream-core/')
         || normalizedId.includes('/node_modules/@chenglou/pretext/')
@@ -51,11 +86,12 @@ export default defineNuxtConfig({
     sourcemap: false,
     vite: {
         optimizeDeps: {
-            include: ['markstream-vue']
+            include: markdownHighlightOptimizeDeps,
+            exclude: ['markstream-vue', 'stream-markdown']
         },
         resolve: {
             alias: {
-                'stream-markdown': markstreamCodeRendererStub
+                'stream-markdown': markstreamCodeRenderer
             }
         },
         build: {
