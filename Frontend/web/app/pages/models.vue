@@ -27,6 +27,7 @@ const toast = useToast()
 const router = useRouter()
 
 const providerFilter = ref<'ALL' | Provider>('ALL')
+const searchQuery = ref('')
 
 const providerLabels: Record<Provider, string> = {
   OPENAI: 'OpenAI',
@@ -59,15 +60,40 @@ const providerFilters = computed(() => [
   { label: providerLabels.OPENROUTER, value: 'OPENROUTER' as const }
 ])
 
+const normalizedSearchQuery = computed(() => searchQuery.value.trim().toLowerCase())
+
+const searchableValues = (model: ModelOption) => [
+  model.label,
+  model.value,
+  model.canonicalSlug,
+  model.description,
+  providerLabels[model.provider],
+  providerSlug[model.provider],
+  model.modality,
+  model.contextLength,
+  model.maxCompletionTokens,
+  ...(model.inputModalities ?? []),
+  ...(model.outputModalities ?? []),
+  ...(model.supportedParameters ?? [])
+]
+
+const matchesSearchQuery = (model: ModelOption, query: string) =>
+  searchableValues(model)
+    .some(value => String(value ?? '').toLowerCase().includes(query))
+
 const filteredModels = computed(() => {
-  if (providerFilter.value === 'ALL') return sortedModels.value
-  return sortedModels.value.filter(model => model.provider === providerFilter.value)
+  const providerFilteredModels = providerFilter.value === 'ALL'
+    ? sortedModels.value
+    : sortedModels.value.filter(model => model.provider === providerFilter.value)
+
+  if (!normalizedSearchQuery.value) return providerFilteredModels
+  return providerFilteredModels.filter(model => matchesSearchQuery(model, normalizedSearchQuery.value))
 })
 
 const PAGE_SIZE = 30
 const currentPage = ref(1)
 
-watch(providerFilter, () => {
+watch([providerFilter, normalizedSearchQuery], () => {
   currentPage.value = 1
 })
 
@@ -179,19 +205,30 @@ onMounted(async () => {
             </p>
           </header>
 
-          <!-- Provider filter pills -->
-          <div class="flex flex-wrap gap-2 mb-8">
-            <button
-              v-for="filter in providerFilters"
-              :key="filter.value"
-              type="button"
-              :aria-pressed="providerFilter === filter.value"
-              class="filter-pill"
-              :class="providerFilter === filter.value ? 'filter-pill-active' : 'filter-pill-inactive'"
-              @click="providerFilter = filter.value"
-            >
-              {{ filter.label }}
-            </button>
+          <!-- Catalogue controls -->
+          <div class="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <UInput
+              v-model="searchQuery"
+              type="search"
+              icon="i-heroicons-magnifying-glass"
+              :placeholder="t('models.searchPlaceholder')"
+              :aria-label="t('models.searchPlaceholder')"
+              class="w-full lg:max-w-md"
+            />
+
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="filter in providerFilters"
+                :key="filter.value"
+                type="button"
+                :aria-pressed="providerFilter === filter.value"
+                class="filter-pill"
+                :class="providerFilter === filter.value ? 'filter-pill-active' : 'filter-pill-inactive'"
+                @click="providerFilter = filter.value"
+              >
+                {{ filter.label }}
+              </button>
+            </div>
           </div>
 
           <!-- Loading skeletons -->
