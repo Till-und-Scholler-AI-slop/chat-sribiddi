@@ -95,11 +95,22 @@ class ChatServiceTest {
     managedKeys.setOpenrouter("srv-openrouter");
     BillingModeResolver billingModeResolver =
         new BillingModeResolver(apiKeyService, entitlementService, managedKeys);
+    PromptToolBinder promptToolBinder =
+        new PromptToolBinder(
+            chatProperties,
+            chatToolRepository,
+            apiKeyService,
+            new com.rft.chat_sribiddi.websearch.WebSearchProperties(),
+            webSearchHttpClient,
+            toolRegistry,
+            calculatorTool,
+            urlFetcherTool,
+            pythonInterpreterTool,
+            new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(),
+            entitlementService);
     return new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
-        apiKeyService, providerClientFactory, chatProperties, new MediaValidationService(chatProperties), userSettingsService,
-        new com.rft.chat_sribiddi.websearch.WebSearchProperties(), webSearchHttpClient,
-        toolRegistry, calculatorTool, urlFetcherTool, pythonInterpreterTool,
-        new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(), billingModeResolver,
+        providerClientFactory, chatProperties, new MediaValidationService(chatProperties), userSettingsService,
+        promptToolBinder, billingModeResolver,
         entitlementService, usageEventService, chatMetrics);
   }
 
@@ -390,18 +401,6 @@ class ChatServiceTest {
     assertThat(log.getInputPayload()).isEqualTo("{}");
     assertThat(log.getOutputPayload()).isNotBlank();
     assertThat(log.getDurationMs()).isGreaterThanOrEqualTo(0L);
-  }
-
-  @Test
-  void supportsTools_usesConfiguredProviderModelWildcards() {
-    ChatProperties properties = new ChatProperties();
-    properties.getToolDisabledModelPatterns().add("google:gemma-*");
-    properties.getToolDisabledModelPatterns().add("openrouter:*venice*uncensored*");
-    chatService = buildChatService(properties);
-
-    assertThat(chatService.supportsTools(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it")).isFalse();
-    assertThat(chatService.supportsTools(RequestDTO.Provider.GOOGLE, "gemini-2.5-flash")).isTrue();
-    assertThat(chatService.supportsTools(RequestDTO.Provider.OPENROUTER, "venice/uncensored")).isFalse();
   }
 
   @Test

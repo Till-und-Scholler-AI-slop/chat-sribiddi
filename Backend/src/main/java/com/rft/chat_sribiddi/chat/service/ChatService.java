@@ -11,7 +11,6 @@ import com.rft.chat_sribiddi.chat.dto.StreamEventDTO;
 import com.rft.chat_sribiddi.chat.dto.ToolCallLogResponseDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
-import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.model.ToolCallLogEntity;
@@ -19,29 +18,15 @@ import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedBraveSearchTool;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedCalculatorTool;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedCurrentDateTimeTool;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedPythonInterpreterTool;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedUrlFetcherTool;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
 import com.rft.chat_sribiddi.billing.BillingModeResolver;
 import com.rft.chat_sribiddi.billing.EntitlementService;
 import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.billing.UsageEventService;
-import com.rft.chat_sribiddi.tools.CalculatorTool;
-import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
-import com.rft.chat_sribiddi.tools.UrlFetcherTool;
-import com.rft.chat_sribiddi.tools.api.ChatTool;
-import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
-import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.observability.ChatMetrics;
-import com.rft.chat_sribiddi.websearch.BraveSearchTool;
-import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.transaction.Transactional;
 import java.io.IOException;
-import java.net.http.HttpClient;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -96,18 +81,11 @@ public class ChatService {
   private final MessageRepository messageRepository;
   private final ToolCallLogRepository toolCallLogRepository;
   private final ChatToolRepository chatToolRepository;
-  private final ApiKeyService apiKeyService;
   private final ProviderClientFactory providerClientFactory;
   private final ChatProperties chatProperties;
   private final MediaValidationService mediaValidationService;
   private final UserSettingsService userSettingsService;
-  private final WebSearchProperties webSearchProperties;
-  private final HttpClient webSearchHttpClient;
-  private final ToolRegistry toolRegistry;
-  private final CalculatorTool calculatorTool;
-  private final UrlFetcherTool urlFetcherTool;
-  private final PythonInterpreterTool pythonInterpreterTool;
-  private final com.rft.chat_sribiddi.tools.CurrentDateTimeTool currentDateTimeTool;
+  private final PromptToolBinder promptToolBinder;
   private final BillingModeResolver billingModeResolver;
   private final EntitlementService entitlementService;
   private final UsageEventService usageEventService;
@@ -242,7 +220,7 @@ public class ChatService {
               requestDTO.provider(), requestDTO.modelId(), resolvedCall.apiKey());
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(prep.promptMessages());
-      wireTools(
+      promptToolBinder.bindTools(
           chatId,
           userId,
           requestDTO.provider(),
@@ -429,7 +407,7 @@ public class ChatService {
       var client = clientHolder.client();
       var promptSpec = client.prompt().options(options).messages(promptMessages);
       ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
-      wireTools(
+      promptToolBinder.bindTools(
           chatId,
           userId,
           requestDTO.provider(),
@@ -1227,159 +1205,4 @@ public class ChatService {
     }
   }
 
-  /**
-   * Resolves a {@link BraveSearchTool} for the given user if they have a Brave Search API key
-   * stored.
-   */
-  private Optional<BraveSearchTool> resolveWebSearchTool(String userId) {
-    return apiKeyService
-        .getKey(userId, Provider.BRAVE_SEARCH)
-        .map(key -> new BraveSearchTool(key, webSearchHttpClient, webSearchProperties));
-  }
-
-  boolean supportsTools(RequestDTO.Provider provider, String modelId) {
-    if (provider == null || modelId == null || modelId.isBlank()) {
-      return true;
-    }
-    String providerName = provider.name().toLowerCase(Locale.ROOT);
-    String normalizedModel = modelId.toLowerCase(Locale.ROOT);
-    return chatProperties.getToolDisabledModelPatterns().stream()
-        .filter(pattern -> pattern != null && !pattern.isBlank())
-        .noneMatch(pattern -> matchesProviderModelPattern(pattern, providerName, normalizedModel));
-  }
-
-  private boolean matchesProviderModelPattern(
-      String rawPattern, String providerName, String normalizedModel) {
-    String pattern = rawPattern.trim().toLowerCase(Locale.ROOT);
-    int separator = pattern.indexOf(':');
-    if (separator <= 0 || separator == pattern.length() - 1) {
-      log.warn("Ignoring invalid app.chat.tool-disabled-model-patterns entry '{}'", rawPattern);
-      return false;
-    }
-    String providerPattern = pattern.substring(0, separator).trim();
-    String modelPattern = pattern.substring(separator + 1).trim();
-    return wildcardMatches(providerPattern, providerName)
-        && wildcardMatches(modelPattern, normalizedModel);
-  }
-
-  private boolean wildcardMatches(String pattern, String value) {
-    int patternIndex = 0;
-    int valueIndex = 0;
-    int starIndex = -1;
-    int matchIndex = 0;
-
-    while (valueIndex < value.length()) {
-      if (patternIndex < pattern.length()
-          && (pattern.charAt(patternIndex) == '?' || pattern.charAt(patternIndex) == value.charAt(valueIndex))) {
-        patternIndex++;
-        valueIndex++;
-      } else if (patternIndex < pattern.length() && pattern.charAt(patternIndex) == '*') {
-        starIndex = patternIndex++;
-        matchIndex = valueIndex;
-      } else if (starIndex != -1) {
-        patternIndex = starIndex + 1;
-        valueIndex = ++matchIndex;
-      } else {
-        return false;
-      }
-    }
-
-    while (patternIndex < pattern.length() && pattern.charAt(patternIndex) == '*') {
-      patternIndex++;
-    }
-    return patternIndex == pattern.length();
-  }
-
-  /**
-   * Wires up all available tools for a chat automatically.
-   * All tools are always active except brave-search, which still requires a per-user API key
-   * and is only wired when webSearchEnabled is true.
-   */
-  private void wireTools(
-      UUID chatId,
-      String userId,
-      RequestDTO.Provider provider,
-      String modelId,
-      Boolean webSearchEnabled,
-      List<RequestDTO.ToolConsent> toolConsents,
-      ToolExecutionCollector collector,
-      ChatClient.ChatClientRequestSpec promptSpec) {
-    if (!supportsTools(provider, modelId)) {
-      log.debug("Skipping tool wiring for provider={} model={} due to app.chat tool gating", provider, modelId);
-      return;
-    }
-    for (ChatTool tool : toolRegistry.getAll()) {
-      if (!isToolAllowedForUser(userId, tool.getName())) {
-        continue;
-      }
-      if (!isToolEnabledForChat(chatId, tool.getName())) {
-        continue;
-      }
-      if (tool.requiresPerCallConsent() && !hasToolConsent(tool, toolConsents)) {
-        log.info(
-            "Skipping high-risk tool '{}' because request did not include explicit consent",
-            tool.getName());
-        continue;
-      }
-      switch (tool.getName()) {
-        case "current-datetime" ->
-            promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, collector));
-        case "brave-search" -> {
-          // Only wire when the web-search toggle is on; resolveWebSearchTool() will
-          // return empty if the user has no Brave Search API key configured.
-          if (Boolean.TRUE.equals(webSearchEnabled)) {
-            resolveWebSearchTool(userId)
-                .map(t -> new LoggedBraveSearchTool(t, collector))
-                .ifPresent(promptSpec::tools);
-          }
-        }
-        case "calculator" ->
-            promptSpec.tools(new LoggedCalculatorTool(calculatorTool, collector));
-        case "url-fetcher" ->
-            promptSpec.tools(new LoggedUrlFetcherTool(urlFetcherTool, collector));
-        case "python-interpreter" ->
-            promptSpec.tools(new LoggedPythonInterpreterTool(pythonInterpreterTool, collector));
-        default ->
-            // Use the tool's own @Tool-annotated methods directly via Spring AI reflection
-            promptSpec.tools(tool);
-      }
-    }
-  }
-
-  private boolean isToolAllowedForUser(String userId, String toolName) {
-    try {
-      Entitlements entitlements = entitlementService.get(userId);
-      return entitlements != null && entitlements.allowsTool(toolName);
-    } catch (RuntimeException ex) {
-      log.debug("Unable to resolve tool entitlement user={} tool={}", userId, toolName, ex);
-      return false;
-    }
-  }
-
-  boolean hasToolConsent(ChatTool tool, List<RequestDTO.ToolConsent> toolConsents) {
-    if (!tool.requiresPerCallConsent()) {
-      return true;
-    }
-    if (toolConsents == null || toolConsents.isEmpty()) {
-      return false;
-    }
-    return toolConsents.stream()
-        .filter(Objects::nonNull)
-        .anyMatch(
-            consent ->
-                tool.getName().equals(consent.toolName())
-                    && tool.riskLevel().name().equalsIgnoreCase(consent.riskLevel()));
-  }
-
-  private boolean isToolEnabledForChat(UUID chatId, String toolName) {
-    return chatToolRepository
-        .findByChatIdAndToolName(chatId, toolName)
-        .map(ChatToolEntity::isEnabled)
-        .orElseGet(
-            () ->
-                switch (toolName) {
-                  case "calculator", "current-datetime", "brave-search" -> true;
-                  default -> false;
-                });
-  }
 }
