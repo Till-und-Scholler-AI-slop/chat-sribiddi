@@ -339,11 +339,17 @@ public class EntitlementService {
                 // Direct providers are BYOK-only regardless of plan because managed mode only
                 // routes through providers listed in app.billing.model-access.managed-providers.
                 flag = AvailabilityFlag.BYOK_ONLY;
-              } else if (isAllowedByPricing(entitlements, provider, opt.getId())) {
+              } else if (entitlements.allModelsAllowed()) {
                 flag = AvailabilityFlag.ALWAYS;
               } else {
-                flag = AvailabilityFlag.UPGRADE_REQUIRED;
-                required = requiredPlanFor(provider, opt.getId());
+                Optional<ModelPricingLookup.Pricing> pricing =
+                    modelPricingLookup.find(provider, opt.getId());
+                if (isAllowedByPricing(entitlements, pricing)) {
+                  flag = AvailabilityFlag.ALWAYS;
+                } else {
+                  flag = AvailabilityFlag.UPGRADE_REQUIRED;
+                  required = requiredPlanFor(pricing);
+                }
               }
               copy.setAvailability(flag);
               copy.setRequiredPlan(required);
@@ -382,12 +388,10 @@ public class EntitlementService {
    * always allow every model; unknown pricing is treated as "not allowed" so the UI shows an
    * upgrade hint consistent with the enforcement path.
    */
-  private boolean isAllowedByPricing(Entitlements entitlements, Provider provider, String modelId) {
+  private boolean isAllowedByPricing(
+      Entitlements entitlements, Optional<ModelPricingLookup.Pricing> pricing) {
     if (entitlements.allModelsAllowed()) {
       return true;
-    }
-    if (modelId == null || modelId.isBlank()) {
-      return false;
     }
     double maxInput =
         entitlements.maxModelInputUsdPerMillion() != null
@@ -397,7 +401,6 @@ public class EntitlementService {
         entitlements.maxModelOutputUsdPerMillion() != null
             ? entitlements.maxModelOutputUsdPerMillion()
             : Double.POSITIVE_INFINITY;
-    Optional<ModelPricingLookup.Pricing> pricing = modelPricingLookup.find(provider, modelId);
     if (pricing.isEmpty()) {
       return false;
     }
@@ -412,9 +415,8 @@ public class EntitlementService {
    * requiring {@link Plan#MAX} because capped plans reject unknown pricing in the enforcement
    * path, so the suggested upgrade must be one that can actually unlock access.
    */
-  private Plan requiredPlanFor(Provider provider, String modelId) {
+  private Plan requiredPlanFor(Optional<ModelPricingLookup.Pricing> pricing) {
     ModelAccess access = billingProperties.getModelAccess();
-    Optional<ModelPricingLookup.Pricing> pricing = modelPricingLookup.find(provider, modelId);
     if (pricing.isEmpty()) {
       return Plan.MAX;
     }

@@ -55,6 +55,8 @@ class ChatToolServiceTest {
     lenient().when(tool.getDisplayName()).thenReturn("URL Fetcher");
     lenient().when(tool.getDescription()).thenReturn("Fetches URLs");
     lenient().when(toolRegistry.getAll()).thenReturn(List.of(tool));
+    lenient().when(chatToolRepository.findByChatId(chatId)).thenReturn(List.of());
+    lenient().when(toolRegistry.has("url-fetcher")).thenReturn(true);
   }
 
   @Test

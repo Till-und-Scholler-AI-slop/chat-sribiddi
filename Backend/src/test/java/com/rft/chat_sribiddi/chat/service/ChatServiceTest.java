@@ -469,8 +469,7 @@ class ChatServiceTest {
     when(toolRegistry.getAll()).thenReturn(List.of(pythonInterpreterTool));
     when(pythonInterpreterTool.getName()).thenReturn("python-interpreter");
     when(pythonInterpreterTool.requiresPerCallConsent()).thenReturn(true);
-    when(chatToolRepository.findByChatIdAndToolName(chatId, "python-interpreter"))
-        .thenReturn(Optional.of(enabledTool("python-interpreter")));
+    when(chatToolRepository.findByChatId(chatId)).thenReturn(List.of(enabledTool("python-interpreter")));
 
     chatService.sendMessage(chatId, userId, request);
 
@@ -508,8 +507,7 @@ class ChatServiceTest {
     when(pythonInterpreterTool.getName()).thenReturn("python-interpreter");
     when(pythonInterpreterTool.requiresPerCallConsent()).thenReturn(true);
     when(pythonInterpreterTool.riskLevel()).thenReturn(ToolRiskLevel.HIGH);
-    when(chatToolRepository.findByChatIdAndToolName(chatId, "python-interpreter"))
-        .thenReturn(Optional.of(enabledTool("python-interpreter")));
+    when(chatToolRepository.findByChatId(chatId)).thenReturn(List.of(enabledTool("python-interpreter")));
 
     chatService.sendMessage(chatId, userId, request);
 

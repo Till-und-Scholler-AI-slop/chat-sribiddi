@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ModelOption, Provider } from '~/composables/useChatApi'
-import { isModelLocked, PROVIDERS } from '~/composables/useChatApi'
+import { isModelLocked } from '~/composables/useChatApi'
 import { formatRatePerMillion } from '~/composables/chat-helpers'
 
 const { t } = useI18n()
@@ -18,6 +18,7 @@ const {
   modelsError,
   modelsLoading,
   setModelForChat,
+  sortedModels,
   startChat,
   toggleFavorite
 } = useChatStore()
@@ -57,18 +58,6 @@ const providerFilters = computed(() => [
   { label: providerLabels.GOOGLE, value: 'GOOGLE' as const },
   { label: providerLabels.OPENROUTER, value: 'OPENROUTER' as const }
 ])
-
-const sortedModels = computed(() =>
-  [...models.value].sort((left, right) => {
-    const leftFav = isFavorite(left) ? 0 : 1
-    const rightFav = isFavorite(right) ? 0 : 1
-    if (leftFav !== rightFav) return leftFav - rightFav
-    if (left.provider !== right.provider) {
-      return PROVIDERS.indexOf(left.provider) - PROVIDERS.indexOf(right.provider)
-    }
-    return left.label.localeCompare(right.label)
-  })
-)
 
 const filteredModels = computed(() => {
   if (providerFilter.value === 'ALL') return sortedModels.value
