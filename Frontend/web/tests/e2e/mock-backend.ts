@@ -18,6 +18,18 @@ const modelPayload = (provider: string) => [
   }
 ]
 
+const markdownResponseChunks = [
+  '## Markstream check\n\n',
+  '- Alpha item\n',
+  '- Beta item\n\n',
+  '```ts\n',
+  'const ok = true\n',
+  '```'
+]
+
+const streamTextEvent = (content: string) =>
+  `event: text\ndata: ${JSON.stringify({ type: 'text', content })}\n\n`
+
 const backendRoutePatterns = [
   'http://localhost:8080/**',
   'http://127.0.0.1:8080/**',
@@ -140,8 +152,7 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
           'Content-Type': 'text/event-stream'
         },
         body:
-          'event: text\n' +
-          'data: {"type":"text","content":"Mocked response"}\n\n' +
+          markdownResponseChunks.map(streamTextEvent).join('') +
           'event: done\n' +
           'data: {"type":"done","messageId":123,"hasToolCalls":false,"promptTokens":4,"generationTokens":2,"totalTokens":6}\n\n'
       })

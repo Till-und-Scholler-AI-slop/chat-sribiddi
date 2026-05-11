@@ -193,7 +193,7 @@ const canDiscard = computed(() =>
           <MarkdownMessage
             v-if="message.role === 'assistant'"
             :text="message.content"
-            :class="isStreaming && lastAssistantMessage?.id === message.id ? 'streaming-cursor' : ''"
+            :streaming="isStreaming && lastAssistantMessage?.id === message.id"
           />
           <p v-else class="whitespace-pre-wrap">
             {{ message.content }}
