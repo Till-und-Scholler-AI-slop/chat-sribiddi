@@ -13,7 +13,6 @@ import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.Role;
-import com.rft.chat_sribiddi.chat.model.ToolCallLogEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
@@ -30,9 +29,7 @@ import com.rft.chat_sribiddi.observability.ChatMetrics;
 import jakarta.transaction.Transactional;
 import java.io.IOException;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -68,9 +65,6 @@ public class ChatService {
   private static final String ATTACHMENTS_PREFIX = "attachments:";
 
   private static final String CHAT_FK_CONSTRAINT = "messages_chat_id_fkey";
-  private static final int MIN_CONTEXT_EXCERPT_CANDIDATE_LENGTH = 8;
-  private static final int MAX_CONTEXT_EXCERPT_MATCHES = 5;
-  private static final int MAX_CONTEXT_EXCERPT_LENGTH = 2_000;
 
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
@@ -83,6 +77,7 @@ public class ChatService {
   private final PromptToolBinder promptToolBinder;
   private final PromptMessageBuilder promptMessageBuilder;
   private final ChatUsageRecorder chatUsageRecorder;
+  private final ToolCallLogRecorder toolCallLogRecorder;
   private final BillingModeResolver billingModeResolver;
   private final EntitlementService entitlementService;
   private final ChatMetrics chatMetrics;
@@ -257,7 +252,8 @@ public class ChatService {
     assistantMessage.setGenerationTokens(tokenUsage.generationTokens());
     assistantMessage.setTotalTokens(tokenUsage.totalTokens());
     saveMessageOrThrowIfChatMissing(assistantMessage);
-    persistToolCallLogs(assistantMessage, toolExecutionCollector, assistantResponse);
+    toolCallLogRecorder.recordAssistantToolCalls(
+        assistantMessage, toolExecutionCollector, assistantResponse);
     chatUsageRecorder.recordUsage(
         new ChatUsage(
             userId,
@@ -651,7 +647,8 @@ public class ChatService {
       }
       savedMessageId.set(assistantMessage.getId());
 
-      persistToolCallLogs(assistantMessage, toolExecutionCollector, assistantResponse);
+      toolCallLogRecorder.recordAssistantToolCalls(
+          assistantMessage, toolExecutionCollector, assistantResponse);
 
       emitter.send(
           SseEmitter.event()
@@ -726,78 +723,6 @@ public class ChatService {
       }
       throw ex;
     }
-  }
-
-  private void persistToolCallLogs(
-      MessageEntity assistantMessage,
-      ToolExecutionCollector toolExecutionCollector,
-      String assistantResponse) {
-    if (assistantMessage.getId() == null || toolExecutionCollector.isEmpty()) {
-      return;
-    }
-    List<ToolCallLogEntity> logs =
-        toolExecutionCollector.snapshot().stream()
-            .map(
-                record -> {
-                  ToolCallLogEntity entity = new ToolCallLogEntity();
-                  entity.setMessageId(assistantMessage.getId());
-                  entity.setToolName(record.toolName());
-                  entity.setInputPayload(record.inputPayload());
-                  entity.setOutputPayload(record.outputPayload());
-                  entity.setStartedAt(record.startedAt());
-                  entity.setDurationMs(record.durationMs());
-                  entity.setContextExcerpt(
-                      extractContextExcerpt(record.outputPayload(), assistantResponse));
-                  return entity;
-                })
-            .toList();
-    toolCallLogRepository.saveAll(logs);
-  }
-
-  private String extractContextExcerpt(String toolOutput, String assistantResponse) {
-    if (toolOutput == null
-        || toolOutput.isBlank()
-        || assistantResponse == null
-        || assistantResponse.isBlank()) {
-      return null;
-    }
-    String normalizedAssistant = normalizeForMatch(assistantResponse);
-    if (normalizedAssistant.isEmpty()) {
-      return null;
-    }
-    List<String> matches = new ArrayList<>();
-    for (String line : toolOutput.split("\\R+")) {
-      String candidate = line.replaceFirst("^\\d+\\.\\s*", "").trim();
-      if (candidate.length() < MIN_CONTEXT_EXCERPT_CANDIDATE_LENGTH) {
-        continue;
-      }
-      String normalizedCandidate = normalizeForMatch(candidate);
-      if (normalizedCandidate.length() < MIN_CONTEXT_EXCERPT_CANDIDATE_LENGTH) {
-        continue;
-      }
-      if (normalizedAssistant.contains(normalizedCandidate) && !matches.contains(candidate)) {
-        matches.add(candidate);
-      }
-      if (matches.size() >= MAX_CONTEXT_EXCERPT_MATCHES) {
-        break;
-      }
-    }
-    if (matches.isEmpty()) {
-      return null;
-    }
-    String excerpt = String.join("\n", matches);
-    return excerpt.length() > MAX_CONTEXT_EXCERPT_LENGTH
-        ? excerpt.substring(0, MAX_CONTEXT_EXCERPT_LENGTH)
-        : excerpt;
-  }
-
-  private String normalizeForMatch(String value) {
-    return value == null
-        ? ""
-        : value
-            .toLowerCase(Locale.ROOT)
-            .replaceAll("[^\\p{Alnum}]+", " ")
-            .trim();
   }
 
   /**

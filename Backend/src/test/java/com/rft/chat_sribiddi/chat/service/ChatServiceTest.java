@@ -113,9 +113,10 @@ class ChatServiceTest {
         new PromptMessageBuilder(messageRepository, chatProperties, mediaValidationService);
     ChatUsageRecorder chatUsageRecorder =
         new ChatUsageRecorder(entitlementService, usageEventService, chatMetrics);
+    ToolCallLogRecorder toolCallLogRecorder = new ToolCallLogRecorder(toolCallLogRepository);
     return new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
         providerClientFactory, chatProperties, mediaValidationService, userSettingsService,
-        promptToolBinder, promptMessageBuilder, chatUsageRecorder, billingModeResolver,
+        promptToolBinder, promptMessageBuilder, chatUsageRecorder, toolCallLogRecorder, billingModeResolver,
         entitlementService, chatMetrics);
   }
 
