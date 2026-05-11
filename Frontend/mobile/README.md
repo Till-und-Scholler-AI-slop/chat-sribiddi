@@ -1,16 +1,42 @@
-# mobile
+# Chat Sribiddi Mobile
 
-A new Flutter project.
+Native Flutter client for Chat Sribiddi.
 
-## Getting Started
+The current implementation mirrors the Nuxt frontend as a mobile-first app:
 
-This project is a starting point for a Flutter application.
+- Chat screen with conversation list state, model picker, web-search toggle,
+  suggestion chips, message bubbles, token/cost metadata and a bottom composer.
+- Model catalog with provider filters, search, favorite toggles and locked
+  Premium/Max model affordances.
+- Model comparison screen with multiple panels and keep-to-chat behavior.
+- Usage, billing, pricing and settings screens that match the web app's main
+  product surface.
+- Adaptive layout: compact screens use bottom navigation; wide desktop windows
+  use a persistent sidebar with the chat history.
+- German and English UI strings are routed through `AppStrings` instead of
+  being embedded in widgets.
 
-A few resources to get you started if this is your first Flutter project:
+## Run locally
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+```bash
+cd Frontend/mobile
+flutter pub get
+flutter run
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+For a desktop preview:
+
+```bash
+flutter build macos --debug
+flutter run -d macos
+```
+
+For an Android debug build:
+
+```bash
+flutter build apk --debug
+```
+
+The backend-backed OAuth/session/chat streaming integration is intentionally
+left as the next native integration step. The UI currently uses local demo
+state so mobile and desktop layouts can be reviewed without backend setup.

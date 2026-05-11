@@ -1,4 +1,4 @@
-package com.example.mobile
+package de.tillrafael.chatsribiddi
 
 import io.flutter.embedding.android.FlutterActivity
 
