@@ -1,14 +1,17 @@
 package com.rft.chat_sribiddi.chat.service;
 
 import com.anthropic.client.AnthropicClient;
-import com.openai.client.OpenAIClient;
-import com.openai.client.okhttp.OpenAIOkHttpClient;
-import com.openai.core.Timeout;
+import com.anthropic.client.AnthropicClientAsync;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.genai.Client;
 import com.google.genai.types.HttpOptions;
+import com.openai.client.OpenAIClient;
+import com.openai.client.OpenAIClientAsync;
+import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.client.okhttp.OpenAIOkHttpClientAsync;
+import com.openai.core.Timeout;
 import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import java.util.LinkedHashMap;
@@ -92,6 +95,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                     ChatClient.create(
                         OpenAiChatModel.builder()
                             .openAiClient(buildOpenAiClient(apiKey))
+                            .openAiClientAsync(buildOpenAiAsyncClient(apiKey))
                             .build());
                 return new ProviderClientHandle(client, null);
               });
@@ -112,9 +116,14 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
               _ -> {
                 AnthropicClient anthropicClient =
                     AnthropicSetup.setupSyncClient(apiKey, null, null, null, null, null);
+                AnthropicClientAsync anthropicClientAsync =
+                    AnthropicSetup.setupAsyncClient(apiKey, null, null, null, null, null);
                 ChatClient chatClient =
                     ChatClient.create(
-                        AnthropicChatModel.builder().anthropicClient(anthropicClient).build());
+                        AnthropicChatModel.builder()
+                            .anthropicClient(anthropicClient)
+                            .anthropicClientAsync(anthropicClientAsync)
+                            .build());
                 return new ProviderClientHandle(chatClient, null);
               });
       case OPENROUTER ->
@@ -125,6 +134,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                     ChatClient.create(
                         OpenAiChatModel.builder()
                             .openAiClient(buildOpenRouterClient(apiKey))
+                            .openAiClientAsync(buildOpenRouterAsyncClient(apiKey))
                             .build());
                 return new ProviderClientHandle(chatClient, null);
               });
@@ -162,8 +172,24 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
         .build();
   }
 
+  private OpenAIClientAsync buildOpenAiAsyncClient(String apiKey) {
+    return OpenAIOkHttpClientAsync.builder()
+        .apiKey(apiKey)
+        .timeout(buildOpenAiTimeout())
+        .build();
+  }
+
   private OpenAIClient buildOpenRouterClient(String apiKey) {
     return OpenAIOkHttpClient.builder()
+        .apiKey(apiKey)
+        .baseUrl(openRouterProperties.getBaseUrl())
+        .headers(buildOpenRouterAttributionHeaderMap())
+        .timeout(buildOpenAiTimeout())
+        .build();
+  }
+
+  private OpenAIClientAsync buildOpenRouterAsyncClient(String apiKey) {
+    return OpenAIOkHttpClientAsync.builder()
         .apiKey(apiKey)
         .baseUrl(openRouterProperties.getBaseUrl())
         .headers(buildOpenRouterAttributionHeaderMap())

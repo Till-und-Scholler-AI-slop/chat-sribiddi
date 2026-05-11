@@ -5,10 +5,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import org.springframework.ai.openai.OpenAiChatOptions;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.openai.OpenAiChatOptions;
 
 class DefaultProviderClientFactoryTest {
 
@@ -57,6 +66,42 @@ class DefaultProviderClientFactoryTest {
 
     assertThat(options).isInstanceOf(OpenAiChatOptions.class);
     assertThat(((OpenAiChatOptions) options).getModel()).isEqualTo("openai/gpt-4o-mini");
+  }
+
+  @Test
+  void getClient_openRouterStreaming_usesConfiguredAsyncClientHeaders() throws Exception {
+    OpenRouterProviderProperties openRouter = new OpenRouterProviderProperties();
+    openRouter.setAppName("chat-sribiddi-test");
+    openRouter.setReferrer("https://example.invalid/chat");
+    try (CapturingServer server = CapturingServer.start(openAiStreamResponse())) {
+      openRouter.setBaseUrl(server.baseUrl() + "/api/v1");
+      DefaultProviderClientFactory customFactory =
+          new DefaultProviderClientFactory(
+              new OpenAiProviderProperties(), new GoogleProviderProperties(), openRouter);
+
+      ProviderClientHandle handle =
+          customFactory.getClient(Provider.OPENROUTER, "or-key", BillingMode.BYOK);
+      try (handle) {
+        var options = customFactory.buildOptions(Provider.OPENROUTER, "test-model", "or-key");
+        var chunks =
+            handle
+                .client()
+                .prompt()
+                .options(options.mutate())
+                .messages(List.of(new UserMessage("hi")))
+                .stream()
+                .chatResponse()
+                .collectList()
+                .block(Duration.ofSeconds(5));
+
+        assertThat(chunks).isNotNull().isNotEmpty();
+      }
+
+      assertThat(server.capturedPath()).isEqualTo("/api/v1/chat/completions");
+      assertThat(server.capturedAuthorization()).isEqualTo("Bearer or-key");
+      assertThat(server.capturedReferrer()).isEqualTo("https://example.invalid/chat");
+      assertThat(server.capturedTitle()).isEqualTo("chat-sribiddi-test");
+    }
   }
 
   @Test
@@ -134,5 +179,81 @@ class DefaultProviderClientFactoryTest {
 
     assertThat(headers.getFirst("HTTP-Referer")).isNull();
     assertThat(headers.getFirst("X-Title")).isNull();
+  }
+
+  private static String openAiStreamResponse() {
+    return """
+        data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":0,"model":"test-model","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}
+
+        data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":0,"model":"test-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}
+
+        data: [DONE]
+
+        """;
+  }
+
+  private record CapturingServer(
+      HttpServer server,
+      String baseUrl,
+      AtomicReference<String> path,
+      AtomicReference<String> authorization,
+      AtomicReference<String> referrer,
+      AtomicReference<String> title)
+      implements AutoCloseable {
+
+    static CapturingServer start(String responseBody) throws IOException {
+      HttpServer server =
+          HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+      AtomicReference<String> path = new AtomicReference<>();
+      AtomicReference<String> authorization = new AtomicReference<>();
+      AtomicReference<String> referrer = new AtomicReference<>();
+      AtomicReference<String> title = new AtomicReference<>();
+      byte[] responseBytes = responseBody.getBytes(StandardCharsets.UTF_8);
+      server.createContext(
+          "/",
+          exchange -> {
+            try {
+              path.set(exchange.getRequestURI().getPath());
+              authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+              referrer.set(exchange.getRequestHeaders().getFirst("HTTP-Referer"));
+              title.set(exchange.getRequestHeaders().getFirst("X-Title"));
+              exchange.getRequestBody().transferTo(OutputStream.nullOutputStream());
+              exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+              exchange.sendResponseHeaders(200, responseBytes.length);
+              exchange.getResponseBody().write(responseBytes);
+            } finally {
+              exchange.close();
+            }
+          });
+      server.start();
+      return new CapturingServer(
+          server,
+          "http://" + server.getAddress().getHostString() + ":" + server.getAddress().getPort(),
+          path,
+          authorization,
+          referrer,
+          title);
+    }
+
+    String capturedPath() {
+      return path.get();
+    }
+
+    String capturedAuthorization() {
+      return authorization.get();
+    }
+
+    String capturedReferrer() {
+      return referrer.get();
+    }
+
+    String capturedTitle() {
+      return title.get();
+    }
+
+    @Override
+    public void close() {
+      server.stop(0);
+    }
   }
 }
