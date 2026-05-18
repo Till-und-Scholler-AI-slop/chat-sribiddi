@@ -26,7 +26,7 @@ export default defineConfig({
       NITRO_HOST: '127.0.0.1',
       NITRO_PORT: '3000',
       NUXT_DEVTOOLS: 'false',
-      NUXT_PUBLIC_BACKEND_BASE_URL: '/api',
+      NUXT_PUBLIC_BACKEND_BASE_URL: 'http://127.0.0.1:8080',
       PORT: '3000'
     },
     url: 'http://127.0.0.1:3000',

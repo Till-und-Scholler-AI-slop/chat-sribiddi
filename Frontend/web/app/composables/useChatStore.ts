@@ -247,7 +247,7 @@ export function useChatStore() {
 
   const loadMessagesForChat = async (chatId: string) => {
     const conversation = conversations.value.find(c => c.session.chatId === chatId)
-    if (!conversation || conversation.messages.length > 0) return
+    if (!conversation || conversation.local || conversation.messages.length > 0) return
 
     const messages = await fetchChatMessages(chatId)
     const uiMessages = messages.map(toUiMessage)

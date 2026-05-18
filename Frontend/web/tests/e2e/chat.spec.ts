@@ -40,17 +40,19 @@ test('anonymous chat persists locally across reloads', async ({ page }) => {
 
   const prompt = page.getByRole('textbox', { name: 'Type your message here…' })
   await expect(prompt).toBeVisible({ timeout: hydrationTimeout })
+  await expect(page.getByTestId('chat-page')).toHaveAttribute('data-ready', 'true', { timeout: hydrationTimeout })
   await expect(page.getByRole('button', { name: /Google/i })).toBeVisible({ timeout: hydrationTimeout })
 
   await prompt.click()
   await prompt.pressSequentially('Hallo Gast')
+  await expect(page.getByTestId('chat-submit')).toBeEnabled()
   await page.getByTestId('chat-submit').click()
 
-  await expect(page.getByText('Hallo Gast')).toBeVisible()
+  await expect(page.locator('.msg-user').filter({ hasText: 'Hallo Gast' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Markstream check' })).toBeVisible()
 
   await page.reload()
 
-  await expect(page.getByText('Hallo Gast')).toBeVisible({ timeout: hydrationTimeout })
+  await expect(page.locator('.msg-user').filter({ hasText: 'Hallo Gast' })).toBeVisible({ timeout: hydrationTimeout })
   await expect(page.getByRole('heading', { name: 'Markstream check' })).toBeVisible()
 })

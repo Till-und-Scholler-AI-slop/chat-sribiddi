@@ -5,7 +5,7 @@ type MockBackendOptions = {
 }
 
 const USER_SETTINGS_STORAGE_KEY = 'chat-sribiddi:user-settings:v2'
-const E2E_BACKEND_BASE_URL = '/api'
+const E2E_BACKEND_BASE_URL = 'http://127.0.0.1:8080'
 
 const modelPayload = (provider: string) => [
   {
@@ -30,11 +30,12 @@ const markdownResponseChunks = [
 const streamTextEvent = (content: string) =>
   `event: text\ndata: ${JSON.stringify({ type: 'text', content })}\n\n`
 
-const backendRoutePatterns = [
-  'http://localhost:8080/**',
-  'http://127.0.0.1:8080/**',
-  /^https?:\/\/(?:localhost|127\.0\.0\.1):3000\/api(?:\/.*)?(?:\?.*)?$/
-]
+function isBackendRequest(url: URL) {
+  if ((url.hostname === 'localhost' || url.hostname === '127.0.0.1') && url.port === '8080') {
+    return true
+  }
+  return url.pathname === '/api' || url.pathname.startsWith('/api/')
+}
 
 function corsHeaders(route: Route) {
   const origin = route.request().headers().origin || '*'
@@ -186,7 +187,12 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
     await fulfillJson(route, {})
   }
 
-  for (const pattern of backendRoutePatterns) {
-    await page.route(pattern, handleRoute)
-  }
+  await page.context().route('**/*', async route => {
+    const url = new URL(route.request().url())
+    if (isBackendRequest(url)) {
+      await handleRoute(route)
+      return
+    }
+    await route.continue()
+  })
 }

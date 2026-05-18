@@ -134,10 +134,14 @@ function planFeatures(plan: PlanDef): string[] {
   return features
 }
 
-function goBack() {
+function goBack(event?: Event) {
   if (import.meta.client && window.history.state?.back) {
+    event?.preventDefault()
     router.back()
     return
+  }
+  if (event) {
+    event.preventDefault()
   }
   void navigateTo('/chat')
 }
@@ -146,15 +150,17 @@ function goBack() {
 <template>
   <div class="mx-auto w-full max-w-5xl space-y-8">
     <div class="space-y-4">
-      <UButton
-        variant="ghost"
-        color="neutral"
-        icon="i-heroicons-arrow-left"
-        :label="t('pricing.backButton')"
-        :aria-label="t('pricing.backButton')"
-        class="btn-interactive"
-        @click="goBack"
-      />
+      <form action="/chat" method="get" class="inline-flex" @submit="goBack">
+        <UButton
+          type="submit"
+          variant="ghost"
+          color="neutral"
+          icon="i-heroicons-arrow-left"
+          :label="t('pricing.backButton')"
+          :aria-label="t('pricing.backButton')"
+          class="btn-interactive"
+        />
+      </form>
       <div class="space-y-2 text-center">
         <h1 class="text-3xl font-semibold">{{ t('pricing.title') }}</h1>
         <p class="text-sm text-gray-600 dark:text-gray-400">{{ t('pricing.subtitle') }}</p>

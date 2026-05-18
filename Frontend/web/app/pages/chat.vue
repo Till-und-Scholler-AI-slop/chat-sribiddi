@@ -682,7 +682,12 @@ const handleReload = async () => {
             </div>
           </div>
 
-          <UChatPrompt v-model="input" :error="promptError" @submit="handleSubmit">
+          <UChatPrompt
+            v-if="chatReady"
+            v-model="input"
+            :error="promptError"
+            @submit="handleSubmit"
+          >
             <template #header>
               <UTooltip :text="t('chat.addAttachments')">
                 <UButton
