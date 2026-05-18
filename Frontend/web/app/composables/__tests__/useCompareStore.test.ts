@@ -10,11 +10,16 @@ const apiMock = vi.hoisted(() => ({
   fetchModels: vi.fn(),
   streamMessage: vi.fn()
 }))
+const settingsMock = vi.hoisted(() => ({ value: { expertMode: false } }))
 
 vi.mock('~/composables/useChatApi', () => ({
   PROVIDERS: ['OPENAI', 'GOOGLE', 'CLAUDE', 'OPENROUTER'],
   isModelLocked: (model: { availability?: string | null }) => model.availability === 'UPGRADE_REQUIRED',
   useChatApi: () => apiMock
+}))
+
+vi.mock('~/composables/useUserSettings', () => ({
+  useUserSettings: () => ({ settings: settingsMock })
 }))
 
 const makeModel = (provider: Provider, value: string, label: string): ModelOption => ({
@@ -49,6 +54,7 @@ describe('useCompareStore', () => {
     apiMock.fetchModels.mockReset()
     apiMock.streamMessage.mockReset()
     apiMock.deleteChat.mockResolvedValue(undefined)
+    settingsMock.value.expertMode = false
   })
 
   afterEach(() => {

@@ -3,6 +3,7 @@ package com.rft.chat_sribiddi.chat.service;
 import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.chat.dto.MessageResponseDTO;
+import com.rft.chat_sribiddi.chat.dto.ImportChatsRequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
@@ -27,6 +28,7 @@ import com.rft.chat_sribiddi.auth.UserSettingsService;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -90,6 +92,51 @@ public class ChatService {
     chatEntity.setUserId(userId);
     chatEntity.setTitle(normalizeChatTitle(chatEntity.getTitle()));
     return chatRepository.save(chatEntity);
+  }
+
+  @Transactional
+  public List<ChatEntity> importChats(String userId, ImportChatsRequestDTO request) {
+    if (request == null || request.chats() == null || request.chats().isEmpty()) {
+      return List.of();
+    }
+
+    return request.chats().stream()
+        .filter(Objects::nonNull)
+        .map(chat -> importChat(userId, chat))
+        .toList();
+  }
+
+  private ChatEntity importChat(String userId, ImportChatsRequestDTO.ImportedChat importedChat) {
+    ChatEntity chat = new ChatEntity();
+    chat.setUserId(userId);
+    chat.setTitle(normalizeChatTitle(importedChat.title()));
+    chat.setCreatedAt(importedChat.createdAt());
+    ChatEntity savedChat = chatRepository.save(chat);
+
+    List<ImportChatsRequestDTO.ImportedMessage> messages =
+        importedChat.messages() == null ? List.of() : importedChat.messages();
+    for (ImportChatsRequestDTO.ImportedMessage importedMessage : messages) {
+      if (importedMessage == null) {
+        continue;
+      }
+      MessageEntity entity = new MessageEntity();
+      entity.setChatId(savedChat.getChatId());
+      entity.setMessage(importedMessage.message());
+      entity.setRole(importRole(importedMessage.role()));
+      entity.setCreatedAt(importedMessage.createdAt());
+      saveMessageOrThrowIfChatMissing(entity);
+    }
+    return savedChat;
+  }
+
+  private Role importRole(String role) {
+    String normalized = role == null ? "" : role.trim().toUpperCase(Locale.ROOT);
+    return switch (normalized) {
+      case "USER" -> Role.USER;
+      case "ASSISTANT" -> Role.ASSISTANT;
+      case "SYSTEM" -> Role.SYSTEM;
+      default -> throw new IllegalArgumentException("Unsupported import role: " + role);
+    };
   }
 
   public List<ChatEntity> listChats(String userId, Integer limit) {

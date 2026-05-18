@@ -20,6 +20,8 @@ describe('friendlyErrorKey', () => {
     expect(friendlyErrorKey('404 Not Found').key).toBe('errors.notFound')
     expect(friendlyErrorKey('413 Payload Too Large').key).toBe('errors.payloadTooLarge')
     expect(friendlyErrorKey('rate limit exceeded').key).toBe('errors.rateLimit')
+    expect(friendlyErrorKey('{"reason":"DAILY_CAP_EXCEEDED"}').key).toBe('errors.dailyCapExceeded')
+    expect(friendlyErrorKey('{"reason":"MODEL_NOT_ALLOWED"}').key).toBe('errors.modelNotAllowed')
     expect(friendlyErrorKey('500 Internal Server Error').key).toBe('errors.serverError')
     expect(friendlyErrorKey('API key invalid').key).toBe('errors.apiKey')
   })

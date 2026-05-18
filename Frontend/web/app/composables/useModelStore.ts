@@ -12,6 +12,7 @@ export function useModelStore() {
   const models = useState<ModelOption[]>('chat-models', () => [])
   const modelsLoading = useState<boolean>('chat-models-loading', () => false)
   const modelsError = useState<string | null>('chat-models-error', () => null)
+  const loadedExpertMode = useState<boolean | null>('chat-models-expert-mode', () => null)
 
   const defaultModel = computed<ModelOption | null>(() => {
     const saved = settings.value.lastUsedModel
@@ -50,10 +51,14 @@ export function useModelStore() {
   )
 
   const ensureModels = async () => {
+    if (models.value.length > 0 && loadedExpertMode.value === settings.value.expertMode) {
+      return models.value
+    }
+
     modelsLoading.value = true
     try {
       const results = await Promise.allSettled([
-        ...PROVIDERS.map(provider => fetchModels(provider))
+        ...PROVIDERS.map(provider => fetchModels(provider, settings.value.expertMode))
       ])
 
       const loaded: ModelOption[] = []
@@ -70,6 +75,7 @@ export function useModelStore() {
       }
 
       models.value = loaded
+      loadedExpertMode.value = settings.value.expertMode
       modelsError.value = loaded.length === 0 && errors.length > 0
         ? errors[0]
         : null
@@ -90,6 +96,7 @@ export function useModelStore() {
 
   const resetModels = () => {
     models.value = []
+    loadedExpertMode.value = null
     modelsError.value = null
     modelsLoading.value = false
   }

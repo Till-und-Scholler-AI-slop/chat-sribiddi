@@ -38,6 +38,30 @@ Frontend/backend URL conventions:
 - OAuth login starts at `/api/oauth2/authorization/google` from the frontend and
   should redirect to Google with `redirect_uri=https://germinai.de/login/oauth2/code/google`.
 
+Public/authenticated application paths:
+
+- `/` redirects to `/chat`.
+- `/chat`, `/pricing`, legal pages, `/models/*`, and
+  `/api/anonymous/chats/stream` are public. Anonymous chat uses Free-tier
+  managed OpenRouter access and stores chat history in browser localStorage.
+- `/settings`, `/billing`, `/usage`, `/compare`, `/api/chats/import`, account
+  endpoints, key endpoints, usage endpoints, and authenticated chat endpoints
+  require a valid session.
+- After a guest logs in, the frontend can call `POST /api/chats/import` to
+  persist selected local guest chats without re-calling the AI provider.
+
+Rate and quota defaults:
+
+- Per-minute request limits are intentionally DDoS-oriented:
+  anonymous `RATE_LIMIT_ANONYMOUS_PER_MINUTE=300`, Free
+  `RATE_LIMIT_FREE_PER_MINUTE=600`, Premium
+  `RATE_LIMIT_PREMIUM_PER_MINUTE=1200`, and Max
+  `RATE_LIMIT_MAX_PER_MINUTE=2400`.
+- Anonymous chat has a separate daily managed-call cap,
+  `BILLING_GUEST_DAILY_CAP=20` by default. Production should keep Redis
+  available because Redis-backed rate limiting and guest quota checks fail
+  closed when Redis is configured but unavailable.
+
 ## Repo-Owned Infra
 
 Everything required to recreate production routing and container startup should
@@ -88,6 +112,7 @@ curl -sS -D - -o /tmp/germinai-secured.txt https://germinai.de/api/secured
 curl -sS -D - -o /tmp/germinai-oauth.txt https://germinai.de/api/oauth2/authorization/google
 curl -sS -D - -o /tmp/germinai-stripe-webhook.txt -X POST https://germinai.de/billing/webhook
 curl -sS -D - -o /tmp/germinai-login.html https://germinai.de/login
+curl -sS -D - -o /tmp/germinai-chat.html https://germinai.de/chat
 ```
 
 Expected results:
@@ -100,9 +125,11 @@ Expected results:
   `503` if `STRIPE_WEBHOOK_SECRET` is intentionally unset. This proves the
   public Stripe path reaches the backend rather than Nuxt.
 - `/login`: HTTP `200` from Nuxt.
+- `/chat`: HTTP `200` from Nuxt without requiring a session.
 
-For an end-to-end browser smoke check, the login button should be visible and a
-click should navigate to `accounts.google.com`.
+For an end-to-end browser smoke check, an anonymous visitor should land on the
+chat UI, see only the theme toggle plus Google login button in the sidebar
+footer, and a login button click should navigate to `accounts.google.com`.
 
 ## VPS Triage Commands
 

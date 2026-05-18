@@ -7,6 +7,8 @@ type UserSettings = {
   lastUsedModel: ModelOption | null
   favoriteModels: string[]
   showPreSendCostEstimate: boolean
+  expertMode: boolean
+  guestImportDismissed: boolean
 }
 
 const STORAGE_KEY = 'chat-sribiddi:user-settings:v2'
@@ -23,7 +25,9 @@ export function useUserSettings() {
     backendBaseUrl: defaultBackend,
     lastUsedModel: null,
     favoriteModels: [],
-    showPreSendCostEstimate: true
+    showPreSendCostEstimate: true,
+    expertMode: false,
+    guestImportDismissed: false
   }))
 
   const hydrated = useState<boolean>('user-settings-hydrated', () => false)
@@ -42,7 +46,9 @@ export function useUserSettings() {
               ? savedModel
               : null,
           favoriteModels: Array.isArray(parsed.favoriteModels) ? parsed.favoriteModels : [],
-          showPreSendCostEstimate: parsed.showPreSendCostEstimate !== false
+          showPreSendCostEstimate: parsed.showPreSendCostEstimate !== false,
+          expertMode: parsed.expertMode === true,
+          guestImportDismissed: parsed.guestImportDismissed === true
         }
       } else {
         state.value.backendBaseUrl ||= defaultBackend

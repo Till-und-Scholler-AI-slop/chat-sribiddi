@@ -13,6 +13,7 @@ import com.rft.chat_sribiddi.billing.BillingModeResolver;
 import com.rft.chat_sribiddi.billing.ManagedApiKeyProperties;
 import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.billing.UsageEventService;
+import com.rft.chat_sribiddi.chat.dto.ImportChatsRequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
@@ -34,6 +35,7 @@ import com.rft.chat_sribiddi.tools.api.ToolRiskLevel;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import java.lang.reflect.Method;
 import java.net.http.HttpClient;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -165,6 +167,65 @@ class ChatServiceTest {
               }
               return entity;
             });
+  }
+
+  @Test
+  void importChats_persistsImportedMessagesForAuthenticatedUser() {
+    when(chatRepository.save(any(ChatEntity.class)))
+        .thenAnswer(
+            invocation -> {
+              ChatEntity entity = invocation.getArgument(0);
+              entity.setChatId(chatId);
+              return entity;
+            });
+    Instant createdAt = Instant.parse("2026-05-18T12:00:00Z");
+    ImportChatsRequestDTO request =
+        new ImportChatsRequestDTO(
+            List.of(
+                new ImportChatsRequestDTO.ImportedChat(
+                    "Guest chat",
+                    createdAt,
+                    List.of(
+                        new ImportChatsRequestDTO.ImportedMessage("USER", "hello", createdAt),
+                        new ImportChatsRequestDTO.ImportedMessage(
+                            "ASSISTANT", "hi there", createdAt)))));
+
+    List<ChatEntity> result = chatService.importChats(userId, request);
+
+    assertThat(result).hasSize(1);
+    assertThat(result.getFirst().getUserId()).isEqualTo(userId);
+    assertThat(result.getFirst().getTitle()).isEqualTo("Guest chat");
+
+    ArgumentCaptor<MessageEntity> messages = ArgumentCaptor.forClass(MessageEntity.class);
+    verify(messageRepository, times(2)).save(messages.capture());
+    assertThat(messages.getAllValues())
+        .extracting(MessageEntity::getRole)
+        .containsExactly(Role.USER, Role.ASSISTANT);
+    assertThat(messages.getAllValues()).allMatch(message -> message.getChatId() != null);
+  }
+
+  @Test
+  void importChats_rejectsUnsupportedRoles() {
+    when(chatRepository.save(any(ChatEntity.class)))
+        .thenAnswer(
+            invocation -> {
+              ChatEntity entity = invocation.getArgument(0);
+              entity.setChatId(chatId);
+              return entity;
+            });
+    ImportChatsRequestDTO request =
+        new ImportChatsRequestDTO(
+            List.of(
+                new ImportChatsRequestDTO.ImportedChat(
+                    "Guest chat",
+                    Instant.parse("2026-05-18T12:00:00Z"),
+                    List.of(
+                        new ImportChatsRequestDTO.ImportedMessage(
+                            "TOOL", "not allowed", Instant.parse("2026-05-18T12:00:00Z"))))));
+
+    assertThatThrownBy(() -> chatService.importChats(userId, request))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Unsupported import role");
   }
 
   @Test

@@ -26,6 +26,17 @@ public class ModelCatalogProperties {
 
   private List<ModelOption> openrouter = new ArrayList<>();
 
+  private FeaturedModels featured = new FeaturedModels();
+
+  @Getter
+  @Setter
+  public static class FeaturedModels {
+    private List<String> openai = new ArrayList<>();
+    private List<String> google = new ArrayList<>();
+    private List<String> claude = new ArrayList<>();
+    private List<String> openrouter = new ArrayList<>();
+  }
+
   @Getter
   @Setter
   @NoArgsConstructor

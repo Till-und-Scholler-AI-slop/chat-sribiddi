@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 import com.rft.chat_sribiddi.billing.ModelPricingLookup;
+import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
 import java.util.ArrayList;
 import java.util.List;
@@ -166,6 +167,30 @@ class ModelCatalogServiceTest {
 
     assertThat(result).isEqualTo(properties.getOpenrouter());
     verifyNoInteractions(modelFetchService);
+  }
+
+  @Test
+  void compactModels_prefersConfiguredFeaturedIdsAndFillsToThree() {
+    properties.getFeatured().setOpenai(List.of("gpt-5.2-mini", "missing-id"));
+    ModelOption alpha = new ModelOption("alpha", "Alpha");
+    ModelOption featured = new ModelOption("gpt-5.2-mini", "GPT-5.2 Mini");
+    ModelOption beta = new ModelOption("beta", "Beta");
+    ModelOption zeta = new ModelOption("zeta", "Zeta");
+
+    List<ModelOption> result =
+        service.compactModels(Provider.OPENAI, List.of(zeta, beta, featured, alpha));
+
+    assertThat(result).containsExactly(featured, alpha, beta);
+  }
+
+  @Test
+  void compactModels_returnsEveryUsableModelWhenCatalogHasFewerThanThree() {
+    ModelOption one = new ModelOption("one", "One");
+    ModelOption two = new ModelOption("two", "Two");
+
+    List<ModelOption> result = service.compactModels(Provider.OPENROUTER, List.of(two, one));
+
+    assertThat(result).containsExactly(one, two);
   }
 
   private static ModelOption liveOption(

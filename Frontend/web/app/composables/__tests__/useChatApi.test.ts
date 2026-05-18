@@ -270,6 +270,48 @@ describe('useChatApi.logout', () => {
     expect(init.method).toBe('POST')
     expect(init.headers['X-XSRF-TOKEN']).toBe('csrf-token-value')
   })
+
+  it('fetches model catalogs with the expert flag', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify([{ id: 'gpt-test', label: 'GPT Test' }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    )
+
+    const { fetchModels } = useChatApi()
+    const result = await fetchModels('OPENAI', true)
+
+    expect(result[0]).toMatchObject({ value: 'gpt-test', label: 'GPT Test', provider: 'OPENAI' })
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('http://localhost:8080/models/openai?expert=true')
+    expect(init.method).toBe('GET')
+  })
+
+  it('posts guest chat imports to the authenticated import endpoint', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify([{ chatId: 'chat-imported', title: 'Guest' }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    )
+
+    const { importChats } = useChatApi()
+    await importChats([
+      {
+        title: 'Guest',
+        createdAt: '2026-05-18T12:00:00Z',
+        messages: [{ role: 'USER', message: 'hello', createdAt: '2026-05-18T12:00:00Z' }]
+      }
+    ])
+
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('http://localhost:8080/chats/import')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      chats: [{ title: 'Guest', messages: [{ role: 'USER', message: 'hello' }] }]
+    })
+  })
 })
 
 describe('normalizeAvailability', () => {

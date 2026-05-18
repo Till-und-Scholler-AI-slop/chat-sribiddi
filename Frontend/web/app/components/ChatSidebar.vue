@@ -11,22 +11,32 @@ const toast = useToast()
 const { t } = useI18n()
 const tt = useTranslatedError()
 
-const { ensureAuthenticated, logout } = useAuth()
+const { checkAuth, status: authStatus, logout } = useAuth()
 const { baseUrl: backendBaseUrl } = useChatApi()
 const { plan, ensureLoaded: ensureEntitlementsLoaded } = usePlan()
+const { settings } = useUserSettings()
 const {
   conversations,
   activeChatId,
+  ensureModels,
   selectChat,
   startChat,
   loadChatsFromBackend,
+  loadGuestChats,
   renameChat,
-  removeChat
+  removeChat,
+  hasGuestChats,
+  guestChatCount,
+  importGuestChats
 } = useChatStore()
 
 const editingChatId = ref<string | null>(null)
 const titleDraft = ref('')
 const processingChatId = ref<string | null>(null)
+const colorMode = useColorMode()
+const guestImportOpen = ref(false)
+const importingGuestChats = ref(false)
+const expertModeLoading = ref(false)
 
 // Delete-confirmation modal state.
 const deleteTarget = ref<{ chatId: string; title: string } | null>(null)
@@ -37,15 +47,47 @@ const deleteModalOpen = computed({
   }
 })
 
+const isAuthenticated = computed(() => authStatus.value === 'authenticated')
+
+const loginUrl = computed(() => `${backendBaseUrl.value}/oauth2/authorization/google`)
+
+const themeToggleIcon = computed(() =>
+  colorMode.value === 'dark' ? 'i-heroicons-sun' : 'i-heroicons-moon'
+)
+
+const themeToggleLabel = computed(() =>
+  colorMode.value === 'dark' ? t('sidebar.switchToLightMode') : t('sidebar.switchToDarkMode')
+)
+
+const toggleColorMode = () => {
+  colorMode.preference = colorMode.value === 'dark' ? 'light' : 'dark'
+}
+
+const openLogin = () => {
+  if (import.meta.client) {
+    window.location.href = loginUrl.value
+  }
+}
+
+const maybeOpenGuestImportPrompt = () => {
+  if (isAuthenticated.value && hasGuestChats() && !settings.value.guestImportDismissed) {
+    guestImportOpen.value = true
+  }
+}
+
 onMounted(async () => {
   try {
-    const ok = await ensureAuthenticated()
-    if (!ok) return
-    await Promise.all([
-      loadChatsFromBackend(),
-      // Load entitlements so the plan badge reflects the current tier.
-      ensureEntitlementsLoaded()
-    ])
+    const auth = await checkAuth()
+    if (auth === 'authenticated') {
+      await Promise.all([
+        loadChatsFromBackend(),
+        // Load entitlements so the plan badge reflects the current tier.
+        ensureEntitlementsLoaded()
+      ])
+      maybeOpenGuestImportPrompt()
+    } else {
+      await loadGuestChats()
+    }
   } catch (err) {
     console.error(err)
     toast.add({
@@ -58,12 +100,9 @@ onMounted(async () => {
 
 const handleNewChat = async () => {
   try {
-    const ok = await ensureAuthenticated()
-    if (!ok) {
-      router.push('/login')
-      return
+    if (authStatus.value === 'unknown') {
+      await checkAuth()
     }
-
     const session = await startChat()
     selectChat(session.chatId)
     if (route.path !== '/chat') {
@@ -176,7 +215,8 @@ const handleLogout = async () => {
           color: 'warning'
         }
   )
-  await router.push('/login')
+  await loadGuestChats()
+  await router.push('/chat')
 }
 
 const handleSwitchAccount = async () => {
@@ -188,7 +228,53 @@ const handleSwitchAccount = async () => {
   await logout()
   loggingOut.value = false
   if (import.meta.client) {
-    window.location.href = `${backendBaseUrl.value}/oauth2/authorization/google`
+    window.location.href = loginUrl.value
+  }
+}
+
+const handleExpertModeUpdate = async (value: boolean | 'indeterminate') => {
+  settings.value.expertMode = value === true
+  expertModeLoading.value = true
+  try {
+    await ensureModels()
+  } catch (err) {
+    toast.add({
+      title: t('models.loadCatalogFailed'),
+      description: tt(err, 'models.backendNotReachable'),
+      color: 'error'
+    })
+  } finally {
+    expertModeLoading.value = false
+  }
+}
+
+const keepGuestChatsLocal = () => {
+  settings.value.guestImportDismissed = true
+  guestImportOpen.value = false
+}
+
+const dismissGuestImport = () => {
+  guestImportOpen.value = false
+}
+
+const handleGuestImport = async () => {
+  if (importingGuestChats.value) return
+  importingGuestChats.value = true
+  try {
+    await importGuestChats()
+    toast.add({
+      title: t('sidebar.guestImportSuccess'),
+      color: 'primary'
+    })
+    guestImportOpen.value = false
+  } catch (err) {
+    toast.add({
+      title: t('sidebar.guestImportFailed'),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    importingGuestChats.value = false
   }
 }
 
@@ -325,74 +411,159 @@ const planBadgeLabel = computed<string>(() => {
 
     <!-- Footer -->
     <div class="border-t border-gray-200/60 dark:border-white/[0.06] p-2 space-y-1">
-      <div
-        v-if="!collapsed"
-        class="px-2 pt-1 pb-2 flex items-center justify-between"
-      >
-        <span class="text-xs text-gray-500 dark:text-gray-400">
-          {{ t('billing.planLabel') }}
-        </span>
-        <NuxtLink to="/pricing" class="no-underline">
-          <UBadge
-            :color="planBadgeColor"
-            variant="subtle"
-            :label="planBadgeLabel"
-            :aria-label="t('billing.planBadge.ariaLabel')"
+      <template v-if="isAuthenticated">
+        <div
+          v-if="!collapsed"
+          class="px-2 pt-1 pb-2 flex items-center justify-between"
+        >
+          <span class="text-xs text-gray-500 dark:text-gray-400">
+            {{ t('billing.planLabel') }}
+          </span>
+          <NuxtLink to="/pricing" class="no-underline">
+            <UBadge
+              :color="planBadgeColor"
+              variant="subtle"
+              :label="planBadgeLabel"
+              :aria-label="t('billing.planBadge.ariaLabel')"
+            />
+          </NuxtLink>
+        </div>
+        <div
+          v-if="!collapsed"
+          class="px-2 py-2 rounded-lg bg-gray-50/70 dark:bg-white/[0.03] space-y-1.5"
+        >
+          <UCheckbox
+            :model-value="settings.expertMode"
+            :label="t('sidebar.expertMode')"
+            :description="t('sidebar.expertModeDescription')"
+            :disabled="expertModeLoading"
+            @update:model-value="handleExpertModeUpdate"
           />
-        </NuxtLink>
-      </div>
-      <UButton
-        variant="ghost"
-        icon="i-heroicons-cpu-chip"
-        :label="collapsed ? '' : t('sidebar.models')"
-        :aria-label="t('sidebar.models')"
-        to="/models"
-        class="w-full justify-start btn-interactive"
-      />
-      <UButton
-        variant="ghost"
-        icon="i-heroicons-arrows-right-left"
-        :label="collapsed ? '' : t('sidebar.compare')"
-        :aria-label="t('sidebar.compare')"
-        to="/compare"
-        class="w-full justify-start btn-interactive"
-      />
-      <UButton
-        variant="ghost"
-        icon="i-heroicons-chart-bar"
-        :label="collapsed ? '' : t('sidebar.usage')"
-        :aria-label="t('sidebar.usage')"
-        to="/usage"
-        class="w-full justify-start btn-interactive"
-      />
-      <UButton
-        variant="ghost"
-        icon="i-heroicons-cog-6-tooth"
-        :label="collapsed ? '' : t('sidebar.settings')"
-        :aria-label="t('sidebar.settings')"
-        to="/settings"
-        class="w-full justify-start btn-interactive"
-      />
-      <UButton
-        variant="ghost"
-        icon="i-heroicons-user-plus"
-        :label="collapsed ? '' : t('sidebar.switchAccount')"
-        :aria-label="t('sidebar.switchGoogleAccount')"
-        :disabled="loggingOut"
-        class="w-full justify-start btn-interactive"
-        @click="handleSwitchAccount"
-      />
-      <UButton
-        variant="ghost"
-        color="error"
-        icon="i-heroicons-arrow-right-on-rectangle"
-        :label="collapsed ? '' : t('sidebar.logout')"
-        :aria-label="t('sidebar.logout')"
-        :loading="loggingOut"
-        class="w-full justify-start btn-interactive"
-        @click="handleLogout"
-      />
+        </div>
+        <UButton
+          v-else
+          variant="ghost"
+          :icon="settings.expertMode ? 'i-heroicons-adjustments-horizontal-solid' : 'i-heroicons-adjustments-horizontal'"
+          :aria-label="t('sidebar.expertMode')"
+          :loading="expertModeLoading"
+          class="w-full justify-start btn-interactive"
+          @click="handleExpertModeUpdate(!settings.expertMode)"
+        />
+        <UButton
+          variant="ghost"
+          icon="i-heroicons-cpu-chip"
+          :label="collapsed ? '' : t('sidebar.models')"
+          :aria-label="t('sidebar.models')"
+          to="/models"
+          class="w-full justify-start btn-interactive"
+        />
+        <UButton
+          variant="ghost"
+          icon="i-heroicons-arrows-right-left"
+          :label="collapsed ? '' : t('sidebar.compare')"
+          :aria-label="t('sidebar.compare')"
+          to="/compare"
+          class="w-full justify-start btn-interactive"
+        />
+        <UButton
+          variant="ghost"
+          icon="i-heroicons-chart-bar"
+          :label="collapsed ? '' : t('sidebar.usage')"
+          :aria-label="t('sidebar.usage')"
+          to="/usage"
+          class="w-full justify-start btn-interactive"
+        />
+        <UButton
+          variant="ghost"
+          icon="i-heroicons-cog-6-tooth"
+          :label="collapsed ? '' : t('sidebar.settings')"
+          :aria-label="t('sidebar.settings')"
+          to="/settings"
+          class="w-full justify-start btn-interactive"
+        />
+        <UButton
+          variant="ghost"
+          icon="i-heroicons-user-plus"
+          :label="collapsed ? '' : t('sidebar.switchAccount')"
+          :aria-label="t('sidebar.switchGoogleAccount')"
+          :disabled="loggingOut"
+          class="w-full justify-start btn-interactive"
+          @click="handleSwitchAccount"
+        />
+        <UButton
+          variant="ghost"
+          color="error"
+          icon="i-heroicons-arrow-right-on-rectangle"
+          :label="collapsed ? '' : t('sidebar.logout')"
+          :aria-label="t('sidebar.logout')"
+          :loading="loggingOut"
+          class="w-full justify-start btn-interactive"
+          @click="handleLogout"
+        />
+      </template>
+      <template v-else>
+        <UButton
+          variant="ghost"
+          color="neutral"
+          :icon="themeToggleIcon"
+          :label="collapsed ? '' : themeToggleLabel"
+          :aria-label="themeToggleLabel"
+          class="w-full justify-start btn-interactive"
+          @click="toggleColorMode"
+        />
+        <UButton
+          color="primary"
+          variant="soft"
+          icon="i-heroicons-arrow-right-on-rectangle"
+          :label="collapsed ? '' : t('auth.loginButton')"
+          :aria-label="t('auth.loginButton')"
+          class="w-full justify-start btn-interactive"
+          @click="openLogin"
+        />
+      </template>
     </div>
+
+    <!-- Guest import prompt -->
+    <UModal v-model:open="guestImportOpen" :ui="{ width: 'max-w-md' }">
+      <template #content>
+        <div class="p-5 space-y-4">
+          <div class="flex items-start gap-3">
+            <div class="p-2 rounded-lg bg-primary-100 text-primary-600 dark:bg-primary-500/15 dark:text-primary-300">
+              <UIcon name="i-heroicons-inbox-arrow-down" class="size-5" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h3 class="text-base font-semibold tracking-tight">{{ t('sidebar.guestImportTitle') }}</h3>
+              <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                {{ t('sidebar.guestImportDescription', { count: guestChatCount() }) }}
+              </p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 pt-2 flex-wrap">
+            <UButton
+              variant="ghost"
+              color="neutral"
+              :label="t('sidebar.guestImportDismiss')"
+              :disabled="importingGuestChats"
+              @click="dismissGuestImport"
+            />
+            <UButton
+              variant="outline"
+              color="neutral"
+              :label="t('sidebar.guestImportKeepLocal')"
+              :disabled="importingGuestChats"
+              @click="keepGuestChatsLocal"
+            />
+            <UButton
+              color="primary"
+              icon="i-heroicons-inbox-arrow-down"
+              :label="t('sidebar.guestImportAction')"
+              :loading="importingGuestChats"
+              @click="handleGuestImport"
+            />
+          </div>
+        </div>
+      </template>
+    </UModal>
 
     <!-- Delete confirmation -->
     <UModal v-model:open="deleteModalOpen" :ui="{ width: 'max-w-md' }">
