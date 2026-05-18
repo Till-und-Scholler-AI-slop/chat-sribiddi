@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -33,6 +34,7 @@ public class GuestQuotaService {
   private final Clock clock;
   private final Map<String, MemoryCounter> memoryCounters = new ConcurrentHashMap<>();
 
+  @Autowired
   public GuestQuotaService(
       BillingProperties billingProperties,
       RateLimitProperties rateLimitProperties,

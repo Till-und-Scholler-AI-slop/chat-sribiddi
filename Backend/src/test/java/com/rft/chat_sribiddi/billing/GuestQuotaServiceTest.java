@@ -1,5 +1,6 @@
 package com.rft.chat_sribiddi.billing;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -8,9 +9,19 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 class GuestQuotaServiceTest {
+
+  @Test
+  void springContextInstantiatesServiceWithProductionConstructor() {
+    new ApplicationContextRunner()
+        .withBean(BillingProperties.class)
+        .withBean(RateLimitProperties.class)
+        .withBean(GuestQuotaService.class)
+        .run(context -> assertThat(context).hasSingleBean(GuestQuotaService.class));
+  }
 
   @Test
   void assertWithinDailyCap_blocksAfterConfiguredAnonymousCap() {
