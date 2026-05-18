@@ -6,6 +6,7 @@ import com.rft.chat_sribiddi.billing.BillingModeResolver;
 import com.rft.chat_sribiddi.billing.EntitlementService;
 import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.billing.GuestQuotaService;
+import com.rft.chat_sribiddi.billing.GuestQuotaService.GuestQuotaReservation;
 import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.chat.dto.AnonymousChatRequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
@@ -54,7 +55,6 @@ public class AnonymousChatService {
 
   public SseEmitter streamMessage(
       AnonymousChatRequestDTO request, String guestId, HttpServletRequest servletRequest) {
-    guestQuotaService.assertWithinDailyCap(servletRequest, guestId);
     if (request.provider() != Provider.OPENROUTER) {
       throw new PlanRestrictionException(
           PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
@@ -79,13 +79,16 @@ public class AnonymousChatService {
                 request.modelId(),
                 entitlements));
 
+    GuestQuotaReservation quotaReservation =
+        guestQuotaService.reserveDailyCall(servletRequest, guestId);
     SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
-    ProviderClientHandle clientHandle =
-        providerClientFactory.getClient(
-            request.provider(), resolvedKey.apiKey(), resolvedKey.effectiveMode());
-    ChatMetrics.StreamSample streamSample =
-        chatMetrics.startStream(request.provider(), request.modelId());
+    ProviderClientHandle clientHandle = null;
+    ChatMetrics.StreamSample streamSample = null;
     try {
+      clientHandle =
+          providerClientFactory.getClient(
+              request.provider(), resolvedKey.apiKey(), resolvedKey.effectiveMode());
+      streamSample = chatMetrics.startStream(request.provider(), request.modelId());
       var options =
           providerClientFactory.buildOptions(request.provider(), request.modelId(), resolvedKey.apiKey());
       var promptSpec =
@@ -95,12 +98,14 @@ public class AnonymousChatService {
           emitter,
           clientHandle,
           request,
-          servletRequest,
-          guestId,
+          quotaReservation,
           streamSample);
     } catch (RuntimeException | Error error) {
+      quotaReservation.rollback();
       chatMetrics.recordStreamEnd(streamSample);
-      clientHandle.close();
+      if (clientHandle != null) {
+        clientHandle.close();
+      }
       throw error;
     }
     return emitter;
@@ -111,8 +116,7 @@ public class AnonymousChatService {
       SseEmitter emitter,
       ProviderClientHandle clientHandle,
       AnonymousChatRequestDTO request,
-      HttpServletRequest servletRequest,
-      String guestId,
+      GuestQuotaReservation quotaReservation,
       ChatMetrics.StreamSample streamSample) {
     StringBuilder fullText = new StringBuilder();
     AtomicLong streamedTextUtf8Bytes = new AtomicLong();
@@ -127,18 +131,20 @@ public class AnonymousChatService {
             error ->
                 handleStreamError(
                     request, streamId, error, streamedTextUtf8Bytes.get(), lastUsage, emitter,
-                    clientHandle, streamSample),
+                    clientHandle, quotaReservation, streamSample),
             () ->
                 handleStreamCompletion(
-                    request, servletRequest, guestId, lastUsage, emitter, clientHandle, streamSample));
+                    request, lastUsage, emitter, clientHandle, quotaReservation, streamSample));
 
     emitter.onTimeout(
         () -> {
+          quotaReservation.rollback();
           chatMetrics.recordStreamEnd(streamSample);
           clientHandle.close();
         });
     emitter.onError(
         _ -> {
+          quotaReservation.rollback();
           chatMetrics.recordStreamEnd(streamSample);
           clientHandle.close();
         });
@@ -194,15 +200,14 @@ public class AnonymousChatService {
 
   private void handleStreamCompletion(
       AnonymousChatRequestDTO request,
-      HttpServletRequest servletRequest,
-      String guestId,
       AtomicReference<Usage> lastUsage,
       SseEmitter emitter,
       ProviderClientHandle clientHandle,
+      GuestQuotaReservation quotaReservation,
       ChatMetrics.StreamSample streamSample) {
     try (clientHandle) {
       TokenUsage tokenUsage = chatUsageRecorder.tokenUsage(lastUsage.get());
-      guestQuotaService.incrementCounter(servletRequest, guestId);
+      quotaReservation.commit();
       emitter.send(
           SseEmitter.event()
               .name("done")
@@ -241,6 +246,7 @@ public class AnonymousChatService {
       AtomicReference<Usage> lastUsage,
       SseEmitter emitter,
       ProviderClientHandle clientHandle,
+      GuestQuotaReservation quotaReservation,
       ChatMetrics.StreamSample streamSample) {
     StreamErrorHandler.StreamErrorDetails details =
         StreamErrorHandler.describe(request.provider(), request.modelId(), streamedTextUtf8Bytes, error);
@@ -278,6 +284,7 @@ public class AnonymousChatService {
     } catch (IOException e) {
       log.warn("Failed to send anonymous SSE error event", e);
     } finally {
+      quotaReservation.rollback();
       chatUsageRecorder.recordRequestMetric(request.provider(), request.modelId(), Plan.FREE, false);
       chatMetrics.recordStreamEnd(streamSample);
       emitter.complete();
@@ -298,8 +305,7 @@ public class AnonymousChatService {
     return switch (normalized) {
       case "USER" -> Role.USER;
       case "ASSISTANT" -> Role.ASSISTANT;
-      case "SYSTEM" -> Role.SYSTEM;
-      default -> throw new IllegalArgumentException("Unsupported history role: " + raw);
+      default -> throw new IllegalArgumentException("Unsupported anonymous history role: " + raw);
     };
   }
 

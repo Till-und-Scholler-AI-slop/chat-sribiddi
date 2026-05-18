@@ -1,5 +1,6 @@
 package com.rft.chat_sribiddi.billing;
 
+import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rft.chat_sribiddi.config.RateLimitProperties;
@@ -38,7 +39,7 @@ class GuestQuotaServiceTest {
   }
 
   @Test
-  void assertWithinDailyCap_usesGuestIdAndIpInMemoryKey() {
+  void assertWithinDailyCap_enforcesIpCapWhenGuestIdChanges() {
     BillingProperties billingProperties = new BillingProperties();
     billingProperties.setGuestDailyCap(1);
     RateLimitProperties rateLimitProperties = new RateLimitProperties();
@@ -54,7 +55,35 @@ class GuestQuotaServiceTest {
 
     service.incrementCounter(request, "guest-1");
 
-    service.assertWithinDailyCap(request, "guest-2");
+    assertThatThrownBy(() -> service.assertWithinDailyCap(request, "guest-2"))
+        .isInstanceOf(PlanRestrictionException.class)
+        .extracting("reason")
+        .isEqualTo(PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED);
+  }
+
+  @Test
+  void reservationRollback_releasesReservedIpAndGuestSlots() {
+    BillingProperties billingProperties = new BillingProperties();
+    billingProperties.setGuestDailyCap(1);
+    RateLimitProperties rateLimitProperties = new RateLimitProperties();
+    rateLimitProperties.setBackend(RateLimitProperties.Backend.MEMORY);
+    GuestQuotaService service =
+        new GuestQuotaService(
+            billingProperties,
+            rateLimitProperties,
+            null,
+            Clock.fixed(Instant.parse("2026-05-18T12:00:00Z"), ZoneOffset.UTC));
+    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/anonymous/chats/stream");
+    request.setRemoteAddr("203.0.113.10");
+
+    GuestQuotaService.GuestQuotaReservation reservation =
+        service.reserveDailyCall(request, "guest-1");
+    assertThatThrownBy(() -> service.reserveDailyCall(request, "guest-2"))
+        .isInstanceOf(PlanRestrictionException.class);
+
+    reservation.rollback();
+
+    assertThatNoException().isThrownBy(() -> service.reserveDailyCall(request, "guest-2").commit());
   }
 
   @Test

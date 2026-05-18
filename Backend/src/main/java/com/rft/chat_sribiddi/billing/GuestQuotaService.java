@@ -9,9 +9,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -57,21 +60,37 @@ public class GuestQuotaService {
     if (cap <= 0) {
       return;
     }
-    long current = currentCount(key(request, guestId));
-    if (current >= cap) {
-      throw new PlanRestrictionException(
-          PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED,
-          Plan.FREE,
-          "Daily guest call cap (%d) reached".formatted(cap));
+    for (String key : keys(request, guestId)) {
+      long current = currentCount(key);
+      if (current >= cap) {
+        throw dailyCapReached(cap);
+      }
     }
   }
 
   public void incrementCounter(HttpServletRequest request, String guestId) {
+    reserveDailyCall(request, guestId).commit();
+  }
+
+  public GuestQuotaReservation reserveDailyCall(HttpServletRequest request, String guestId) {
     long cap = billingProperties.getGuestDailyCap();
     if (cap <= 0) {
-      return;
+      return GuestQuotaReservation.noop();
     }
-    String key = key(request, guestId);
+    List<String> reservedKeys = new ArrayList<>();
+    try {
+      for (String key : keys(request, guestId)) {
+        reserveKey(key, cap);
+        reservedKeys.add(key);
+      }
+      return new GuestQuotaReservation(this, reservedKeys);
+    } catch (RuntimeException ex) {
+      rollbackKeys(reservedKeys);
+      throw ex;
+    }
+  }
+
+  private void reserveKey(String key, long cap) {
     if (useRedis()) {
       if (redisTemplate == null) {
         throw quotaUnavailable();
@@ -81,22 +100,40 @@ public class GuestQuotaService {
         if (next != null && next == 1L) {
           redisTemplate.expire(key, Duration.ofHours(36));
         }
+        if (next == null) {
+          throw quotaUnavailable();
+        }
+        if (next > cap) {
+          rollbackKeys(List.of(key));
+          throw dailyCapReached(cap);
+        }
         return;
       } catch (RuntimeException ex) {
         log.warn("Redis guest quota increment failed for key '{}': {}", key, ex.getMessage());
+        if (ex instanceof PlanRestrictionException) {
+          throw ex;
+        }
         throw quotaUnavailable();
       }
     }
 
     LocalDate today = today();
+    AtomicBoolean blocked = new AtomicBoolean(false);
     memoryCounters.compute(
         key,
         (_key, counter) -> {
           if (counter == null || !counter.day().equals(today)) {
             return new MemoryCounter(today, 1L);
           }
+          if (counter.count() >= cap) {
+            blocked.set(true);
+            return counter;
+          }
           return new MemoryCounter(today, counter.count() + 1L);
         });
+    if (blocked.get()) {
+      throw dailyCapReached(cap);
+    }
   }
 
   private long currentCount(String key) {
@@ -126,6 +163,39 @@ public class GuestQuotaService {
     return rateLimitProperties.getBackend() == RateLimitProperties.Backend.REDIS;
   }
 
+  private void rollbackKeys(List<String> keys) {
+    if (keys == null || keys.isEmpty()) {
+      return;
+    }
+    if (useRedis()) {
+      if (redisTemplate == null) {
+        return;
+      }
+      for (String key : keys) {
+        try {
+          redisTemplate.opsForValue().decrement(key);
+        } catch (RuntimeException ex) {
+          log.warn("Redis guest quota rollback failed for key '{}': {}", key, ex.getMessage());
+        }
+      }
+      return;
+    }
+
+    for (String key : keys) {
+      memoryCounters.computeIfPresent(
+          key,
+          (_key, counter) ->
+              counter.count() <= 1 ? null : new MemoryCounter(counter.day(), counter.count() - 1));
+    }
+  }
+
+  private PlanRestrictionException dailyCapReached(long cap) {
+    return new PlanRestrictionException(
+        PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED,
+        Plan.FREE,
+        "Daily guest call cap (%d) reached".formatted(cap));
+  }
+
   private PlanRestrictionException quotaUnavailable() {
     return new PlanRestrictionException(
         PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED,
@@ -133,9 +203,13 @@ public class GuestQuotaService {
         "Guest quota is temporarily unavailable. Please retry later.");
   }
 
-  private String key(HttpServletRequest request, String guestId) {
-    String raw = today() + ":" + clientIp(request) + ":" + normalizeGuestId(guestId);
-    return KEY_PREFIX + sha256(raw);
+  private List<String> keys(HttpServletRequest request, String guestId) {
+    String today = today().toString();
+    String clientIp = clientIp(request);
+    String normalizedGuestId = normalizeGuestId(guestId);
+    return List.of(
+        KEY_PREFIX + sha256(today + ":ip:" + clientIp),
+        KEY_PREFIX + sha256(today + ":ip-guest:" + clientIp + ":" + normalizedGuestId));
   }
 
   private String clientIp(HttpServletRequest request) {
@@ -166,6 +240,33 @@ public class GuestQuotaService {
       return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
     } catch (Exception ex) {
       throw new IllegalStateException("SHA-256 digest unavailable", ex);
+    }
+  }
+
+  public static final class GuestQuotaReservation {
+    private static final GuestQuotaReservation NOOP = new GuestQuotaReservation(null, List.of());
+
+    private final GuestQuotaService service;
+    private final List<String> reservedKeys;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+
+    private GuestQuotaReservation(GuestQuotaService service, List<String> reservedKeys) {
+      this.service = service;
+      this.reservedKeys = List.copyOf(reservedKeys);
+    }
+
+    static GuestQuotaReservation noop() {
+      return NOOP;
+    }
+
+    public void commit() {
+      closed.compareAndSet(false, true);
+    }
+
+    public void rollback() {
+      if (service != null && closed.compareAndSet(false, true)) {
+        service.rollbackKeys(reservedKeys);
+      }
     }
   }
 

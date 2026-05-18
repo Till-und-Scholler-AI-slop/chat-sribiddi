@@ -1,22 +1,30 @@
 type AuthState = 'unknown' | 'authenticated' | 'unauthenticated'
 
+let authCheckPromise: Promise<AuthState> | null = null
+
 export function useAuth() {
   const status = useState<AuthState>('auth-status', () => 'unknown')
   const checking = useState<boolean>('auth-checking', () => false)
 
   const checkAuth = async () => {
-    if (checking.value) return status.value
+    if (authCheckPromise) return authCheckPromise
     checking.value = true
-    try {
+    authCheckPromise = (async () => {
       const { checkSession } = useChatApi()
-      const ok = await checkSession()
-      status.value = ok ? 'authenticated' : 'unauthenticated'
-    } catch {
-      status.value = 'unauthenticated'
+      try {
+        const ok = await checkSession()
+        status.value = ok ? 'authenticated' : 'unauthenticated'
+      } catch {
+        status.value = 'unauthenticated'
+      }
+      return status.value
+    })()
+    try {
+      return await authCheckPromise
     } finally {
       checking.value = false
+      authCheckPromise = null
     }
-    return status.value
   }
 
   const ensureAuthenticated = async () => {
@@ -37,6 +45,7 @@ export function useAuth() {
     try {
       ok = await apiLogout()
     } finally {
+      authCheckPromise = null
       status.value = 'unauthenticated'
     }
     return ok
