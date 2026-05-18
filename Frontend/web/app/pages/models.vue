@@ -5,6 +5,8 @@ import { formatRatePerMillion } from '~/composables/chat-helpers'
 
 const { t } = useI18n()
 const tt = useTranslatedError()
+const { status: authStatus, checkAuth } = useAuth()
+const { settings } = useUserSettings()
 
 definePageMeta({
   layout: 'default'
@@ -28,6 +30,8 @@ const router = useRouter()
 
 const providerFilter = ref<'ALL' | Provider>('ALL')
 const searchQuery = ref('')
+const expertModeLoading = ref(false)
+const isAuthenticated = computed(() => authStatus.value === 'authenticated')
 
 const providerLabels: Record<Provider, string> = {
   OPENAI: 'OpenAI',
@@ -167,8 +171,25 @@ const useModel = async (model: ModelOption) => {
   }
 }
 
+const handleExpertModeUpdate = async (value: boolean | 'indeterminate') => {
+  settings.value.expertMode = value === true
+  expertModeLoading.value = true
+  try {
+    await ensureModels()
+  } catch (err) {
+    toast.add({
+      title: t('models.loadCatalogFailed'),
+      description: tt(err, 'models.backendNotReachable'),
+      color: 'error'
+    })
+  } finally {
+    expertModeLoading.value = false
+  }
+}
+
 onMounted(async () => {
   try {
+    await checkAuth()
     await ensureModels()
   } catch (err) {
     console.error(err)
@@ -217,6 +238,18 @@ onMounted(async () => {
             />
 
             <div class="flex flex-wrap gap-2">
+              <div
+                v-if="isAuthenticated"
+                class="flex items-center rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-800"
+              >
+                <UCheckbox
+                  :model-value="settings.expertMode"
+                  :label="t('models.expertMode')"
+                  :description="t('models.expertModeDescription')"
+                  :disabled="expertModeLoading"
+                  @update:model-value="handleExpertModeUpdate"
+                />
+              </div>
               <button
                 v-for="filter in providerFilters"
                 :key="filter.value"

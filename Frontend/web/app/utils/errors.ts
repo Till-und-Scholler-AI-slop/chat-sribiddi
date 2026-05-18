@@ -50,6 +50,12 @@ export function friendlyErrorKey(err: unknown): FriendlyErrorResult {
   if (/\b429\b/.test(raw) || lower.includes('rate limit')) {
     return { key: 'errors.rateLimit', raw }
   }
+  if (lower.includes('daily_cap_exceeded')) {
+    return { key: 'errors.dailyCapExceeded', raw }
+  }
+  if (lower.includes('model_not_allowed')) {
+    return { key: 'errors.modelNotAllowed', raw }
+  }
   if (/\b5\d{2}\b/.test(raw)) {
     return { key: 'errors.serverError', raw }
   }

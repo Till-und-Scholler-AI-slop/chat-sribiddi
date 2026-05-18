@@ -2,6 +2,7 @@ import type { StreamEvent } from '~/composables/chat-stream'
 import type { ModelOption, TokenUsage } from '~/composables/useChatApi'
 import { isModelLocked, PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { calculateMessageCost } from '~/composables/chat-helpers'
+import { useUserSettings } from '~/composables/useUserSettings'
 
 export const COMPARE_MIN_PANELS = 2
 export const COMPARE_MAX_PANELS = 6
@@ -74,6 +75,7 @@ function isAbortError(error: unknown) {
 
 export function useCompareStore() {
   const { createChat, deleteChat, fetchModels, streamMessage } = useChatApi()
+  const { settings } = useUserSettings()
 
   const panels = useState<ComparePanelState[]>('compare-panels', () => [
     createComparePanel('compare-panel-1'),
@@ -134,7 +136,9 @@ export function useCompareStore() {
 
     modelsLoading.value = true
     try {
-      const results = await Promise.allSettled(PROVIDERS.map(provider => fetchModels(provider)))
+      const results = await Promise.allSettled(
+        PROVIDERS.map(provider => fetchModels(provider, settings.value.expertMode))
+      )
       const loaded: ModelOption[] = []
       const errors: string[] = []
 

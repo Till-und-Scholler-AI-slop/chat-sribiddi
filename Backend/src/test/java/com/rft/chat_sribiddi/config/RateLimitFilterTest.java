@@ -64,7 +64,7 @@ class RateLimitFilterTest {
         filter.rateLimitForCurrentRequest(new MockHttpServletRequest("GET", "/chats"));
 
     assertThat(rateLimit.key()).isEqualTo("user:provider-1");
-    assertThat(rateLimit.limit()).isEqualTo(120);
+    assertThat(rateLimit.limit()).isEqualTo(1200);
   }
 
   @Test

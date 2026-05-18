@@ -32,3 +32,25 @@ test('creates a chat, sends a prompt, and renders the mocked streamed response',
   await expect(highlightedCode.locator('span[style*="color"]').first()).toBeVisible()
   await expect(page.getByRole('heading', { name: 'E2E Chat' })).toBeVisible()
 })
+
+test('anonymous chat persists locally across reloads', async ({ page }) => {
+  await mockBackend(page, { authenticated: false })
+
+  await page.goto('/chat')
+
+  const prompt = page.getByRole('textbox', { name: 'Type your message here…' })
+  await expect(prompt).toBeVisible({ timeout: hydrationTimeout })
+  await expect(page.getByRole('button', { name: /Google/i })).toBeVisible({ timeout: hydrationTimeout })
+
+  await prompt.click()
+  await prompt.pressSequentially('Hallo Gast')
+  await page.getByTestId('chat-submit').click()
+
+  await expect(page.getByText('Hallo Gast')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Markstream check' })).toBeVisible()
+
+  await page.reload()
+
+  await expect(page.getByText('Hallo Gast')).toBeVisible({ timeout: hydrationTimeout })
+  await expect(page.getByRole('heading', { name: 'Markstream check' })).toBeVisible()
+})

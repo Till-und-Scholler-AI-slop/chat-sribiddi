@@ -67,7 +67,9 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
       backendBaseUrl,
       favoriteModels: [],
       lastUsedModel: null,
-      showPreSendCostEstimate: true
+      showPreSendCostEstimate: true,
+      expertMode: false,
+      guestImportDismissed: false
     }
 
     try {
@@ -156,6 +158,28 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
           'event: done\n' +
           'data: {"type":"done","messageId":123,"hasToolCalls":false,"promptTokens":4,"generationTokens":2,"totalTokens":6}\n\n'
       })
+      return
+    }
+
+    if (path === '/anonymous/chats/stream') {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          ...corsHeaders(route),
+          'Content-Type': 'text/event-stream'
+        },
+        body:
+          markdownResponseChunks.map(streamTextEvent).join('') +
+          'event: done\n' +
+          'data: {"type":"done","hasToolCalls":false,"promptTokens":4,"generationTokens":2,"totalTokens":6}\n\n'
+      })
+      return
+    }
+
+    if (path === '/chats/import' && request.method() === 'POST') {
+      const chat = { chatId: 'chat-imported', title: 'Imported guest chat' }
+      chats.set(chat.chatId, chat)
+      await fulfillJson(route, [chat])
       return
     }
 

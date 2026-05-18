@@ -122,6 +122,27 @@ type SendMessageInput = {
   toolConsents?: ToolConsent[]
 }
 
+type AnonymousHistoryMessage = {
+  role: 'USER' | 'ASSISTANT' | 'SYSTEM'
+  message: string
+}
+
+type AnonymousSendMessageInput = Omit<SendMessageInput, 'webSearchEnabled' | 'toolConsents'> & {
+  history?: AnonymousHistoryMessage[]
+}
+
+export type ImportChatMessage = {
+  role: 'USER' | 'ASSISTANT' | 'SYSTEM'
+  message: string
+  createdAt?: string | null
+}
+
+export type ImportChat = {
+  title?: string | null
+  createdAt?: string | null
+  messages: ImportChatMessage[]
+}
+
 export const DEFAULT_BACKEND_BASE_URL = 'http://localhost:8080'
 
 export function normalizeBaseUrl(value: string) {
@@ -445,6 +466,19 @@ export function useChatApi() {
     )
   }
 
+  const streamAnonymousMessage = async (
+    input: AnonymousSendMessageInput,
+    onEvent: (event: StreamEvent) => void,
+    signal?: AbortSignal
+  ) => {
+    return fetchSseStream(
+      buildUrl('/anonymous/chats/stream'),
+      JSON.stringify(input),
+      onEvent,
+      signal
+    )
+  }
+
   /**
    * Edits an existing user message and streams a new AI response.
    * All messages after the edited message are deleted on the backend before streaming.
@@ -473,6 +507,13 @@ export function useChatApi() {
 
   const deleteChat = async (chatId: string) => {
     await requestJson<unknown>(`/chats/${chatId}`, { method: 'DELETE' })
+  }
+
+  const importChats = async (chats: ImportChat[]) => {
+    return requestJson<ChatSession[]>('/chats/import', {
+      method: 'POST',
+      body: JSON.stringify({ chats })
+    })
   }
 
   const exportRunbook = async (chatId: string) => {
@@ -523,7 +564,7 @@ export function useChatApi() {
     }
   }
 
-  const fetchModels = async (provider: Provider) => {
+  const fetchModels = async (provider: Provider, expert = false) => {
     const data = await requestJson<Array<{
       id: string
       label: string
@@ -542,7 +583,7 @@ export function useChatApi() {
       supportedParameters?: string[] | null
       availability?: string | null
       requiredPlan?: string | null
-    }>>(modelEndpointPath(provider), {
+    }>>(`${modelEndpointPath(provider)}?expert=${expert ? 'true' : 'false'}`, {
       method: 'GET'
     })
 
@@ -580,9 +621,11 @@ export function useChatApi() {
     fetchMessageToolCalls,
     sendMessage,
     streamMessage,
+    streamAnonymousMessage,
     editAndStreamMessage,
     updateChat,
     deleteChat,
+    importChats,
     exportRunbook,
     deleteAccount,
     logout,

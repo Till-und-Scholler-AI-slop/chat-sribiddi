@@ -32,6 +32,7 @@ const {
   getToolCallError,
   isToolCallLoading,
   ensureToolCalls,
+  isGuestMode,
   setModelForChat,
   sortedModels,
   startChat,
@@ -39,6 +40,7 @@ const {
   tokenUsageMap,
   webSearchEnabled
 } = useChatStore()
+const { checkAuth } = useAuth()
 const { settings } = useUserSettings()
 const { exportRunbook } = useChatApi()
 
@@ -112,8 +114,11 @@ const {
 
 const status = computed(() => activeConversation.value?.status || 'ready')
 const errorMessage = computed(() => activeConversation.value?.error || modelsError.value)
+const translatedErrorMessage = computed(() =>
+  errorMessage.value ? tt(new Error(errorMessage.value)) : null
+)
 const promptError = computed(() =>
-  errorMessage.value ? new Error(errorMessage.value) : undefined
+  translatedErrorMessage.value ? new Error(translatedErrorMessage.value) : undefined
 )
 
 type ChatMessagePart = { type: string; text?: string; mediaType?: string; filename?: string }
@@ -275,6 +280,7 @@ const chatReady = computed(() => !initializing.value && !!activeConversation.val
 
 onMounted(async () => {
   try {
+    await checkAuth()
     await ensureModels()
     await loadChatsFromBackend()
     if (conversations.value.length === 0) {
@@ -419,7 +425,7 @@ const handleStop = () => {
 
 const downloadRunbook = async () => {
   const conversation = activeConversation.value
-  if (!conversation || exportingRunbook.value) return
+  if (!conversation || conversation.local || exportingRunbook.value) return
 
   exportingRunbook.value = true
   try {
@@ -490,10 +496,10 @@ const handleReload = async () => {
           @close="dismissUpgradeBanner"
         />
         <UAlert
-          v-if="errorMessage"
+          v-if="translatedErrorMessage"
           color="error"
           icon="i-heroicons-exclamation-triangle"
-          :description="errorMessage"
+          :description="translatedErrorMessage"
         />
 
         <div v-if="initializing" class="space-y-3">
@@ -523,6 +529,7 @@ const handleReload = async () => {
             <div class="chat-page-header__meta">
               <UTooltip :text="t('chat.exportRunbook')">
                 <UButton
+                  v-if="!activeConversation.local"
                   icon="i-heroicons-arrow-down-tray"
                   color="neutral"
                   variant="ghost"
@@ -588,7 +595,7 @@ const handleReload = async () => {
                             />
                           </div>
                           <ToolCallDisplay
-                            v-if="message?.role === 'assistant' && hasToolCalls(message.id)"
+                            v-if="!isGuestMode && message?.role === 'assistant' && hasToolCalls(message.id)"
                             :tool-calls="getToolCalls(message.id)"
                             :loading="isToolCallLoading(message.id)"
                             :error="getToolCallError(message.id)"
@@ -742,7 +749,10 @@ const handleReload = async () => {
                   </div>
                 </template>
               </USelectMenu>
-              <UTooltip :text="webSearchEnabled ? t('chat.webSearchDisable') : t('chat.webSearchEnable')">
+              <UTooltip
+                v-if="!isGuestMode"
+                :text="webSearchEnabled ? t('chat.webSearchDisable') : t('chat.webSearchEnable')"
+              >
                 <UButton
                   :icon="webSearchEnabled ? 'i-heroicons-globe-alt-solid' : 'i-heroicons-globe-alt'"
                   :color="webSearchEnabled ? 'primary' : 'neutral'"

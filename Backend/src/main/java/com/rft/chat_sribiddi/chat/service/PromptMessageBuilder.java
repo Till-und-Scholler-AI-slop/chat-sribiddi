@@ -63,6 +63,39 @@ public class PromptMessageBuilder {
     return messages;
   }
 
+  List<Message> buildStateless(StatelessPromptMessageRequest request) {
+    List<Message> messages = new ArrayList<>();
+    String instructionContent = instructionContent(request.customInstructions());
+    if (supportsSystemInstruction(request.provider(), request.modelId())) {
+      messages.add(new SystemMessage(instructionContent));
+    } else {
+      messages.add(new UserMessage(USER_INSTRUCTION_PREFIX + instructionContent));
+    }
+
+    List<StatelessChatMessage> allMessages = new ArrayList<>();
+    if (request.history() != null) {
+      allMessages.addAll(
+          request.history().stream()
+              .filter(item -> item != null && item.content() != null && !item.content().isBlank())
+              .toList());
+    }
+    allMessages.add(new StatelessChatMessage(Role.USER, request.currentContent()));
+
+    int limit = contextMessageLimit(request.entitlements());
+    int from = Math.max(0, allMessages.size() - limit);
+    List<StatelessChatMessage> limited = allMessages.subList(from, allMessages.size());
+    for (int i = 0; i < limited.size(); i++) {
+      StatelessChatMessage item = limited.get(i);
+      boolean isCurrent = i == limited.size() - 1;
+      if (isCurrent && item.role() == Role.USER && !request.mediaAttachments().isEmpty()) {
+        messages.add(toUserMessage(item.content(), request.mediaAttachments(), request.entitlements()));
+      } else {
+        messages.add(toChatMessage(item.role(), item.content()));
+      }
+    }
+    return messages;
+  }
+
   String assistantContext(int messageCount, RequestDTO.Provider provider, String modelId) {
     if (supportsSystemInstruction(provider, modelId)) {
       return "Contains last %d messages including system prompt".formatted(messageCount);
@@ -91,17 +124,26 @@ public class PromptMessageBuilder {
   }
 
   private Message toChatMessage(MessageEntity entity) {
-    return switch (entity.getRole()) {
-      case ASSISTANT -> new AssistantMessage(entity.getMessage());
-      case SYSTEM -> new SystemMessage(entity.getMessage());
-      default -> new UserMessage(entity.getMessage());
+    return toChatMessage(entity.getRole(), entity.getMessage());
+  }
+
+  private Message toChatMessage(Role role, String text) {
+    return switch (role) {
+      case ASSISTANT -> new AssistantMessage(text);
+      case SYSTEM -> new SystemMessage(text);
+      default -> new UserMessage(text);
     };
   }
 
   private UserMessage toUserMessage(
       MessageEntity entity, List<MediaAttachment> mediaAttachments, Entitlements entitlements) {
+    return toUserMessage(entity.getMessage(), mediaAttachments, entitlements);
+  }
+
+  private UserMessage toUserMessage(
+      String text, List<MediaAttachment> mediaAttachments, Entitlements entitlements) {
     return UserMessage.builder()
-        .text(entity.getMessage())
+        .text(text)
         .media(mediaValidationService.toMediaPayload(mediaAttachments, entitlements))
         .build();
   }
@@ -114,4 +156,15 @@ public class PromptMessageBuilder {
       RequestDTO.Provider provider,
       String modelId,
       Entitlements entitlements) {}
+
+  record StatelessPromptMessageRequest(
+      List<StatelessChatMessage> history,
+      String currentContent,
+      List<MediaAttachment> mediaAttachments,
+      String customInstructions,
+      RequestDTO.Provider provider,
+      String modelId,
+      Entitlements entitlements) {}
+
+  record StatelessChatMessage(Role role, String content) {}
 }

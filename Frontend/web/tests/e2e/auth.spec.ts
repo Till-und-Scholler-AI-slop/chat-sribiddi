@@ -13,7 +13,9 @@ test('login page and logout flow use the mocked session backend', async ({ page 
   await expect(page.getByRole('link', { name: /google/i })).toBeVisible({ timeout: hydrationTimeout })
 
   await page.goto('/chat')
-  await expect(page).toHaveURL(/\/login$/, { timeout: hydrationTimeout })
+  await expect(page).toHaveURL(/\/chat$/, { timeout: hydrationTimeout })
+  await expect(page.getByTestId('chat-page')).toHaveAttribute('data-ready', 'true', { timeout: hydrationTimeout })
+  await expect(page.getByRole('button', { name: /Google/i })).toBeVisible({ timeout: hydrationTimeout })
 
   await page.unrouteAll()
   await mockBackend(page, { authenticated: true })
@@ -29,5 +31,5 @@ test('login page and logout flow use the mocked session backend', async ({ page 
   })
   await page.getByRole('button', { name: 'Abmelden' }).click({ force: true })
   await logoutRequest
-  await expect(page).toHaveURL(/\/login$/, { timeout: hydrationTimeout })
+  await expect(page).toHaveURL(/\/chat$/, { timeout: hydrationTimeout })
 })

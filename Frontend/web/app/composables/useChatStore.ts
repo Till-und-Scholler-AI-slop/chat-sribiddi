@@ -1,6 +1,6 @@
 import type { ChatStatus, UIMessage } from 'ai'
 import type { StreamEvent } from '~/composables/chat-stream'
-import type { BackendMessage, ChatSession, MediaAttachment, ModelOption, TokenUsage } from '~/composables/useChatApi'
+import type { BackendMessage, ChatSession, ImportChat, MediaAttachment, ModelOption, TokenUsage } from '~/composables/useChatApi'
 import type { MessagePricing } from '~/composables/chat-helpers'
 import { useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
@@ -20,7 +20,21 @@ type Conversation = {
   activeRequest?: AbortController
   model?: ModelOption | null
   lastPrompt: string | null
+  local?: boolean
 }
+
+type StoredGuestMessage = Omit<UIMessage, 'createdAt'> & {
+  createdAt?: string | null
+}
+
+type StoredGuestChat = {
+  session: ChatSession
+  messages: StoredGuestMessage[]
+  model?: ModelOption | null
+  lastPrompt: string | null
+}
+
+const GUEST_CHAT_STORAGE_KEY = 'chat-sribiddi:guest-chats:v1'
 
 export function useChatStore() {
   const {
@@ -28,10 +42,13 @@ export function useChatStore() {
     fetchChats,
     fetchChatMessages,
     streamMessage,
+    streamAnonymousMessage,
     editAndStreamMessage,
     updateChat,
-    deleteChat
+    deleteChat,
+    importChats
   } = useChatApi()
+  const { status: authStatus } = useAuth()
   const { settings } = useUserSettings()
   const {
     models,
@@ -66,6 +83,103 @@ export function useChatStore() {
   const activeConversation = computed(() =>
     conversations.value.find(c => c.session.chatId === activeChatId.value) || null
   )
+  const isAuthenticated = computed(() => authStatus.value === 'authenticated')
+  const isGuestMode = computed(() => !isAuthenticated.value)
+
+  const createLocalId = (prefix: string) => {
+    const uuid = globalThis.crypto?.randomUUID?.()
+    if (uuid) return `${prefix}-${uuid}`
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  }
+
+  const readGuestChats = (): StoredGuestChat[] => {
+    if (!import.meta.client) return []
+    try {
+      const raw = localStorage.getItem(GUEST_CHAT_STORAGE_KEY)
+      if (!raw) return []
+      const parsed = JSON.parse(raw) as { chats?: StoredGuestChat[] }
+      return Array.isArray(parsed.chats) ? parsed.chats : []
+    } catch {
+      return []
+    }
+  }
+
+  const writeGuestChats = (items: StoredGuestChat[]) => {
+    if (!import.meta.client) return
+    localStorage.setItem(GUEST_CHAT_STORAGE_KEY, JSON.stringify({ chats: items }))
+  }
+
+  const clearGuestChats = () => {
+    if (!import.meta.client) return
+    localStorage.removeItem(GUEST_CHAT_STORAGE_KEY)
+  }
+
+  const persistGuestConversations = () => {
+    const localChats: StoredGuestChat[] = conversations.value
+      .filter(conversation => conversation.local)
+      .map(conversation => ({
+        session: conversation.session,
+        messages: conversation.messages.map(message => ({
+          ...message,
+          createdAt: message.createdAt instanceof Date
+            ? message.createdAt.toISOString()
+            : message.createdAt
+        })),
+        model: conversation.model ?? null,
+        lastPrompt: conversation.lastPrompt
+      }))
+    writeGuestChats(localChats)
+  }
+
+  const guestChatsForImport = (): ImportChat[] =>
+    readGuestChats()
+      .slice(0, 30)
+      .map(item => ({
+        title: item.session.title || null,
+        createdAt: item.session.createdAt || null,
+        messages: item.messages
+          .slice(0, 100)
+          .map(message => {
+            const text = getFirstTextContent(message as UIMessage)
+            if (!text.trim()) return null
+            const role =
+              message.role === 'assistant'
+                ? 'ASSISTANT'
+                : message.role === 'system'
+                  ? 'SYSTEM'
+                  : 'USER'
+            return {
+              role,
+              message: text,
+              createdAt: message.createdAt || null
+            } satisfies ImportChat['messages'][number]
+          })
+          .filter((message): message is ImportChat['messages'][number] => message !== null)
+      }))
+      .filter(chat => chat.messages.length > 0)
+
+  const hasGuestChats = () => guestChatsForImport().length > 0
+
+  const guestChatCount = () => guestChatsForImport().length
+
+  const importGuestChats = async () => {
+    if (!isAuthenticated.value) {
+      throw new Error('401 Unauthorized')
+    }
+
+    const payload = guestChatsForImport()
+    if (payload.length === 0) {
+      clearGuestChats()
+      conversations.value = conversations.value.filter(conversation => !conversation.local)
+      return []
+    }
+
+    const imported = await importChats(payload)
+    clearGuestChats()
+    settings.value.guestImportDismissed = false
+    await loadChatsFromBackend()
+    return imported
+  }
 
   const clearMessageMetadata = (messageId: string) => {
     Reflect.deleteProperty(tokenUsageMap.value, messageId)
@@ -113,7 +227,7 @@ export function useChatStore() {
   watch(
     () => settings.value.backendBaseUrl,
     () => {
-      // Reset cached data when the backend changes
+      // Reset cached server-backed data when the backend changes.
       resetModels()
       conversations.value = []
       activeChatId.value = null
@@ -121,6 +235,13 @@ export function useChatStore() {
       messagePricingMap.value = {}
       reasoningMap.value = {}
       resetToolCallState()
+    }
+  )
+
+  watch(
+    () => settings.value.expertMode,
+    () => {
+      resetModels()
     }
   )
 
@@ -138,6 +259,10 @@ export function useChatStore() {
   }
 
   const loadChatsFromBackend = async () => {
+    if (!isAuthenticated.value) {
+      return loadGuestChats()
+    }
+
     const chats = await fetchChats()
     const existingConversations = new Map(
       conversations.value.map(conversation => [conversation.session.chatId, conversation])
@@ -177,7 +302,53 @@ export function useChatStore() {
     return loadedConversations
   }
 
+  const loadGuestChats = async () => {
+    const stored = readGuestChats()
+    const loadedConversations: Conversation[] = stored.map(item => ({
+      session: item.session,
+      messages: item.messages.map(message => ({
+        ...message,
+        createdAt: message.createdAt ? new Date(message.createdAt) : undefined
+      })),
+      status: 'ready',
+      error: null,
+      model: item.model || defaultModel.value,
+      lastPrompt: item.lastPrompt,
+      local: true
+    }))
+
+    conversations.value = loadedConversations
+    activeChatId.value = loadedConversations[0]?.session.chatId || null
+    return loadedConversations
+  }
+
   const startChat = async (title?: string) => {
+    if (!isAuthenticated.value) {
+      const now = new Date().toISOString()
+      const session: ChatSession = {
+        chatId: createLocalId('guest-chat'),
+        title: title?.trim() || null,
+        createdAt: now,
+        userId: null
+      }
+      const conversation: Conversation = {
+        session,
+        messages: [],
+        status: 'ready',
+        error: null,
+        model: defaultModel.value,
+        lastPrompt: null,
+        local: true
+      }
+      conversations.value = [
+        conversation,
+        ...conversations.value.filter(c => c.session.chatId !== session.chatId)
+      ]
+      activeChatId.value = session.chatId
+      persistGuestConversations()
+      return session
+    }
+
     const session = await createChat(title ? { title } : {})
     const conversation: Conversation = {
       session,
@@ -198,13 +369,18 @@ export function useChatStore() {
 
   const selectChat = async (chatId: string) => {
     activeChatId.value = chatId
-    await loadMessagesForChat(chatId)
+    if (isAuthenticated.value) {
+      await loadMessagesForChat(chatId)
+    }
   }
 
   const setModelForChat = (chatId: string, model: ModelOption) => {
     const conversation = conversations.value.find(c => c.session.chatId === chatId)
     if (conversation) {
       conversation.model = model
+      if (conversation.local) {
+        persistGuestConversations()
+      }
     }
   }
 
@@ -214,8 +390,14 @@ export function useChatStore() {
       throw new Error('Chat title must not be empty.')
     }
 
-    const updatedChat = await updateChat(chatId, { title: trimmedTitle })
     const conversation = conversations.value.find(c => c.session.chatId === chatId)
+    if (conversation?.local) {
+      conversation.session.title = trimmedTitle
+      persistGuestConversations()
+      return conversation.session
+    }
+
+    const updatedChat = await updateChat(chatId, { title: trimmedTitle })
     if (conversation) {
       conversation.session.title = updatedChat.title || trimmedTitle
     }
@@ -234,11 +416,16 @@ export function useChatStore() {
       }
     }
 
-    await deleteChat(chatId)
+    if (!conversation?.local) {
+      await deleteChat(chatId)
+    }
     conversations.value = conversations.value.filter(c => c.session.chatId !== chatId)
 
     if (wasActive) {
       activeChatId.value = conversations.value[0]?.session.chatId || null
+    }
+    if (conversation?.local) {
+      persistGuestConversations()
     }
   }
 
@@ -333,6 +520,20 @@ export function useChatStore() {
     }
 
     const appendUserMessage = options?.appendUserMessage ?? true
+    const history = conversation.local
+      ? conversation.messages
+          .map(message => {
+            const text = getFirstTextContent(message)
+            if (!text.trim()) return null
+            const role = message.role === 'assistant'
+              ? 'ASSISTANT'
+              : message.role === 'system'
+                ? 'SYSTEM'
+                : 'USER'
+            return { role, message: text } as const
+          })
+          .filter((item): item is { role: 'USER' | 'ASSISTANT' | 'SYSTEM'; message: string } => item !== null)
+      : []
 
     stop(chatId) // cancel any ongoing request
 
@@ -385,80 +586,104 @@ export function useChatStore() {
         webSearchEnabled: webSearchEnabled.value || undefined
       }
 
-      await streamMessage(
-        chatId,
-        input,
-        (event: StreamEvent) => {
-          switch (event.type) {
-            case 'text':
-              if (event.content) {
-                streamStatus.receivedContent = true
-                conversation.status = 'streaming'
-                currentAssistantMessage = appendTextToMessage(currentAssistantMessage, event.content)
-                replaceMessageAtIndex(
-                  conversation,
-                  assistantMessageIndex,
-                  assistantMessage.id,
-                  currentAssistantMessage
-                )
-              }
-              break
+      const stream = conversation.local
+        ? streamAnonymousMessage(
+            {
+              content: input.content,
+              provider: input.provider,
+              modelId: input.modelId,
+              media: input.media,
+              history
+            },
+            handleStreamEvent,
+            controller.signal
+          )
+        : streamMessage(
+            chatId,
+            input,
+            handleStreamEvent,
+            controller.signal
+          )
 
-            case 'reasoning':
-              if (event.content) {
-                streamStatus.receivedContent = true
-                conversation.status = 'streaming'
-                reasoningMap.value[currentAssistantMessage.id] =
-                  (reasoningMap.value[currentAssistantMessage.id] || '') + event.content
-              }
-              break
-
-            case 'done':
-              streamStatus.receivedDone = true
-              currentAssistantMessage = finalizeAssistantMessage(
+      function handleStreamEvent(event: StreamEvent) {
+        switch (event.type) {
+          case 'text':
+            if (event.content) {
+              streamStatus.receivedContent = true
+              conversation.status = 'streaming'
+              currentAssistantMessage = appendTextToMessage(currentAssistantMessage, event.content)
+              replaceMessageAtIndex(
                 conversation,
                 assistantMessageIndex,
-                currentAssistantMessage,
-                event
+                assistantMessage.id,
+                currentAssistantMessage
               )
-              if (event.chatTitle) {
-                conversation.session.title = event.chatTitle
-              }
-              if (
-                event.promptTokens != null ||
-                event.generationTokens != null ||
-                event.totalTokens != null
-              ) {
-                tokenUsageMap.value[currentAssistantMessage.id] = {
-                  promptTokens: event.promptTokens ?? null,
-                  generationTokens: event.generationTokens ?? null,
-                  totalTokens: event.totalTokens ?? null
-                }
-                messagePricingMap.value[currentAssistantMessage.id] = {
-                  promptPrice: model.promptPrice ?? null,
-                  completionPrice: model.completionPrice ?? null,
-                  requestPrice: model.requestPrice ?? null
-                }
-              }
-              break
+            }
+            break
 
-            case 'error':
-              streamStatus.receivedError = true
-              conversation.error = event.content || 'Streaming error'
-              break
-          }
-        },
-        controller.signal
-      )
+          case 'reasoning':
+            if (event.content) {
+              streamStatus.receivedContent = true
+              conversation.status = 'streaming'
+              reasoningMap.value[currentAssistantMessage.id] =
+                (reasoningMap.value[currentAssistantMessage.id] || '') + event.content
+            }
+            break
+
+          case 'done':
+            streamStatus.receivedDone = true
+            currentAssistantMessage = finalizeAssistantMessage(
+              conversation,
+              assistantMessageIndex,
+              currentAssistantMessage,
+              event
+            )
+            if (event.chatTitle) {
+              conversation.session.title = event.chatTitle
+            } else if (conversation.local && !conversation.session.title) {
+              conversation.session.title = text.length > 72 ? `${text.slice(0, 72).trim()}...` : text
+            }
+            if (
+              event.promptTokens != null ||
+              event.generationTokens != null ||
+              event.totalTokens != null
+            ) {
+              tokenUsageMap.value[currentAssistantMessage.id] = {
+                promptTokens: event.promptTokens ?? null,
+                generationTokens: event.generationTokens ?? null,
+                totalTokens: event.totalTokens ?? null
+              }
+              messagePricingMap.value[currentAssistantMessage.id] = {
+                promptPrice: model.promptPrice ?? null,
+                completionPrice: model.completionPrice ?? null,
+                requestPrice: model.requestPrice ?? null
+              }
+            }
+            break
+
+          case 'error':
+            streamStatus.receivedError = true
+            conversation.error = event.content || 'Streaming error'
+            break
+        }
+      }
+
+      await stream
 
       conversation.activeRequest = undefined
       const outcome = resolveStreamOutcome(streamStatus, conversation.error)
       conversation.status = outcome.status
       conversation.error = outcome.error
+      if (conversation.local) {
+        persistGuestConversations()
+      }
 
       if (outcome.status === 'error') {
         if (!getFirstTextContent(currentAssistantMessage)) {
           removeMessageIfEmpty(conversation, currentAssistantMessage)
+          if (conversation.local) {
+            persistGuestConversations()
+          }
           return null
         }
       }
@@ -476,6 +701,9 @@ export function useChatStore() {
       }
       conversation.status = 'error'
       conversation.activeRequest = undefined
+      if (conversation.local) {
+        persistGuestConversations()
+      }
       return null
     }
   }
@@ -702,10 +930,17 @@ export function useChatStore() {
     isToolCallLoading,
     ensureToolCalls,
     webSearchEnabled,
+    isGuestMode,
     isFavorite,
     toggleFavorite,
     ensureModels,
     loadChatsFromBackend,
+    loadGuestChats,
+    hasGuestChats,
+    guestChatCount,
+    guestChatsForImport,
+    importGuestChats,
+    clearGuestChats,
     loadMessagesForChat,
     startChat,
     selectChat,

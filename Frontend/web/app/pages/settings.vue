@@ -14,7 +14,7 @@ const {getStatus, saveKey, deleteKey} = useKeyApi()
 const {getCustomInstructions, saveCustomInstructions} = useInstructionsApi()
 const {deleteAccount} = useChatApi()
 const {entitlements, plan, ensureLoaded, load: loadEntitlements} = useEntitlements()
-const {models} = useChatStore()
+const {models, ensureModels} = useChatStore()
 const {status: authStatus} = useAuth()
 const toast = useToast()
 const router = useRouter()
@@ -113,6 +113,24 @@ const colorModeItems = computed(() => [
 const handleColorModeChange = (next: ColorModePreference) => {
   if (!next) return
   colorModePreference.value = next
+}
+
+const expertModeLoading = ref(false)
+
+const handleExpertModeChange = async (next: boolean | 'indeterminate') => {
+  settings.value.expertMode = next === true
+  expertModeLoading.value = true
+  try {
+    await ensureModels()
+  } catch (err) {
+    toast.add({
+      title: t('models.loadCatalogFailed'),
+      description: tt(err, 'models.backendNotReachable'),
+      color: 'error'
+    })
+  } finally {
+    expertModeLoading.value = false
+  }
 }
 
 const loadingStatus = ref(true)
@@ -740,6 +758,13 @@ async function handleDeleteAccount() {
                 v-model="settings.showPreSendCostEstimate"
                 :label="t('settings.preSendCostLabel')"
                 :description="t('settings.preSendCostDescription')"
+              />
+              <UCheckbox
+                :model-value="settings.expertMode"
+                :label="t('settings.expertModeLabel')"
+                :description="t('settings.expertModeDescription')"
+                :disabled="expertModeLoading"
+                @update:model-value="handleExpertModeChange"
               />
             </div>
           </UCard>

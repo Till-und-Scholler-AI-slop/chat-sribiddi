@@ -2,6 +2,7 @@ package com.rft.chat_sribiddi.chat.controller;
 
 import com.rft.chat_sribiddi.chat.dto.ChatResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.CreateChatRequestDTO;
+import com.rft.chat_sribiddi.chat.dto.ImportChatsRequestDTO;
 import com.rft.chat_sribiddi.chat.dto.MessageResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RunbookExportDTO;
@@ -64,6 +65,18 @@ public class ChatController {
             .map(ChatResponseDTO::from)
             .toList();
     return ResponseEntity.ok(chats);
+  }
+
+  @PostMapping("/import")
+  public ResponseEntity<List<ChatResponseDTO>> importChats(
+      @AuthenticationPrincipal OidcUser principal,
+      @Valid @RequestBody ImportChatsRequestDTO request) {
+    validatePrincipal(principal);
+    List<ChatResponseDTO> chats =
+        chatService.importChats(principal.getSubject(), request).stream()
+            .map(ChatResponseDTO::from)
+            .toList();
+    return ResponseEntity.status(HttpStatus.CREATED).body(chats);
   }
 
   @GetMapping("/{chatId}/messages")

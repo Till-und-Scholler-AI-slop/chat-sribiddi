@@ -33,6 +33,9 @@ public class BillingProperties {
    */
   private Map<Plan, TierConfig> tiers = new EnumMap<>(Plan.class);
 
+  /** Maximum managed-mode chat calls per anonymous browser/IP per UTC day. */
+  private long guestDailyCap = 20L;
+
   /** Price-based model-access rules applied on top of per-tier limits. */
   private ModelAccess modelAccess = new ModelAccess();
 

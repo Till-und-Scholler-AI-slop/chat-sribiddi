@@ -6,6 +6,7 @@ import { PLAN_FEATURE_COUNTS } from '~/utils/plan-features'
 const { t } = useI18n()
 const toast = useToast()
 const tt = useTranslatedError()
+const router = useRouter()
 const { status, checking, checkAuth } = useAuth()
 const { plan: currentPlan, ensureLoaded } = usePlan()
 const { createCheckout } = useBillingApi()
@@ -132,13 +133,32 @@ function planFeatures(plan: PlanDef): string[] {
   }
   return features
 }
+
+function goBack() {
+  if (import.meta.client && window.history.state?.back) {
+    router.back()
+    return
+  }
+  void navigateTo('/chat')
+}
 </script>
 
 <template>
   <div class="mx-auto w-full max-w-5xl space-y-8">
-    <div class="space-y-2 text-center">
-      <h1 class="text-3xl font-semibold">{{ t('pricing.title') }}</h1>
-      <p class="text-sm text-gray-600 dark:text-gray-400">{{ t('pricing.subtitle') }}</p>
+    <div class="space-y-4">
+      <UButton
+        variant="ghost"
+        color="neutral"
+        icon="i-heroicons-arrow-left"
+        :label="t('pricing.backButton')"
+        :aria-label="t('pricing.backButton')"
+        class="btn-interactive"
+        @click="goBack"
+      />
+      <div class="space-y-2 text-center">
+        <h1 class="text-3xl font-semibold">{{ t('pricing.title') }}</h1>
+        <p class="text-sm text-gray-600 dark:text-gray-400">{{ t('pricing.subtitle') }}</p>
+      </div>
     </div>
 
     <div class="grid grid-cols-1 gap-6 md:grid-cols-3">

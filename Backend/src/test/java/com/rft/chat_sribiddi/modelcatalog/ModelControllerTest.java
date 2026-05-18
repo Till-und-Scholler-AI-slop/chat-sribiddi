@@ -52,7 +52,7 @@ class ModelControllerTest {
     when(entitlementService.filterUsableModelsForPlan(null, Provider.OPENROUTER, models, false))
         .thenReturn(models);
 
-    var response = controller.openRouterModels(null, request);
+    var response = controller.openRouterModels(null, request, true);
 
     assertThat(response.getBody()).isEqualTo(models);
     verify(modelCatalogService).listOpenRouterModels(null);
@@ -69,7 +69,7 @@ class ModelControllerTest {
     when(entitlementService.filterUsableModelsForPlan("oidc-user", Provider.OPENROUTER, models, true))
         .thenReturn(models);
 
-    var response = controller.openRouterModels(principal, request);
+    var response = controller.openRouterModels(principal, request, true);
 
     assertThat(response.getBody()).isEqualTo(models);
     verify(apiKeyService).getKey("oidc-user", Provider.OPENROUTER);
@@ -93,7 +93,7 @@ class ModelControllerTest {
     when(entitlementService.filterUsableModelsForPlan("free-user", Provider.OPENROUTER, all, false))
         .thenReturn(usable);
 
-    var response = controller.openRouterModels(principal, request);
+    var response = controller.openRouterModels(principal, request, true);
 
     assertThat(response.getBody()).isEqualTo(usable);
   }
@@ -114,7 +114,7 @@ class ModelControllerTest {
     when(entitlementService.filterUsableModelsForPlan("free-user", Provider.OPENROUTER, live, false))
         .thenReturn(live);
 
-    var response = controller.openRouterModels(principal, request);
+    var response = controller.openRouterModels(principal, request, true);
 
     assertThat(response.getBody()).isEqualTo(live);
     verify(modelCatalogService).listOpenRouterModels("srv-openrouter");
@@ -135,7 +135,7 @@ class ModelControllerTest {
             "premium-user", Provider.OPENROUTER, models, true))
         .thenReturn(models);
 
-    var response = controller.openRouterModels(principal, request);
+    var response = controller.openRouterModels(principal, request, true);
 
     assertThat(response.getBody()).isEqualTo(models);
     verify(modelCatalogService).listOpenRouterModels("user-key");
@@ -151,10 +151,32 @@ class ModelControllerTest {
     when(entitlementService.filterUsableModelsForPlan("user-1", Provider.OPENAI, models, true))
         .thenReturn(models);
 
-    var response = controller.openAiModels(principal, request);
+    var response = controller.openAiModels(principal, request, true);
 
     assertThat(response.getBody()).isEqualTo(models);
     verify(entitlementService).filterUsableModelsForPlan("user-1", Provider.OPENAI, models, true);
+  }
+
+  @Test
+  void openAiModels_compactsUsableModelsWhenExpertModeIsOff() {
+    List<ModelCatalogProperties.ModelOption> models =
+        List.of(
+            new ModelCatalogProperties.ModelOption("gpt-5.2", "GPT-5.2"),
+            new ModelCatalogProperties.ModelOption("gpt-5.2-mini", "GPT-5.2 Mini"),
+            new ModelCatalogProperties.ModelOption("o3-2025-04-16", "o3"),
+            new ModelCatalogProperties.ModelOption("gpt-extra", "GPT Extra"));
+    List<ModelCatalogProperties.ModelOption> compact = models.subList(0, 3);
+    when(principal.getSubject()).thenReturn("user-1");
+    when(apiKeyService.getKey("user-1", Provider.OPENAI)).thenReturn(Optional.of("sk-openai"));
+    when(modelCatalogService.listOpenAiModels("sk-openai")).thenReturn(models);
+    when(entitlementService.filterUsableModelsForPlan("user-1", Provider.OPENAI, models, true))
+        .thenReturn(models);
+    when(modelCatalogService.compactModels(Provider.OPENAI, models)).thenReturn(compact);
+
+    var response = controller.openAiModels(principal, request, false);
+
+    assertThat(response.getBody()).isEqualTo(compact);
+    verify(modelCatalogService).compactModels(Provider.OPENAI, models);
   }
 
   @Test
@@ -167,7 +189,7 @@ class ModelControllerTest {
     when(entitlementService.filterUsableModelsForPlan("user-1", Provider.GOOGLE, models, true))
         .thenReturn(models);
 
-    var response = controller.googleModels(principal, request);
+    var response = controller.googleModels(principal, request, true);
 
     assertThat(response.getBody()).isEqualTo(models);
     verify(entitlementService).filterUsableModelsForPlan("user-1", Provider.GOOGLE, models, true);
@@ -183,7 +205,7 @@ class ModelControllerTest {
     when(entitlementService.filterUsableModelsForPlan("user-1", Provider.CLAUDE, models, true))
         .thenReturn(models);
 
-    var response = controller.claudeModels(principal, request);
+    var response = controller.claudeModels(principal, request, true);
 
     assertThat(response.getBody()).isEqualTo(models);
     verify(entitlementService).filterUsableModelsForPlan("user-1", Provider.CLAUDE, models, true);
