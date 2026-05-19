@@ -16,24 +16,24 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@ai-sdk/vue": "^3.0.177",
+    "@ai-sdk/vue": "^3.0.185",
     "@nuxt/ui": "4.7.1",
     "@nuxtjs/i18n": "^10.3.0",
     "@tailwindcss/typography": "^0.5.19",
-    "markstream-vue": "^0.0.14-beta.8",
-    "nuxt": "^4.4.5",
-    "shiki": "^4.0.2",
+    "markstream-vue": "^1.0.0",
+    "nuxt": "^4.4.6",
+    "shiki": "^4.1.0",
     "typescript": "^6.0.3",
     "vue": "^3.5.34",
-    "vue-router": "^5.0.6"
+    "vue-router": "^5.0.7"
   },
   "devDependencies": {
     "@iconify-json/heroicons": "^1.2.3",
-    "@iconify-json/lucide": "^1.2.106",
+    "@iconify-json/lucide": "^1.2.108",
     "@nuxt/eslint": "^1.15.2",
-    "@playwright/test": "^1.59.1",
-    "eslint": "^10.3.0",
-    "vitest": "^4.1.5"
+    "@playwright/test": "^1.60.0",
+    "eslint": "^10.4.0",
+    "vitest": "^4.1.6"
   },
   "overrides": {
     "@isaacs/brace-expansion": "5.0.1",
@@ -50,6 +50,7 @@
     "serialize-javascript": "7.0.5",
     "tar": "7.5.15",
     "vite": "8.0.12",
+    "ws": "8.20.1",
     "yaml": "2.9.0"
   }
 }
