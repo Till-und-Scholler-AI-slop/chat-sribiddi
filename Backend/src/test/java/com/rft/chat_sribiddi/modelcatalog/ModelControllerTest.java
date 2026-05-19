@@ -47,7 +47,7 @@ class ModelControllerTest {
   @Test
   void openRouterModels_returnsConfiguredModelsWhenPrincipalMissing() {
     List<ModelCatalogProperties.ModelOption> models =
-        List.of(new ModelCatalogProperties.ModelOption("openrouter/auto", "OpenRouter Auto"));
+        List.of(new ModelCatalogProperties.ModelOption("openrouter/free", "OpenRouter Free"));
     when(modelCatalogService.listOpenRouterModels(null)).thenReturn(models);
     when(entitlementService.filterUsableModelsForPlan(null, Provider.OPENROUTER, models, false))
         .thenReturn(models);
@@ -84,7 +84,7 @@ class ModelControllerTest {
         List.of(
             new ModelCatalogProperties.ModelOption("openai/gpt-4o", "GPT-4o"),
             new ModelCatalogProperties.ModelOption(
-                "meta-llama/llama-3.1-8b-instruct:free", "Llama 3.1 (free)"));
+                "openrouter/free", "OpenRouter Free"));
     List<ModelCatalogProperties.ModelOption> usable = List.of(all.get(1));
     when(principal.getSubject()).thenReturn("free-user");
     when(apiKeyService.getKey("free-user", Provider.OPENROUTER)).thenReturn(Optional.empty());
@@ -101,12 +101,12 @@ class ModelControllerTest {
   @Test
   void openRouterModels_fallsBackToManagedKey_whenUserHasNoByokKey() {
     // Free-tier users typically don't have a BYOK key. The controller must fall back to the
-    // server-managed OpenRouter key so the catalog is fetched live (and actually contains
-    // `:free` ids) rather than returning the empty YAML fallback.
+    // server-managed OpenRouter key so the catalog is fetched live and then narrowed to the
+    // `openrouter/free` router model for Free managed users.
     List<ModelCatalogProperties.ModelOption> live =
         List.of(
             new ModelCatalogProperties.ModelOption(
-                "meta-llama/llama-3.1-8b-instruct:free", "Llama 3.1 (free)"));
+                "openrouter/free", "OpenRouter Free"));
     managedApiKeyProperties.setOpenrouter("srv-openrouter");
     when(principal.getSubject()).thenReturn("free-user");
     when(apiKeyService.getKey("free-user", Provider.OPENROUTER)).thenReturn(Optional.empty());
@@ -118,6 +118,24 @@ class ModelControllerTest {
 
     assertThat(response.getBody()).isEqualTo(live);
     verify(modelCatalogService).listOpenRouterModels("srv-openrouter");
+  }
+
+  @Test
+  void openRouterModels_fallsBackToManagedKey_whenPrincipalMissing() {
+    List<ModelCatalogProperties.ModelOption> live =
+        List.of(
+            new ModelCatalogProperties.ModelOption(
+                "openrouter/free", "OpenRouter Free"));
+    managedApiKeyProperties.setOpenrouter("srv-openrouter");
+    when(modelCatalogService.listOpenRouterModels("srv-openrouter")).thenReturn(live);
+    when(entitlementService.filterUsableModelsForPlan(null, Provider.OPENROUTER, live, false))
+        .thenReturn(live);
+
+    var response = controller.openRouterModels(null, request, true);
+
+    assertThat(response.getBody()).isEqualTo(live);
+    verify(modelCatalogService).listOpenRouterModels("srv-openrouter");
+    verify(entitlementService).filterUsableModelsForPlan(null, Provider.OPENROUTER, live, false);
   }
 
   @Test

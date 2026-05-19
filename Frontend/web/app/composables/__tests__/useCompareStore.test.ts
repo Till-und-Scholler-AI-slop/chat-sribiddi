@@ -46,6 +46,11 @@ function installNuxtState() {
 describe('useCompareStore', () => {
   const openAiModel = makeModel('OPENAI', 'gpt-test', 'GPT Test')
   const googleModel = makeModel('GOOGLE', 'gemini-test', 'Gemini Test')
+  const openRouterFreeModel = makeModel(
+    'OPENROUTER',
+    'openrouter/free',
+    'OpenRouter Free'
+  )
 
   beforeEach(() => {
     installNuxtState()
@@ -75,6 +80,20 @@ describe('useCompareStore', () => {
     expect(store.panels.value).toHaveLength(2)
     expect(store.panels.value[0]?.model).toEqual(openAiModel)
     expect(store.panels.value[1]?.model).toEqual(googleModel)
+  })
+
+  it('uses OpenRouter free as the first comparison default when available', async () => {
+    apiMock.fetchModels.mockImplementation(async (provider: Provider) => {
+      if (provider === 'OPENAI') return [openAiModel]
+      if (provider === 'OPENROUTER') return [openRouterFreeModel]
+      return []
+    })
+
+    const store = useCompareStore()
+    await store.ensureModels()
+
+    expect(store.panels.value[0]?.model).toEqual(openRouterFreeModel)
+    expect(store.panels.value[1]?.model).toEqual(openAiModel)
   })
 
   it('streams one shared prompt through every selected model', async () => {

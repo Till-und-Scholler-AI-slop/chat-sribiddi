@@ -86,9 +86,9 @@ public class BillingProperties {
 
   /**
    * Price-threshold configuration for model access. Expressed in USD per 1,000,000 tokens to
-   * match industry-standard pricing tables. Free defaults (0.0 / 0.0) restrict the tier to
-   * models that are truly free (matching OpenRouter's {@code :free} convention); Premium
-   * defaults (5.0 / 5.0) cap Premium users to mid-range models — anything above the threshold
+   * match industry-standard pricing tables. Free defaults (0.0 / 0.0) restrict the managed path
+   * to OpenRouter's {@code openrouter/free} router model; Premium defaults (5.0 / 5.0) cap
+   * Premium users to mid-range models — anything above the threshold
    * (e.g. {@code claude-opus-4-7} at ~$15/1M) requires upgrading to {@link Plan#MAX}.
    */
   @Getter

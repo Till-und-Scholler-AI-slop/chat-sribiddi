@@ -40,6 +40,16 @@ class ModelPricingLookupTest {
   }
 
   @Test
+  void find_returnsZeroForOpenRouterFreeRouterWhenCatalogEmpty() {
+    Optional<ModelPricingLookup.Pricing> price =
+        lookup.find(Provider.OPENROUTER, "openrouter/free");
+
+    assertThat(price).isPresent();
+    assertThat(price.get().inputUsdPerMillion()).isZero();
+    assertThat(price.get().outputUsdPerMillion()).isZero();
+  }
+
+  @Test
   void find_returnsEmptyForUnknownModel() {
     Optional<ModelPricingLookup.Pricing> price = lookup.find(Provider.OPENAI, "mystery-model");
 

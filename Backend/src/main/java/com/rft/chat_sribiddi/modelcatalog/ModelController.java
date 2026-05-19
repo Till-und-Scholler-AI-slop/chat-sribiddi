@@ -68,8 +68,8 @@ public class ModelController {
     String userId = requestUserResolver.resolveUserId(principal, request).orElse(null);
     String userKey = lookupUserKey(userId, Provider.OPENROUTER);
     // Free-tier users typically have no BYOK key; fall back to the server-managed OpenRouter
-    // key so the catalog is fetched live (and therefore actually contains `:free` model ids)
-    // rather than the static YAML fallback, which would otherwise be empty.
+    // key so the catalog is fetched live, then entitlement filtering narrows anonymous/Free
+    // managed users to OpenRouter's free router model (`openrouter/free`).
     boolean hasUserKey = hasText(userKey);
     String apiKey = hasUserKey ? userKey : managedApiKeyOrNull();
     List<ModelCatalogProperties.ModelOption> models = modelCatalogService.listOpenRouterModels(apiKey);

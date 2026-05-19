@@ -57,10 +57,37 @@ public class ModelCatalogService {
       List<ModelCatalogProperties.ModelOption> live = modelFetchService.fetchOpenRouterModels(apiKey);
       if (!live.isEmpty()) {
         modelPricingLookup.remember(Provider.OPENROUTER, live);
-        return live;
+        return withOpenRouterFreeRouter(live);
       }
     }
     return List.copyOf(properties.getOpenrouter());
+  }
+
+  private List<ModelCatalogProperties.ModelOption> withOpenRouterFreeRouter(
+      List<ModelCatalogProperties.ModelOption> models) {
+    if (models.stream()
+        .filter(Objects::nonNull)
+        .anyMatch(model -> ModelPricingLookup.OPENROUTER_FREE_MODEL_ID.equals(model.getId()))) {
+      return models;
+    }
+    ModelCatalogProperties.ModelOption freeRouter =
+        properties.getOpenrouter().stream()
+            .filter(Objects::nonNull)
+            .filter(model -> ModelPricingLookup.OPENROUTER_FREE_MODEL_ID.equals(model.getId()))
+            .findFirst()
+            .orElseGet(
+                () -> {
+                  ModelCatalogProperties.ModelOption option =
+                      new ModelCatalogProperties.ModelOption(
+                          ModelPricingLookup.OPENROUTER_FREE_MODEL_ID, "OpenRouter Free");
+                  option.setPromptPrice("0");
+                  option.setCompletionPrice("0");
+                  return option;
+                });
+    List<ModelCatalogProperties.ModelOption> withFreeRouter = new ArrayList<>();
+    withFreeRouter.add(freeRouter);
+    withFreeRouter.addAll(models);
+    return List.copyOf(withFreeRouter);
   }
 
   public List<ModelCatalogProperties.ModelOption> compactModels(
