@@ -98,6 +98,14 @@ describe('useModelStore', () => {
     expect(store.defaultModel.value).toEqual(openRouterFreeModel)
   })
 
+  it('can force the OpenRouter free model over a saved model for guest chats', () => {
+    expect(
+      chooseDefaultModel([openAiModel, openRouterFreeModel], openAiModel, {
+        forceOpenRouterFree: true
+      })
+    ).toEqual(openRouterFreeModel)
+  })
+
   it('ignores stale saved models that are not in the current allowed catalog', () => {
     expect(chooseDefaultModel([openRouterFreeModel], openAiModel)).toEqual(openRouterFreeModel)
     expect(resolveModelOption(openAiModel, [openRouterFreeModel])).toBeNull()

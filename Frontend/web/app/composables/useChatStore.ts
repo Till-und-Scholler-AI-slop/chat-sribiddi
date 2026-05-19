@@ -4,6 +4,7 @@ import type { BackendMessage, ChatSession, ImportChat, MediaAttachment, ModelOpt
 import type { MessagePricing } from '~/composables/chat-helpers'
 import { useChatApi } from '~/composables/useChatApi'
 import { useUserSettings } from '~/composables/useUserSettings'
+import { chooseDefaultModel, isOpenRouterFreeModel } from '~/composables/useModelStore'
 import {
   appendTextToMessage,
   getFirstTextContent,
@@ -52,10 +53,10 @@ export function useChatStore() {
   const { settings } = useUserSettings()
   const {
     models,
-    sortedModels,
+    sortedModels: allSortedModels,
     modelsLoading,
     modelsError,
-    defaultModel,
+    defaultModel: userDefaultModel,
     isFavorite,
     toggleFavorite,
     ensureModels,
@@ -86,6 +87,30 @@ export function useChatStore() {
   )
   const isAuthenticated = computed(() => authStatus.value === 'authenticated')
   const isGuestMode = computed(() => !isAuthenticated.value)
+  const openRouterFreeModel = computed<ModelOption | null>(() =>
+    chooseDefaultModel(allSortedModels.value, null, { forceOpenRouterFree: true })
+  )
+  const sortedModels = computed<ModelOption[]>(() =>
+    isGuestMode.value || activeConversation.value?.local
+      ? allSortedModels.value.filter(isOpenRouterFreeModel)
+      : allSortedModels.value
+  )
+  const defaultModelFor = (conversation?: Pick<Conversation, 'local'> | null) =>
+    isGuestMode.value || conversation?.local
+      ? openRouterFreeModel.value
+      : userDefaultModel.value
+
+  const defaultModel = computed<ModelOption | null>(() => defaultModelFor(activeConversation.value))
+
+  const resolveAllowedModel = (
+    model: ModelOption | null | undefined,
+    conversation?: Pick<Conversation, 'local'> | null
+  ) => {
+    if (isGuestMode.value || conversation?.local) {
+      return openRouterFreeModel.value
+    }
+    return resolveModel(model) || defaultModelFor(conversation)
+  }
 
   const createLocalId = (prefix: string) => {
     const uuid = globalThis.crypto?.randomUUID?.()
@@ -286,7 +311,7 @@ export function useChatStore() {
         messages: existingConversation?.messages || [],
         status: existingConversation?.status || 'ready',
         error: existingConversation?.error || null,
-        model: resolveModel(existingConversation?.model) || defaultModel.value,
+        model: resolveAllowedModel(existingConversation?.model, existingConversation),
         activeRequest: existingConversation?.activeRequest,
         lastPrompt: existingConversation?.lastPrompt || null
       } satisfies Conversation
@@ -313,7 +338,7 @@ export function useChatStore() {
       })),
       status: 'ready',
       error: null,
-      model: resolveModel(item.model) || defaultModel.value,
+      model: resolveAllowedModel(item.model, { local: true }),
       lastPrompt: item.lastPrompt,
       local: true
     }))
@@ -337,7 +362,7 @@ export function useChatStore() {
         messages: [],
         status: 'ready',
         error: null,
-        model: defaultModel.value,
+        model: defaultModelFor({ local: true }),
         lastPrompt: null,
         local: true
       }
@@ -356,7 +381,7 @@ export function useChatStore() {
       messages: [],
       status: 'ready',
       error: null,
-      model: defaultModel.value,
+      model: defaultModelFor(),
       lastPrompt: null
     }
 
@@ -378,7 +403,7 @@ export function useChatStore() {
   const setModelForChat = (chatId: string, model: ModelOption) => {
     const conversation = conversations.value.find(c => c.session.chatId === chatId)
     if (conversation) {
-      conversation.model = resolveModel(model) || defaultModel.value
+      conversation.model = resolveAllowedModel(model, conversation)
       if (conversation.local) {
         persistGuestConversations()
       }
@@ -520,7 +545,7 @@ export function useChatStore() {
       throw new Error('No chat selected')
     }
 
-    const effectiveModel = resolveModel(model) || defaultModel.value
+    const effectiveModel = resolveAllowedModel(model, conversation)
     if (!effectiveModel) return null
 
     const appendUserMessage = options?.appendUserMessage ?? true

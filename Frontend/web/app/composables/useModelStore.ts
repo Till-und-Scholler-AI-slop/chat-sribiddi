@@ -24,12 +24,15 @@ export function resolveModelOption(
 
 export function chooseDefaultModel(
   models: ModelOption[],
-  saved: Pick<ModelOption, 'provider' | 'value'> | null | undefined
+  saved: Pick<ModelOption, 'provider' | 'value'> | null | undefined,
+  options: { forceOpenRouterFree?: boolean } = {}
 ): ModelOption | null {
   const selectable = models.filter(isSelectableModel)
+  const openRouterFree = selectable.find(isOpenRouterFreeModel) || null
+  if (options.forceOpenRouterFree) return openRouterFree
   return (
     resolveModelOption(saved, selectable) ||
-    selectable.find(isOpenRouterFreeModel) ||
+    openRouterFree ||
     selectable[0] ||
     null
   )
