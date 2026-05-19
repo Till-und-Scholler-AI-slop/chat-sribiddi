@@ -34,7 +34,7 @@ class ModelCatalogServiceTest {
     properties.setClaude(
         new ArrayList<>(List.of(new ModelOption("claude-sonnet-4-20250514", "Claude Sonnet 4"))));
     properties.setOpenrouter(
-        new ArrayList<>(List.of(new ModelOption("openrouter/auto", "OpenRouter Auto"))));
+        new ArrayList<>(List.of(new ModelOption("openrouter/free", "OpenRouter Free"))));
     pricingLookup = new ModelPricingLookup(properties);
     service = new ModelCatalogService(properties, modelFetchService, pricingLookup);
   }
@@ -144,12 +144,27 @@ class ModelCatalogServiceTest {
 
     List<ModelOption> result = service.listOpenRouterModels("or-key");
 
-    assertThat(result).isEqualTo(liveModels);
+    assertThat(result)
+        .extracting(ModelOption::getId)
+        .containsExactly("openrouter/free", "openai/gpt-4o");
     assertThat(pricingLookup.find(com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider.OPENROUTER, "openai/gpt-4o"))
         .isPresent()
         .get()
         .extracting(ModelPricingLookup.Pricing::inputUsdPerMillion)
         .isEqualTo(2.5);
+  }
+
+  @Test
+  void listOpenRouterModels_doesNotDuplicateFreeRouterWhenLiveCatalogContainsIt() {
+    List<ModelOption> liveModels =
+        List.of(
+            liveOption("openrouter/free", "OpenRouter Free", "0", "0"),
+            liveOption("openai/gpt-4o", "GPT-4o", "0.0000025", "0.000010"));
+    when(modelFetchService.fetchOpenRouterModels("or-key")).thenReturn(liveModels);
+
+    List<ModelOption> result = service.listOpenRouterModels("or-key");
+
+    assertThat(result).isEqualTo(liveModels);
   }
 
   @Test

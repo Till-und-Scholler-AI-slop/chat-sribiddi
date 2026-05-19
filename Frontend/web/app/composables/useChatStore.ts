@@ -60,6 +60,7 @@ export function useChatStore() {
     toggleFavorite,
     ensureModels,
     saveLastUsedModel,
+    resolveModel,
     resetModels
   } = useModelStore()
   const {
@@ -285,7 +286,7 @@ export function useChatStore() {
         messages: existingConversation?.messages || [],
         status: existingConversation?.status || 'ready',
         error: existingConversation?.error || null,
-        model: existingConversation?.model || defaultModel.value,
+        model: resolveModel(existingConversation?.model) || defaultModel.value,
         activeRequest: existingConversation?.activeRequest,
         lastPrompt: existingConversation?.lastPrompt || null
       } satisfies Conversation
@@ -312,7 +313,7 @@ export function useChatStore() {
       })),
       status: 'ready',
       error: null,
-      model: item.model || defaultModel.value,
+      model: resolveModel(item.model) || defaultModel.value,
       lastPrompt: item.lastPrompt,
       local: true
     }))
@@ -377,7 +378,7 @@ export function useChatStore() {
   const setModelForChat = (chatId: string, model: ModelOption) => {
     const conversation = conversations.value.find(c => c.session.chatId === chatId)
     if (conversation) {
-      conversation.model = model
+      conversation.model = resolveModel(model) || defaultModel.value
       if (conversation.local) {
         persistGuestConversations()
       }
@@ -519,6 +520,9 @@ export function useChatStore() {
       throw new Error('No chat selected')
     }
 
+    const effectiveModel = resolveModel(model) || defaultModel.value
+    if (!effectiveModel) return null
+
     const appendUserMessage = options?.appendUserMessage ?? true
     const history = conversation.local
       ? conversation.messages
@@ -555,7 +559,8 @@ export function useChatStore() {
 
     conversation.status = 'submitted'
     conversation.error = null
-    conversation.model = model
+
+    conversation.model = effectiveModel
     conversation.lastPrompt = text
 
     const controller = new AbortController()
@@ -580,8 +585,8 @@ export function useChatStore() {
     try {
       const input = {
         content: text,
-        provider: model.provider,
-        modelId: model.value,
+        provider: effectiveModel.provider,
+        modelId: effectiveModel.value,
         media: options?.media?.map(item => ({ mimeType: item.mimeType, data: item.data })),
         webSearchEnabled: webSearchEnabled.value || undefined
       }

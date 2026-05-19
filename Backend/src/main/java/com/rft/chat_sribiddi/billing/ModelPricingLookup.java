@@ -18,10 +18,9 @@ import org.springframework.stereotype.Component;
  *
  * <p>Pricing is read from the fallback catalog configured in {@code ai.models.*}
  * ({@link ModelCatalogProperties}), which stores OpenRouter-style USD-per-token strings on
- * {@link ModelOption#getPromptPrice()} / {@link ModelOption#getCompletionPrice()}. If a model is
- * absent from the catalog but its id follows OpenRouter's {@code :free} suffix convention, it is
- * reported as zero-cost so that truly-free OpenRouter models stay available on the Free tier
- * without requiring a manual pricing override.
+ * {@link ModelOption#getPromptPrice()} / {@link ModelOption#getCompletionPrice()}. OpenRouter's
+ * {@code openrouter/free} router model and {@code :free}-suffixed concrete model ids are reported
+ * as zero-cost when explicit pricing is absent.
  */
 @Slf4j
 @Component
@@ -29,6 +28,7 @@ import org.springframework.stereotype.Component;
 public class ModelPricingLookup {
 
   private static final double TOKENS_PER_MILLION = 1_000_000d;
+  public static final String OPENROUTER_FREE_MODEL_ID = "openrouter/free";
 
   private final ModelCatalogProperties catalog;
   private final Map<String, Pricing> livePricingByProviderAndModel = new ConcurrentHashMap<>();
@@ -59,8 +59,10 @@ public class ModelPricingLookup {
       return configured;
     }
 
-    // OpenRouter free-model convention: ids ending with ':free' are zero-cost.
-    if (provider == Provider.OPENROUTER && modelId.endsWith(":free")) {
+    // OpenRouter free-model conventions: the free router model and concrete ids ending with
+    // ':free' are zero-cost.
+    if (provider == Provider.OPENROUTER
+        && (OPENROUTER_FREE_MODEL_ID.equals(modelId) || modelId.endsWith(":free"))) {
       return Optional.of(new Pricing(0.0, 0.0));
     }
     return Optional.empty();

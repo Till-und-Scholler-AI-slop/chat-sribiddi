@@ -5,6 +5,36 @@ import { useUserSettings } from '~/composables/useUserSettings'
 
 const PROVIDER_RANK = new Map(PROVIDERS.map((provider, index) => [provider, index]))
 
+const sameModel = (left: ModelOption, right: Pick<ModelOption, 'provider' | 'value'>) =>
+  left.provider === right.provider && left.value === right.value
+
+export const isSelectableModel = (model: Pick<ModelOption, 'availability'>): boolean =>
+  !model.availability || model.availability === 'ALWAYS'
+
+export const isOpenRouterFreeModel = (model: Pick<ModelOption, 'provider' | 'value'>): boolean =>
+  model.provider === 'OPENROUTER' && model.value === 'openrouter/free'
+
+export function resolveModelOption(
+  model: Pick<ModelOption, 'provider' | 'value'> | null | undefined,
+  models: ModelOption[]
+): ModelOption | null {
+  if (!model) return null
+  return models.find(option => sameModel(option, model) && isSelectableModel(option)) || null
+}
+
+export function chooseDefaultModel(
+  models: ModelOption[],
+  saved: Pick<ModelOption, 'provider' | 'value'> | null | undefined
+): ModelOption | null {
+  const selectable = models.filter(isSelectableModel)
+  return (
+    resolveModelOption(saved, selectable) ||
+    selectable.find(isOpenRouterFreeModel) ||
+    selectable[0] ||
+    null
+  )
+}
+
 export function useModelStore() {
   const { fetchModels } = useChatApi()
   const { settings } = useUserSettings()
@@ -15,12 +45,7 @@ export function useModelStore() {
   const loadedExpertMode = useState<boolean | null>('chat-models-expert-mode', () => null)
 
   const defaultModel = computed<ModelOption | null>(() => {
-    const saved = settings.value.lastUsedModel
-    if (saved) {
-      const match = models.value.find(m => m.value === saved.value && m.provider === saved.provider)
-      if (match) return match
-    }
-    return models.value[0] || null
+    return chooseDefaultModel(models.value, settings.value.lastUsedModel)
   })
 
   const favoriteModelKeys = computed(() => new Set(settings.value.favoriteModels))
@@ -94,6 +119,9 @@ export function useModelStore() {
     settings.value.lastUsedModel = model
   }
 
+  const resolveModel = (model: ModelOption | null | undefined) =>
+    resolveModelOption(model, models.value)
+
   const resetModels = () => {
     models.value = []
     loadedExpertMode.value = null
@@ -111,6 +139,7 @@ export function useModelStore() {
     toggleFavorite,
     ensureModels,
     saveLastUsedModel,
+    resolveModel,
     resetModels
   }
 }

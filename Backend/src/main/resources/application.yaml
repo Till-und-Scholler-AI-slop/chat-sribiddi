@@ -111,7 +111,7 @@ ai:
         - claude-opus-4-6-20260215
         - claude-haiku-4-5-20251001
       openrouter:
-        - openrouter/auto
+        - openrouter/free
     openai:
       - id: gpt-5.2
         label: GPT-5.2
@@ -164,6 +164,10 @@ ai:
       - id: claude-3-5-haiku-20241022
         label: Claude 3.5 Haiku
     openrouter:
+      - id: openrouter/free
+        label: OpenRouter Free
+        prompt-price: "0"
+        completion-price: "0"
       - id: openrouter/auto
         label: OpenRouter Auto
       - id: openai/gpt-4o-mini
@@ -276,9 +280,9 @@ app:
       claude: ${CLAUDE_API_KEY:}
       openrouter: ${OPENROUTER_API_KEY:}
     model-access:
-      # Free tier allows only models whose prompt/completion prices are at or below these
-      # thresholds, expressed in USD per 1,000,000 tokens. Defaults (0/0) match OpenRouter's
-      # :free-suffix convention: only truly free models on Free; everything else requires Premium.
+      # Free tier allows only OpenRouter's free router model (`openrouter/free`) in managed mode
+      # unless the user stores a BYOK provider key. The thresholds still define the zero-cost
+      # price cap for that model and any future free-router equivalents.
       free-max-input-usd-per-million: ${BILLING_FREE_MAX_INPUT_USD_PER_MILLION:0.0}
       free-max-output-usd-per-million: ${BILLING_FREE_MAX_OUTPUT_USD_PER_MILLION:0.0}
       # Premium tier allows all models under these thresholds (USD per 1,000,000 tokens). Models

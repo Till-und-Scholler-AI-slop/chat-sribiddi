@@ -3,6 +3,7 @@ import type { ModelOption, TokenUsage } from '~/composables/useChatApi'
 import { isModelLocked, PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { calculateMessageCost } from '~/composables/chat-helpers'
 import { useUserSettings } from '~/composables/useUserSettings'
+import { chooseDefaultModel, resolveModelOption } from '~/composables/useModelStore'
 
 export const COMPARE_MIN_PANELS = 2
 export const COMPARE_MAX_PANELS = 6
@@ -121,12 +122,24 @@ export function useCompareStore() {
   const assignDefaultModels = () => {
     const candidates = availableModels.value.length > 0 ? availableModels.value : sortedModels.value
     if (candidates.length === 0) return
+    const preferredDefault = chooseDefaultModel(candidates, null)
+    const orderedCandidates = preferredDefault
+      ? [
+          preferredDefault,
+          ...candidates.filter(
+            candidate =>
+              candidate.provider !== preferredDefault.provider ||
+              candidate.value !== preferredDefault.value
+          )
+        ]
+      : candidates
 
     panels.value = panels.value.map((panel, index) => {
-      if (panel.model) return panel
+      const currentModel = resolveModelOption(panel.model, candidates)
+      if (currentModel) return { ...panel, model: currentModel }
       return {
         ...panel,
-        model: candidates[index % candidates.length] || null
+        model: orderedCandidates[index % orderedCandidates.length] || null
       }
     })
   }

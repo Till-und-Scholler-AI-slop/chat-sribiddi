@@ -29,8 +29,8 @@ import org.springframework.stereotype.Service;
  *
  * <p>Configuration is sourced from {@link BillingProperties} ({@code app.billing.*}) — no limits
  * are hardcoded here. Model access is not whitelisted by ID; instead the Free tier applies the
- * price thresholds configured under {@code app.billing.model-access.*} (default: only truly-free
- * models, matching OpenRouter's {@code :free} convention).
+ * price thresholds configured under {@code app.billing.model-access.*}; Free managed-mode calls
+ * are additionally restricted to OpenRouter's {@code openrouter/free} router model.
  *
  * <p>The {@code userId} parameter is the OAuth provider id (see {@link
  * com.rft.chat_sribiddi.auth.RequestUserResolver}), matching the convention used by the rest of
@@ -141,7 +141,9 @@ public class EntitlementService {
    *       {@code app.billing.model-access.managed-providers} (default {@code [OPENROUTER]}) — our
    *       paid tiers route 100% through OpenRouter; direct OpenAI/Google/Claude are BYOK-only.
    *   <li>Free/Premium managed-mode users are restricted to models whose prompt and completion
-   *       prices are at or below the configured price thresholds.
+   *       prices are at or below the configured price thresholds. Free managed-mode users are
+   *       restricted to {@code openrouter/free}; storing a user key switches the call to BYOK and
+   *       removes that managed-mode router restriction.
    *   <li>Max managed-mode users have no price cap.
    * </ul>
    *
@@ -176,6 +178,14 @@ public class EntitlementService {
           entitlements.plan(),
           "Provider %s is not available in managed billing mode; use BYOK or choose a model from an allowed provider (%s)"
               .formatted(provider, allowedList));
+    }
+    if (isFreeManagedOpenRouterRequest(entitlements, provider)
+        && !ModelPricingLookup.OPENROUTER_FREE_MODEL_ID.equals(modelId)) {
+      throw new PlanRestrictionException(
+          PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
+          entitlements.plan(),
+          "Free managed mode is restricted to %s unless a provider API key is stored"
+              .formatted(ModelPricingLookup.OPENROUTER_FREE_MODEL_ID));
     }
     if (entitlements.allModelsAllowed()) {
       return;
@@ -288,13 +298,10 @@ public class EntitlementService {
    *             {@code app.billing.model-access.premium-max-*-usd-per-million} thresholds are
    *             {@link AvailabilityFlag#ALWAYS}, else {@link AvailabilityFlag#UPGRADE_REQUIRED}
    *             with {@code requiredPlan = MAX}.
-   *         <li>{@link Plan#FREE}: models at or below the {@code free-max-*} thresholds are
-   *             {@link AvailabilityFlag#ALWAYS}; more expensive models are
-   *             {@link AvailabilityFlag#UPGRADE_REQUIRED} with {@code requiredPlan = PREMIUM}
-   *             unless they also exceed the Premium thresholds, in which case
-   *             {@code requiredPlan = MAX}. Models with unknown pricing default to
-   *             {@code UPGRADE_REQUIRED} with {@code requiredPlan = PREMIUM} (matching the
-   *             enforcement path).
+   *         <li>{@link Plan#FREE}: only {@code openrouter/free} is marked
+   *             {@link AvailabilityFlag#ALWAYS}; other OpenRouter models are not selectable in
+   *             managed mode unless the user stores a provider key or upgrades to a tier whose
+   *             price cap allows the model.
    *       </ul>
    * </ul>
    */
@@ -339,6 +346,12 @@ public class EntitlementService {
                 // Direct providers are BYOK-only regardless of plan because managed mode only
                 // routes through providers listed in app.billing.model-access.managed-providers.
                 flag = AvailabilityFlag.BYOK_ONLY;
+              } else if (isFreeManagedOpenRouterRequest(entitlements, provider)
+                  && !ModelPricingLookup.OPENROUTER_FREE_MODEL_ID.equals(opt.getId())) {
+                flag = AvailabilityFlag.UPGRADE_REQUIRED;
+                Optional<ModelPricingLookup.Pricing> pricing =
+                    modelPricingLookup.find(provider, opt.getId());
+                required = requiredPlanFor(pricing);
               } else if (entitlements.allModelsAllowed()) {
                 flag = AvailabilityFlag.ALWAYS;
               } else {
@@ -356,6 +369,10 @@ public class EntitlementService {
               return copy;
             })
         .toList();
+  }
+
+  private boolean isFreeManagedOpenRouterRequest(Entitlements entitlements, Provider provider) {
+    return entitlements.plan() == Plan.FREE && provider == Provider.OPENROUTER;
   }
 
   /**

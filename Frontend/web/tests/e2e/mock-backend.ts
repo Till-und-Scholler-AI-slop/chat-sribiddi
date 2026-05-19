@@ -9,7 +9,7 @@ const E2E_BACKEND_BASE_URL = 'http://127.0.0.1:8080'
 
 const modelPayload = (provider: string) => [
   {
-    id: `${provider.toLowerCase()}-mock`,
+    id: provider === 'OPENROUTER' ? 'openrouter/free' : `${provider.toLowerCase()}-mock`,
     label: `${provider} Mock`,
     provider,
     availability: 'ALWAYS',

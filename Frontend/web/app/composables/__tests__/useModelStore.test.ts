@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import type { ModelOption, Provider } from '../useChatApi'
-import { useModelStore } from '../useModelStore'
+import { chooseDefaultModel, resolveModelOption, useModelStore } from '../useModelStore'
 
 const apiMock = vi.hoisted(() => ({
   fetchModels: vi.fn()
@@ -34,6 +34,11 @@ function installNuxtState() {
 describe('useModelStore', () => {
   const openAiModel = makeModel('OPENAI', 'gpt-test', 'GPT Test')
   const googleModel = makeModel('GOOGLE', 'gemini-test', 'Gemini Test')
+  const openRouterFreeModel = makeModel(
+    'OPENROUTER',
+    'openrouter/free',
+    'OpenRouter Free'
+  )
 
   beforeEach(() => {
     installNuxtState()
@@ -78,5 +83,23 @@ describe('useModelStore', () => {
     store.saveLastUsedModel(googleModel)
 
     expect(store.defaultModel.value).toEqual(googleModel)
+  })
+
+  it('defaults to an OpenRouter free model when no saved model is available', async () => {
+    apiMock.fetchModels.mockImplementation(async (provider: Provider) => {
+      if (provider === 'OPENAI') return [openAiModel]
+      if (provider === 'OPENROUTER') return [openRouterFreeModel]
+      return []
+    })
+
+    const store = useModelStore()
+    await store.ensureModels()
+
+    expect(store.defaultModel.value).toEqual(openRouterFreeModel)
+  })
+
+  it('ignores stale saved models that are not in the current allowed catalog', () => {
+    expect(chooseDefaultModel([openRouterFreeModel], openAiModel)).toEqual(openRouterFreeModel)
+    expect(resolveModelOption(openAiModel, [openRouterFreeModel])).toBeNull()
   })
 })
