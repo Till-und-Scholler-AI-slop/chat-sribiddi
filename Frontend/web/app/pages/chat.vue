@@ -118,7 +118,9 @@ const translatedErrorMessage = computed(() =>
   errorMessage.value ? tt(new Error(errorMessage.value)) : null
 )
 const promptError = computed(() =>
-  translatedErrorMessage.value ? new Error(translatedErrorMessage.value) : undefined
+  activeConversation.value?.error && translatedErrorMessage.value
+    ? new Error(translatedErrorMessage.value)
+    : undefined
 )
 
 type ChatMessagePart = { type: string; text?: string; mediaType?: string; filename?: string }
@@ -276,7 +278,7 @@ const hasPendingPrompt = computed(() => input.value.trim().length > 0 || attachm
 const canSubmitPrompt = computed(() =>
   status.value === 'ready' && !!selectedModel.value && hasPendingPrompt.value
 )
-const chatReady = computed(() => !initializing.value && !!activeConversation.value && !!selectedModel.value)
+const chatReady = computed(() => !initializing.value && !!activeConversation.value)
 
 onMounted(async () => {
   try {

@@ -50,6 +50,13 @@ Public/authenticated application paths:
 - After a guest logs in, the frontend can call `POST /api/chats/import` to
   persist selected local guest chats without re-calling the AI provider.
 
+Session lifetime:
+
+- Browser login sessions are intentionally long-lived so normal users are not
+  logged out automatically during regular use. The backend defaults both
+  `SESSION_TIMEOUT` and `SESSION_COOKIE_MAX_AGE` to `30d`; production can
+  override those env vars together if the policy changes.
+
 Rate and quota defaults:
 
 - Per-minute request limits are intentionally DDoS-oriented:
