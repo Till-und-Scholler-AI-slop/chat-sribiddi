@@ -59,6 +59,15 @@ export function friendlyErrorKey(err: unknown): FriendlyErrorResult {
   if (lower.includes('managed_provider_unconfigured')) {
     return { key: 'errors.managedProviderUnconfigured', raw }
   }
+  if (lower.includes('unsupported document type')) {
+    return { key: 'errors.unsupportedDocumentType', raw }
+  }
+  if (lower.includes('document contains no extractable text')) {
+    return { key: 'errors.documentNoText', raw }
+  }
+  if (lower.includes('encrypted pdf')) {
+    return { key: 'errors.encryptedPdfUnsupported', raw }
+  }
   if (/\b5\d{2}\b/.test(raw)) {
     return { key: 'errors.serverError', raw }
   }

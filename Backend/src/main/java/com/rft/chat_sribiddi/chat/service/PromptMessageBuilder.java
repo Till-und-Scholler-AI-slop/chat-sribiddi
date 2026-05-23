@@ -30,6 +30,8 @@ public class PromptMessageBuilder {
 
   private static final String USER_INSTRUCTION_PREFIX =
       "System instructions for this conversation. Follow them when responding.\n\n";
+  private static final String DOCUMENT_CONTEXT_PREFIX =
+      "Use these retrieved document excerpts as context when they are relevant. If the excerpts do not contain the answer, say so instead of inventing details.\n\n";
 
   private final MessageRepository messageRepository;
   private final ChatProperties chatProperties;
@@ -51,11 +53,15 @@ public class PromptMessageBuilder {
 
     List<MessageEntity> ordered = latestMessages.reversed();
     for (MessageEntity entity : ordered) {
-      if (!request.mediaAttachments().isEmpty()
+      if ((!request.mediaAttachments().isEmpty() || hasDocumentContext(request.documentContext()))
           && request.targetUserMessageId() != null
           && entity.getRole() == Role.USER
           && request.targetUserMessageId().equals(entity.getId())) {
-        messages.add(toUserMessage(entity, request.mediaAttachments(), request.entitlements()));
+        messages.add(
+            toUserMessage(
+                withDocumentContext(entity.getMessage(), request.documentContext()),
+                request.mediaAttachments(),
+                request.entitlements()));
         continue;
       }
       messages.add(toChatMessage(entity));
@@ -87,8 +93,15 @@ public class PromptMessageBuilder {
     for (int i = 0; i < limited.size(); i++) {
       StatelessChatMessage item = limited.get(i);
       boolean isCurrent = i == limited.size() - 1;
-      if (isCurrent && item.role() == Role.USER && !request.mediaAttachments().isEmpty()) {
-        messages.add(toUserMessage(item.content(), request.mediaAttachments(), request.entitlements()));
+      if (isCurrent
+          && item.role() == Role.USER
+          && (!request.mediaAttachments().isEmpty()
+              || hasDocumentContext(request.documentContext()))) {
+        messages.add(
+            toUserMessage(
+                withDocumentContext(item.content(), request.documentContext()),
+                request.mediaAttachments(),
+                request.entitlements()));
       } else {
         messages.add(toChatMessage(item.role(), item.content()));
       }
@@ -148,6 +161,17 @@ public class PromptMessageBuilder {
         .build();
   }
 
+  private String withDocumentContext(String text, String documentContext) {
+    if (!hasDocumentContext(documentContext)) {
+      return text;
+    }
+    return DOCUMENT_CONTEXT_PREFIX + documentContext.trim() + "\n\nUser request:\n" + text;
+  }
+
+  private boolean hasDocumentContext(String documentContext) {
+    return documentContext != null && !documentContext.isBlank();
+  }
+
   record PromptMessageRequest(
       UUID chatId,
       List<MediaAttachment> mediaAttachments,
@@ -155,7 +179,8 @@ public class PromptMessageBuilder {
       String customInstructions,
       RequestDTO.Provider provider,
       String modelId,
-      Entitlements entitlements) {}
+      Entitlements entitlements,
+      String documentContext) {}
 
   record StatelessPromptMessageRequest(
       List<StatelessChatMessage> history,
@@ -164,7 +189,8 @@ public class PromptMessageBuilder {
       String customInstructions,
       RequestDTO.Provider provider,
       String modelId,
-      Entitlements entitlements) {}
+      Entitlements entitlements,
+      String documentContext) {}
 
   record StatelessChatMessage(Role role, String content) {}
 }

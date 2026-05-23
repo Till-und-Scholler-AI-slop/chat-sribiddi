@@ -1,6 +1,7 @@
 package com.rft.chat_sribiddi.chat.controller;
 
 import com.rft.chat_sribiddi.chat.dto.ChatResponseDTO;
+import com.rft.chat_sribiddi.chat.dto.ChatDocumentDTO;
 import com.rft.chat_sribiddi.chat.dto.CreateChatRequestDTO;
 import com.rft.chat_sribiddi.chat.dto.ImportChatsRequestDTO;
 import com.rft.chat_sribiddi.chat.dto.MessageResponseDTO;
@@ -9,6 +10,7 @@ import com.rft.chat_sribiddi.chat.dto.RunbookExportDTO;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.service.ChatService;
+import com.rft.chat_sribiddi.chat.service.ChatDocumentService;
 import com.rft.chat_sribiddi.chat.service.RunbookExportService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -31,6 +33,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.multipart.MultipartFile;
 
 @RequiredArgsConstructor
 @RequestMapping("/chats")
@@ -38,6 +41,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ChatController {
 
   private final ChatService chatService;
+  private final ChatDocumentService chatDocumentService;
   private final RunbookExportService runbookExportService;
 
   @PostMapping
@@ -89,6 +93,36 @@ public class ChatController {
     List<MessageResponseDTO> messages =
         chatService.listMessageResponses(chatId, principal.getSubject(), limit, offset);
     return ResponseEntity.ok(messages);
+  }
+
+  @PostMapping(
+      value = "/{chatId}/documents",
+      consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  public ResponseEntity<ChatDocumentDTO> uploadDocument(
+      @AuthenticationPrincipal OidcUser principal,
+      @PathVariable UUID chatId,
+      @RequestParam("file") MultipartFile file) {
+    validatePrincipal(principal);
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(chatDocumentService.upload(chatId, principal.getSubject(), file));
+  }
+
+  @GetMapping("/{chatId}/documents")
+  public ResponseEntity<List<ChatDocumentDTO>> listDocuments(
+      @AuthenticationPrincipal OidcUser principal,
+      @PathVariable UUID chatId) {
+    validatePrincipal(principal);
+    return ResponseEntity.ok(chatDocumentService.list(chatId, principal.getSubject()));
+  }
+
+  @DeleteMapping("/{chatId}/documents/{documentId}")
+  public ResponseEntity<Void> deleteDocument(
+      @AuthenticationPrincipal OidcUser principal,
+      @PathVariable UUID chatId,
+      @PathVariable Long documentId) {
+    validatePrincipal(principal);
+    chatDocumentService.delete(chatId, principal.getSubject(), documentId);
+    return ResponseEntity.noContent().build();
   }
 
   @PostMapping("/{chatId}/messages")

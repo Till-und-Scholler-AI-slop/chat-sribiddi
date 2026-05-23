@@ -77,7 +77,8 @@ public class AnonymousChatService {
                 null,
                 request.provider(),
                 request.modelId(),
-                entitlements));
+                entitlements,
+                null));
 
     GuestQuotaReservation quotaReservation =
         guestQuotaService.reserveDailyCall(servletRequest, guestId);

@@ -124,7 +124,8 @@ class ChatServiceTest {
             toolCallLogRecorder,
             chatMetrics);
     return new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
-        providerClientFactory, chatProperties, mediaValidationService, userSettingsService,
+        providerClientFactory, chatProperties, mediaValidationService,
+        org.mockito.Mockito.mock(DocumentRetrievalService.class), userSettingsService,
         promptToolBinder, promptMessageBuilder, chatUsageRecorder, toolCallLogRecorder,
         chatStreamSubscriber, billingModeResolver, entitlementService);
   }

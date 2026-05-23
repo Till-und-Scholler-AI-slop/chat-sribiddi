@@ -1,4 +1,4 @@
-import type { MediaAttachment } from '~/composables/useChatApi'
+import type { DocumentAttachment, MediaAttachment } from '~/composables/useChatApi'
 
 type FileAttachmentOptions = {
   fileReadFailedMessage: (name: string) => string
@@ -7,6 +7,7 @@ type FileAttachmentOptions = {
 
 export function useFileAttachments(options: FileAttachmentOptions) {
   const attachments = ref<MediaAttachment[]>([])
+  const documentAttachments = ref<DocumentAttachment[]>([])
   const fileInput = ref<HTMLInputElement | null>(null)
   const isDragOver = ref(false)
 
@@ -20,6 +21,7 @@ export function useFileAttachments(options: FileAttachmentOptions) {
 
   const clearAttachments = () => {
     attachments.value = []
+    documentAttachments.value = []
     if (fileInput.value) {
       fileInput.value.value = ''
     }
@@ -29,10 +31,45 @@ export function useFileAttachments(options: FileAttachmentOptions) {
     attachments.value.splice(index, 1)
   }
 
+  const removeDocumentAttachment = (index: number) => {
+    documentAttachments.value.splice(index, 1)
+  }
+
+  const isDocumentFile = (file: File) => {
+    const mimeType = file.type || 'application/octet-stream'
+    const name = file.name.toLowerCase()
+    return mimeType === 'application/pdf' ||
+      mimeType.startsWith('text/') ||
+      mimeType === 'application/json' ||
+      mimeType === 'application/xml' ||
+      mimeType === 'application/x-ndjson' ||
+      mimeType === 'application/yaml' ||
+      name.endsWith('.pdf') ||
+      name.endsWith('.txt') ||
+      name.endsWith('.md') ||
+      name.endsWith('.markdown') ||
+      name.endsWith('.json') ||
+      name.endsWith('.xml') ||
+      name.endsWith('.ndjson') ||
+      name.endsWith('.yaml') ||
+      name.endsWith('.yml') ||
+      name.endsWith('.log') ||
+      name.endsWith('.csv')
+  }
+
   const processFileList = async (files: File[]) => {
     if (files.length === 0) return
+    const documentFiles = files.filter(isDocumentFile)
+    documentAttachments.value.push(
+      ...documentFiles.map(file => ({
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        file
+      }))
+    )
+    const inlineFiles = files.filter(file => !isDocumentFile(file))
     const results = await Promise.allSettled(
-      files.map(async file => ({
+      inlineFiles.map(async file => ({
         name: file.name,
         mimeType: file.type || 'application/octet-stream',
         data: await toDataUrl(file)
@@ -104,10 +141,12 @@ export function useFileAttachments(options: FileAttachmentOptions) {
 
   return {
     attachments,
+    documentAttachments,
     fileInput,
     isDragOver,
     clearAttachments,
     removeAttachment,
+    removeDocumentAttachment,
     processFileList,
     handleFiles
   }

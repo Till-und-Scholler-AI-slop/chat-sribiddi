@@ -50,6 +50,21 @@ export type MediaAttachment = {
   name?: string
 }
 
+export type DocumentAttachment = {
+  mimeType: string
+  name: string
+  file: File
+}
+
+export type ChatDocument = {
+  id: number
+  filename: string
+  mimeType: string
+  byteSize: number
+  status: 'READY' | string
+  createdAt?: string | null
+}
+
 export type ToolConsent = {
   toolName: string
   riskLevel: 'LOW' | 'HIGH'
@@ -311,6 +326,47 @@ export function useChatApi() {
     return (await response.json()) as T
   }
 
+  const requestForm = async <T>(path: string, formData: FormData, options: RequestInit = {}) => {
+    let headers: Record<string, string> = {
+      ...(options.headers as Record<string, string> || {})
+    }
+
+    const method = (options.method || 'POST').toUpperCase()
+    if (MUTATING_METHODS.has(method)) {
+      const csrfToken = getCsrfToken()
+      if (csrfToken) {
+        headers['X-XSRF-TOKEN'] = csrfToken
+      }
+    }
+
+    if (import.meta.client) {
+      headers = withRequestUserId(headers, resolveUserId())
+    }
+
+    const response = await fetch(buildUrl(path), {
+      credentials: 'include',
+      ...options,
+      method,
+      body: formData,
+      headers
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Not authenticated. Please log in via the Login page.')
+      }
+      const errorText = await readErrorText(response)
+      throw new Error(
+        errorText || `Request failed (${response.status} ${response.statusText})`
+      )
+    }
+
+    if (response.status === 204) {
+      return null as T
+    }
+    return (await response.json()) as T
+  }
+
   const createChat = async (input: CreateChatInput = {}) => {
     const title = input.title?.trim()
     const payload: Record<string, string> = {
@@ -337,6 +393,20 @@ export function useChatApi() {
 
   const fetchMessageToolCalls = async (messageId: number) => {
     return requestJson<ToolCallLog[]>(`/messages/${messageId}/tool-calls`, { method: 'GET' })
+  }
+
+  const uploadDocument = async (chatId: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return requestForm<ChatDocument>(`/chats/${chatId}/documents`, formData, { method: 'POST' })
+  }
+
+  const fetchDocuments = async (chatId: string) => {
+    return requestJson<ChatDocument[]>(`/chats/${chatId}/documents`, { method: 'GET' })
+  }
+
+  const deleteDocument = async (chatId: string, documentId: number) => {
+    await requestJson<unknown>(`/chats/${chatId}/documents/${documentId}`, { method: 'DELETE' })
   }
 
   const sendMessage = async (
@@ -619,6 +689,9 @@ export function useChatApi() {
     fetchChats,
     fetchChatMessages,
     fetchMessageToolCalls,
+    uploadDocument,
+    fetchDocuments,
+    deleteDocument,
     sendMessage,
     streamMessage,
     streamAnonymousMessage,

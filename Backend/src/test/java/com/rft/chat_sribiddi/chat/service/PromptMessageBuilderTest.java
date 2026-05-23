@@ -58,7 +58,8 @@ class PromptMessageBuilderTest {
             null,
             RequestDTO.Provider.OPENAI,
             "gpt-5.2",
-            entitlements(3)));
+            entitlements(3),
+            null));
 
     ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
     verify(messageRepository).findByChatIdOrderByCreatedAtDesc(eq(chatId), pageable.capture());
@@ -81,7 +82,8 @@ class PromptMessageBuilderTest {
                 null,
                 RequestDTO.Provider.OPENAI,
                 "gpt-5.2",
-                entitlements(20)));
+                entitlements(20),
+                null));
 
     assertThat(messages.get(1)).isInstanceOf(UserMessage.class);
     assertThat(((UserMessage) messages.get(1)).getText()).isEqualTo("older request");
@@ -103,7 +105,8 @@ class PromptMessageBuilderTest {
                 "Use concise answers.",
                 RequestDTO.Provider.GOOGLE,
                 "gemma-3-27b-it",
-                entitlements(20)));
+                entitlements(20),
+                null));
 
     assertThat(messages.getFirst()).isInstanceOf(UserMessage.class);
     assertThat(((UserMessage) messages.getFirst()).getText())
@@ -113,6 +116,32 @@ class PromptMessageBuilderTest {
             builder.assistantContext(
                 messages.size(), RequestDTO.Provider.GOOGLE, "gemma-3-27b-it"))
         .isEqualTo("Contains last 1 messages (instructions sent as user message)");
+  }
+
+  @Test
+  void build_injectsDocumentContextIntoTargetUserMessage() {
+    MessageEntity userMessage = message(10L, Role.USER, "What is in this file?");
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(eq(chatId), any()))
+        .thenReturn(List.of(userMessage));
+
+    List<Message> messages =
+        builder.build(
+            new PromptMessageRequest(
+                chatId,
+                List.of(),
+                10L,
+                null,
+                RequestDTO.Provider.OPENAI,
+                "gpt-5.2",
+                entitlements(20),
+                "[document 1, chunk 1]\nImportant extracted text."));
+
+    assertThat(messages.get(1)).isInstanceOf(UserMessage.class);
+    assertThat(((UserMessage) messages.get(1)).getText())
+        .contains("retrieved document excerpts")
+        .contains("Important extracted text")
+        .contains("User request:")
+        .contains("What is in this file?");
   }
 
   @Test

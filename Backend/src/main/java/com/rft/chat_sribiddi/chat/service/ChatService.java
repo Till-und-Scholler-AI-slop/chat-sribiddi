@@ -66,6 +66,7 @@ public class ChatService {
   private final ProviderClientFactory providerClientFactory;
   private final ChatProperties chatProperties;
   private final MediaValidationService mediaValidationService;
+  private final DocumentRetrievalService documentRetrievalService;
   private final UserSettingsService userSettingsService;
   private final PromptToolBinder promptToolBinder;
   private final PromptMessageBuilder promptMessageBuilder;
@@ -386,7 +387,8 @@ public class ChatService {
                 customInstructions,
                 requestDTO.provider(),
                 requestDTO.modelId(),
-                resolvedCall.entitlements()));
+                resolvedCall.entitlements(),
+                documentRetrievalService.retrieveContext(chatId, userId, requestDTO.content())));
 
     return createAndSubscribeStream(
         userId, requestDTO, promptMessages, chatId, null, resolvedCall, plan);
@@ -426,7 +428,8 @@ public class ChatService {
                 customInstructions,
                 requestDTO.provider(),
                 requestDTO.modelId(),
-                entitlements));
+                entitlements,
+                documentRetrievalService.retrieveContext(chatId, userId, requestDTO.content())));
     return new MessagePreparation(updatedTitle, promptMessages);
   }
 

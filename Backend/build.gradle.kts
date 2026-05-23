@@ -7,6 +7,7 @@ val springAiVersion by extra("2.0.0-M6")
 val bucket4jVersion by extra("8.18.0")
 val dotenvJavaVersion by extra("3.2.0")
 val stripeJavaVersion by extra("32.1.0")
+val pdfboxVersion by extra("3.0.6")
 
 group = "com.rft"
 version = "0.0.1-SNAPSHOT"
@@ -48,6 +49,7 @@ dependencies {
     implementation("org.springframework.ai:spring-ai-starter-model-openai")
     implementation("org.springframework.ai:spring-ai-starter-model-anthropic")
     implementation("com.stripe:stripe-java:$stripeJavaVersion")
+    implementation("org.apache.pdfbox:pdfbox:$pdfboxVersion")
     compileOnly("org.projectlombok:lombok")
     developmentOnly("org.springframework.boot:spring-boot-devtools")
     developmentOnly("org.springframework.boot:spring-boot-docker-compose")

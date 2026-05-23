@@ -42,7 +42,7 @@ const {
 } = useChatStore()
 const { checkAuth } = useAuth()
 const { settings } = useUserSettings()
-const { exportRunbook } = useChatApi()
+const { exportRunbook, uploadDocument } = useChatApi()
 
 const input = ref('')
 const initializing = ref(true)
@@ -50,10 +50,12 @@ const exportingRunbook = ref(false)
 const toast = useToast()
 const {
   attachments,
+  documentAttachments,
   fileInput,
   isDragOver,
   clearAttachments,
   removeAttachment,
+  removeDocumentAttachment,
   handleFiles
 } = useFileAttachments({
   fileReadFailedMessage: name => t('chat.fileReadFailed', { name }),
@@ -242,10 +244,12 @@ const modelPricingSummary = computed(() => {
 const optionPriceLabel = (option: ModelOption): string | null =>
   formatRatePerMillion(option.promptPrice)
 
+const pendingAttachmentCount = computed(() => attachments.value.length + documentAttachments.value.length)
+
 const pendingPromptText = computed(() => {
   const trimmed = input.value.trim()
   if (trimmed) return trimmed
-  return attachments.value.length ? t('chat.analyzeAttachment') : ''
+  return pendingAttachmentCount.value ? t('chat.analyzeAttachment') : ''
 })
 
 const preSendCostEstimate = computed(() => {
@@ -274,7 +278,7 @@ const preSendCompletionRateLabel = computed(() =>
   formatRatePerMillion(selectedModel.value?.completionPrice)
 )
 
-const hasPendingPrompt = computed(() => input.value.trim().length > 0 || attachments.value.length > 0)
+const hasPendingPrompt = computed(() => input.value.trim().length > 0 || pendingAttachmentCount.value > 0)
 const canSubmitPrompt = computed(() =>
   status.value === 'ready' && !!selectedModel.value && hasPendingPrompt.value
 )
@@ -392,7 +396,7 @@ const applyAndSubmit = (prompt: string) => {
 
 async function handleSubmit() {
   if (status.value !== 'ready') return
-  if (!input.value.trim() && attachments.value.length === 0) return
+  if (!input.value.trim() && pendingAttachmentCount.value === 0) return
   if (!activeConversation.value) {
     await startChat()
   }
@@ -400,13 +404,25 @@ async function handleSubmit() {
   const conversation = activeConversation.value
   const model = selectedModel.value
   if (!conversation || !model) return
+  if (conversation.local && documentAttachments.value.length > 0) {
+    toast.add({
+      title: t('chat.uploadFailedTitle'),
+      description: t('chat.documentUploadRequiresLogin'),
+      color: 'error'
+    })
+    return
+  }
 
   const text = input.value.trim() || t('chat.analyzeAttachment')
   const media = [...attachments.value]
+  const documents = [...documentAttachments.value]
   input.value = ''
-  clearAttachments()
 
   try {
+    for (const document of documents) {
+      await uploadDocument(conversation.session.chatId, document.file)
+    }
+    clearAttachments()
     await sendPrompt(conversation.session.chatId, text, model, {
       media
     })
@@ -665,7 +681,7 @@ const handleReload = async () => {
             @change="handleFiles"
           >
 
-          <div v-if="attachments.length" class="flex flex-wrap gap-2">
+          <div v-if="pendingAttachmentCount" class="flex flex-wrap gap-2">
             <div
               v-for="(item, index) in attachments"
               :key="`${item.name || item.mimeType}-${index}`"
@@ -678,6 +694,22 @@ const handleReload = async () => {
                 :aria-label="t('chat.removeAttachment', { name: item.name || item.mimeType })"
                 :title="t('chat.removeAttachment', { name: item.name || item.mimeType })"
                 @click="removeAttachment(index)"
+              >
+                <UIcon name="i-heroicons-x-mark" class="size-3.5" />
+              </button>
+            </div>
+            <div
+              v-for="(item, index) in documentAttachments"
+              :key="`document-${item.name || item.mimeType}-${index}`"
+              class="animate-scale-in attachment-card"
+            >
+              <UIcon :name="fileIcon(item.mimeType)" class="size-4 text-gray-500" />
+              <span class="truncate max-w-[150px]">{{ item.name || item.mimeType }}</span>
+              <button
+                class="inline-flex text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                :aria-label="t('chat.removeAttachment', { name: item.name || item.mimeType })"
+                :title="t('chat.removeAttachment', { name: item.name || item.mimeType })"
+                @click="removeDocumentAttachment(index)"
               >
                 <UIcon name="i-heroicons-x-mark" class="size-3.5" />
               </button>
@@ -703,7 +735,7 @@ const handleReload = async () => {
                 />
               </UTooltip>
               <UButton
-                v-if="attachments.length"
+                v-if="pendingAttachmentCount"
                 icon="i-heroicons-x-mark"
                 color="neutral"
                 variant="ghost"
