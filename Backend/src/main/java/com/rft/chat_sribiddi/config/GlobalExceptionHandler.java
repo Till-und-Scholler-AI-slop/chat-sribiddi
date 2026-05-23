@@ -35,6 +35,7 @@ public class GlobalExceptionHandler {
         switch (ex.getReason()) {
           case MODEL_NOT_ALLOWED, DAILY_CAP_EXCEEDED -> HttpStatus.PAYMENT_REQUIRED;
           case TOOL_NOT_ALLOWED -> HttpStatus.FORBIDDEN;
+          case MANAGED_PROVIDER_UNCONFIGURED -> HttpStatus.SERVICE_UNAVAILABLE;
         };
     Map<String, String> body = new HashMap<>();
     body.put("message", ex.getMessage());

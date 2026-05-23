@@ -290,6 +290,7 @@
     "rateLimit": "Zu viele Anfragen. Bitte kurz warten.",
     "dailyCapExceeded": "Das Tageslimit für diesen Plan ist erreicht. Upgrade, um weiter zu chatten.",
     "modelNotAllowed": "Dieses Modell ist in deinem aktuellen Plan nicht verfügbar.",
+    "managedProviderUnconfigured": "OpenRouter Free ist serverseitig noch nicht konfiguriert. Bitte später erneut versuchen.",
     "serverError": "Server-Fehler. Bitte später erneut versuchen.",
     "apiKey": "API-Schlüssel ungültig oder fehlt. Bitte in den Einstellungen prüfen.",
     "pageNotFoundTitle": "Seite nicht gefunden",

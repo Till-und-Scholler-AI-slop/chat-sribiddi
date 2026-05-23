@@ -98,7 +98,7 @@ public class BillingModeResolver {
     String serverKey = serverKeyFor(provider);
     if (serverKey == null || serverKey.isBlank()) {
       throw new PlanRestrictionException(
-          PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
+          PlanRestrictionException.Reason.MANAGED_PROVIDER_UNCONFIGURED,
           resolvePlan(userId),
           "Managed billing mode is not configured for provider %s (server key missing)"
               .formatted(provider));

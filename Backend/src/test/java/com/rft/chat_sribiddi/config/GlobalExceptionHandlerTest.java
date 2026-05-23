@@ -2,6 +2,8 @@ package com.rft.chat_sribiddi.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.rft.chat_sribiddi.auth.Plan;
+import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -11,6 +13,22 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 class GlobalExceptionHandlerTest {
 
   private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
+
+  @Test
+  void handlePlanRestriction_mapsMissingManagedProviderConfigTo503() {
+    var ex =
+        new PlanRestrictionException(
+            PlanRestrictionException.Reason.MANAGED_PROVIDER_UNCONFIGURED,
+            Plan.FREE,
+            "Managed billing mode is not configured for provider OPENROUTER (server key missing)");
+
+    var response = handler.handlePlanRestriction(ex);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    assertThat(response.getBody())
+        .containsEntry("reason", "MANAGED_PROVIDER_UNCONFIGURED")
+        .containsEntry("plan", "FREE");
+  }
 
   @Test
   void handleWebClientResponse_preserves429Status() {

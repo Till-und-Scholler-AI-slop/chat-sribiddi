@@ -22,6 +22,8 @@ describe('friendlyErrorKey', () => {
     expect(friendlyErrorKey('rate limit exceeded').key).toBe('errors.rateLimit')
     expect(friendlyErrorKey('{"reason":"DAILY_CAP_EXCEEDED"}').key).toBe('errors.dailyCapExceeded')
     expect(friendlyErrorKey('{"reason":"MODEL_NOT_ALLOWED"}').key).toBe('errors.modelNotAllowed')
+    expect(friendlyErrorKey('{"reason":"MANAGED_PROVIDER_UNCONFIGURED"}').key)
+      .toBe('errors.managedProviderUnconfigured')
     expect(friendlyErrorKey('500 Internal Server Error').key).toBe('errors.serverError')
     expect(friendlyErrorKey('API key invalid').key).toBe('errors.apiKey')
   })

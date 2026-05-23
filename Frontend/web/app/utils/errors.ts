@@ -56,6 +56,9 @@ export function friendlyErrorKey(err: unknown): FriendlyErrorResult {
   if (lower.includes('model_not_allowed')) {
     return { key: 'errors.modelNotAllowed', raw }
   }
+  if (lower.includes('managed_provider_unconfigured')) {
+    return { key: 'errors.managedProviderUnconfigured', raw }
+  }
   if (/\b5\d{2}\b/.test(raw)) {
     return { key: 'errors.serverError', raw }
   }

@@ -232,7 +232,36 @@ class BillingModeResolverTest {
     assertThatThrownBy(
             () -> resolver.resolve(USER_ID, Provider.OPENAI, MODEL_ID, BillingMode.MANAGED))
         .isInstanceOf(PlanRestrictionException.class)
-        .hasMessageContaining("server key missing");
+        .hasMessageContaining("server key missing")
+        .satisfies(
+            ex -> {
+              PlanRestrictionException pre = (PlanRestrictionException) ex;
+              assertThat(pre.getReason())
+                  .isEqualTo(PlanRestrictionException.Reason.MANAGED_PROVIDER_UNCONFIGURED);
+              assertThat(pre.getPlan()).isEqualTo(Plan.FREE);
+            });
+  }
+
+  @Test
+  void managed_anonymousOpenRouterFreeWithServerKey_returnsManagedResolvedKey() {
+    BillingModeResolver resolver = newResolverWithAllServerKeys();
+
+    BillingModeResolver.ResolvedKey resolved =
+        resolver.resolve(
+            null,
+            Provider.OPENROUTER,
+            ModelPricingLookup.OPENROUTER_FREE_MODEL_ID,
+            BillingMode.MANAGED);
+
+    assertThat(resolved.apiKey()).isEqualTo("srv-openrouter");
+    assertThat(resolved.effectiveMode()).isEqualTo(BillingMode.MANAGED);
+    verify(entitlementService)
+        .assertCanUseModel(
+            null,
+            Provider.OPENROUTER,
+            ModelPricingLookup.OPENROUTER_FREE_MODEL_ID,
+            BillingMode.MANAGED);
+    verify(apiKeyService, never()).getKey(any(), any());
   }
 
   @Test

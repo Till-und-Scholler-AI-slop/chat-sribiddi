@@ -189,6 +189,18 @@ class EntitlementServiceTest {
   }
 
   @Test
+  void assertCanUseModel_managedMode_allowsOpenRouterFreeRouterForAnonymous() {
+    when(modelPricingLookup.find(Provider.OPENROUTER, "openrouter/free"))
+        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.0, 0.0)));
+
+    service.assertCanUseModel(
+        null,
+        Provider.OPENROUTER,
+        "openrouter/free",
+        BillingMode.MANAGED);
+  }
+
+  @Test
   void assertCanUseModel_managedMode_rejectsIndividualFreeModelForFree() {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
 

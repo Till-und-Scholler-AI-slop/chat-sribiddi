@@ -44,6 +44,9 @@ Public/authenticated application paths:
 - `/chat`, `/pricing`, legal pages, `/models/*`, and
   `/api/anonymous/chats/stream` are public. Anonymous chat uses Free-tier
   managed OpenRouter access and stores chat history in browser localStorage.
+  The backend must have `OPENROUTER_API_KEY` configured for this managed path;
+  otherwise anonymous and Free-plan `OpenRouter Free` calls return HTTP `503`
+  with `MANAGED_PROVIDER_UNCONFIGURED`.
 - `/settings`, `/billing`, `/usage`, `/compare`, `/api/chats/import`, account
   endpoints, key endpoints, usage endpoints, and authenticated chat endpoints
   require a valid session.
@@ -136,7 +139,13 @@ Expected results:
 
 For an end-to-end browser smoke check, an anonymous visitor should land on the
 chat UI, see only the theme toggle plus Google login button in the sidebar
-footer, and a login button click should navigate to `accounts.google.com`.
+footer, send a message with `OpenRouter Free` without a plan-restriction alert,
+and a login button click should navigate to `accounts.google.com`.
+
+Also smoke-check the signed-in Free-plan path after backend deploys: with no
+stored BYOK key, the model picker should expose `OpenRouter Free`, sending a
+message should succeed, and paid models should still be rejected with HTTP `402`
+and `MODEL_NOT_ALLOWED`.
 
 ## VPS Triage Commands
 
