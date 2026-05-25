@@ -316,20 +316,12 @@ describe('useEntitlements', () => {
     expect(plan.value).toBe('FREE')
   })
 
-  it('returns a non-mutable default when no data has been loaded', () => {
-    const { entitlements, caps } = useEntitlements()
+  it('exposes null entitlements until the first successful load', () => {
+    const { entitlements, caps, plan } = useEntitlements()
 
-    // The default snapshot must be safe to read but not leak mutations across
-    // callers. Writing to the frozen fallback throws in strict mode (ES modules
-    // are always strict); writing to `caps.value` — which is a fresh object —
-    // must not persist into the next reader's view.
-    expect(() => {
-      ;(entitlements.value as { plan: string }).plan = 'MAX'
-    }).toThrow()
-
-    ;(caps.value as Record<string, unknown>).injected = true
-    const { caps: caps2 } = useEntitlements()
-    expect(caps2.value).toEqual({})
+    expect(entitlements.value).toBeNull()
+    expect(caps.value).toEqual({})
+    expect(plan.value).toBe('FREE')
   })
 
   it('scopes the in-flight request per useNuxtApp() context (SSR isolation)', async () => {

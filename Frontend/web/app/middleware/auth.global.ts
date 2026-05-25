@@ -7,9 +7,9 @@ export default defineNuxtRouteMiddleware(async to => {
       .includes(normalizedPath)
   ) return
 
-  const { ensureAuthenticated } = useAuth()
-  const ok = await ensureAuthenticated()
-  if (!ok) {
+  const { checkAuth, status } = useAuth()
+  await checkAuth()
+  if (status.value === 'unauthenticated') {
     return navigateTo('/login')
   }
 })

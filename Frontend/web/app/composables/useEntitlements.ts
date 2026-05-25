@@ -270,15 +270,19 @@ export function useEntitlements() {
     getInFlightHolder().current = null
   }
 
-  const entitlements = computed<Entitlements>(() => state.value.data ?? DEFAULT_ENTITLEMENTS)
-  const plan = computed<Plan>(() => entitlements.value.plan)
-  const showAds = computed<boolean>(() => entitlements.value.showAds)
-  const allowedModels = computed<string[] | null>(() => entitlements.value.allowedModels)
-  const caps = computed<EntitlementCaps>(() => state.value.data?.caps ?? {})
-  const status = computed<string | null>(() => entitlements.value.status)
-  const periodEnd = computed<string | null>(() => entitlements.value.periodEnd)
-  const cancelAtPeriodEnd = computed<boolean>(() => entitlements.value.cancelAtPeriodEnd)
-  const billingModePreference = computed<BillingMode>(() => entitlements.value.billingModePreference)
+  const entitlements = computed<Entitlements | null>(() =>
+    state.value.loaded && state.value.data ? state.value.data : null
+  )
+  const plan = computed<Plan>(() => entitlements.value?.plan ?? DEFAULT_ENTITLEMENTS.plan)
+  const showAds = computed<boolean>(() => entitlements.value?.showAds ?? DEFAULT_ENTITLEMENTS.showAds)
+  const allowedModels = computed<string[] | null>(() => entitlements.value?.allowedModels ?? null)
+  const caps = computed<EntitlementCaps>(() => entitlements.value?.caps ?? {})
+  const status = computed<string | null>(() => entitlements.value?.status ?? null)
+  const periodEnd = computed<string | null>(() => entitlements.value?.periodEnd ?? null)
+  const cancelAtPeriodEnd = computed<boolean>(() => entitlements.value?.cancelAtPeriodEnd ?? false)
+  const billingModePreference = computed<BillingMode>(
+    () => entitlements.value?.billingModePreference ?? DEFAULT_ENTITLEMENTS.billingModePreference
+  )
   const loading = computed<boolean>(() => state.value.loading)
   const error = computed<string | null>(() => state.value.error)
   const loaded = computed<boolean>(() => state.value.loaded)

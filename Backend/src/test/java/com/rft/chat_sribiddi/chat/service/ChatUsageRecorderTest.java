@@ -32,7 +32,7 @@ class ChatUsageRecorderTest {
   }
 
   @Test
-  void recordUsage_successfulManagedCallRecordsUsageAndIncrementsCounter() {
+  void recordUsage_successfulManagedCallRecordsUsageWithoutIncrementingCounter() {
     TokenUsage tokenUsage = new TokenUsage(10L, 5L, 15L);
 
     recorder.recordUsage(
@@ -59,7 +59,7 @@ class ChatUsageRecorderTest {
             15L,
             42L,
             BillingMode.MANAGED);
-    verify(entitlementService).incrementCounter("user-123");
+    verify(entitlementService, never()).incrementCounter("user-123");
   }
 
   @Test

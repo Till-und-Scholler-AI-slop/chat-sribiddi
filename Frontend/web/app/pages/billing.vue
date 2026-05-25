@@ -19,6 +19,7 @@ const {
   cancelAtPeriodEnd,
   loaded,
   loading: entitlementsLoading,
+  error: entitlementsError,
   ensureLoaded
 } = useEntitlements()
 
@@ -48,9 +49,11 @@ async function loadUsage() {
   try {
     usage.value = await requestJson<UsageResponse>('/billing/usage', { method: 'GET' })
   } catch (err) {
-    // Non-fatal: the rest of the page still renders. The backend returns 401
-    // for signed-out users, but auth.global should prevent that here.
-    console.error('[billing] failed to load usage', err)
+    toast.add({
+      title: t('billing.usageLoadFailedTitle'),
+      description: tt(err),
+      color: 'error'
+    })
   } finally {
     usageLoading.value = false
   }
@@ -221,6 +224,14 @@ function cardFeatures(card: UpgradeCard): string[] {
             {{ t('billing.subtitle') }}
           </p>
         </header>
+
+        <UAlert
+          v-if="entitlementsError"
+          color="error"
+          icon="i-heroicons-exclamation-triangle"
+          :title="t('billing.entitlementsLoadFailedTitle')"
+          :description="tt(new Error(entitlementsError))"
+        />
 
         <div v-if="!loaded && entitlementsLoading" class="space-y-4">
           <div class="skeleton-shimmer h-14" />

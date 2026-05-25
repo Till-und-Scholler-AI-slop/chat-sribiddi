@@ -34,6 +34,7 @@ public class GlobalExceptionHandler {
     HttpStatus status =
         switch (ex.getReason()) {
           case MODEL_NOT_ALLOWED, DAILY_CAP_EXCEEDED -> HttpStatus.PAYMENT_REQUIRED;
+          case PARALLEL_STREAMS_EXCEEDED -> HttpStatus.TOO_MANY_REQUESTS;
           case TOOL_NOT_ALLOWED -> HttpStatus.FORBIDDEN;
           case MANAGED_PROVIDER_UNCONFIGURED -> HttpStatus.SERVICE_UNAVAILABLE;
         };
@@ -126,6 +127,12 @@ public class GlobalExceptionHandler {
       return HttpStatus.TOO_MANY_REQUESTS;
     }
     return statusCode.is4xxClientError() ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY;
+  }
+
+  @ExceptionHandler(Exception.class)
+  public ResponseEntity<Map<String, String>> handleUnexpected(Exception ex) {
+    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .body(Map.of("message", "An unexpected error occurred. Please try again later."));
   }
 
   private boolean isTimeout(Throwable throwable) {

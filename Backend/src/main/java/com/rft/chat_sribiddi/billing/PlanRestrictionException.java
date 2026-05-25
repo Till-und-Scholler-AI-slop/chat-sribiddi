@@ -17,6 +17,8 @@ public class PlanRestrictionException extends RuntimeException {
     MODEL_NOT_ALLOWED,
     /** User has exhausted their managed-mode daily call budget (HTTP 402). */
     DAILY_CAP_EXCEEDED,
+    /** User has too many in-flight chat streams (HTTP 429). */
+    PARALLEL_STREAMS_EXCEEDED,
     /** Tool is not available on the current tier (HTTP 403). */
     TOOL_NOT_ALLOWED,
     /** Server-managed provider access is disabled or missing its API key (HTTP 503). */

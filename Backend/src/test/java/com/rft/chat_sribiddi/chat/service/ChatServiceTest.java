@@ -11,6 +11,7 @@ import com.rft.chat_sribiddi.billing.EntitlementService;
 import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.billing.BillingModeResolver;
 import com.rft.chat_sribiddi.billing.ManagedApiKeyProperties;
+import com.rft.chat_sribiddi.billing.ManagedQuotaReservation;
 import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.billing.UsageEventService;
 import com.rft.chat_sribiddi.chat.dto.ImportChatsRequestDTO;
@@ -72,6 +73,7 @@ class ChatServiceTest {
   @Mock private ProviderClientFactory providerClientFactory;
   @Mock private com.rft.chat_sribiddi.auth.UserSettingsService userSettingsService;
   @Mock private EntitlementService entitlementService;
+  @Mock private StreamConcurrencyGate streamConcurrencyGate;
   @Mock private UsageEventService usageEventService;
   @Mock private ChatMetrics chatMetrics;
   @Mock private HttpClient webSearchHttpClient;
@@ -127,7 +129,7 @@ class ChatServiceTest {
         providerClientFactory, chatProperties, mediaValidationService,
         org.mockito.Mockito.mock(DocumentRetrievalService.class), userSettingsService,
         promptToolBinder, promptMessageBuilder, chatUsageRecorder, toolCallLogRecorder,
-        chatStreamSubscriber, billingModeResolver, entitlementService);
+        chatStreamSubscriber, billingModeResolver, entitlementService, streamConcurrencyGate);
   }
 
   @BeforeEach
@@ -141,6 +143,11 @@ class ChatServiceTest {
         .when(entitlementService.resolveBillingMode(anyString()))
         .thenReturn(BillingMode.BYOK);
     lenient().when(entitlementService.get(anyString())).thenReturn(entitlements(Plan.FREE));
+    lenient()
+        .when(entitlementService.reserveManagedCall(anyString()))
+        .thenReturn(ManagedQuotaReservation.noop());
+    lenient().doNothing().when(streamConcurrencyGate).acquire(anyString());
+    lenient().doNothing().when(streamConcurrencyGate).release(anyString());
     lenient().when(chatToolRepository.findByChatId(any())).thenReturn(List.of());
     lenient().when(toolRegistry.getAll()).thenReturn(List.of());
     lenient()
@@ -377,7 +384,7 @@ class ChatServiceTest {
                 assertThat(ex.getReason())
                     .isEqualTo(PlanRestrictionException.Reason.MODEL_NOT_ALLOWED));
 
-    verify(entitlementService, never()).assertWithinDailyCap(anyString());
+    verify(entitlementService, never()).reserveManagedCall(anyString());
     verifyNoInteractions(providerClientFactory);
     verifyNoInteractions(usageEventService);
   }
@@ -400,7 +407,7 @@ class ChatServiceTest {
                 Plan.FREE,
                 "Daily cap exceeded"))
         .when(entitlementService)
-        .assertWithinDailyCap(userId);
+        .reserveManagedCall(userId);
 
     assertThatThrownBy(() -> chatService.sendMessage(chatId, userId, request))
         .isInstanceOfSatisfying(
@@ -414,7 +421,6 @@ class ChatServiceTest {
             userId, RequestDTO.Provider.OPENROUTER, "openai/gpt-4.1-mini", BillingMode.MANAGED);
     verifyNoInteractions(providerClientFactory);
     verifyNoInteractions(usageEventService);
-    verify(entitlementService, never()).incrementCounter(anyString());
   }
 
   @Test
@@ -1062,14 +1068,13 @@ class ChatServiceTest {
             any(),
             any(),
             eq(BillingMode.MANAGED));
-    // Counter is NOT incremented — failed call does not consume a daily cap slot.
-    verify(entitlementService, never()).incrementCounter(anyString());
+    // Quota reservation is rolled back — failed call does not consume a daily cap slot.
+    verify(entitlementService).reserveManagedCall(userId);
   }
 
   @Test
-  void streamMessage_managedMode_successfulStream_recordsUsageAndIncrementsCounter() {
-    // BILL-14 refund path: on a successful managed-mode stream, both record() and
-    // incrementCounter() must be invoked (user consumes exactly one daily cap slot).
+  void streamMessage_managedMode_successfulStream_recordsUsageAndCommitsReservation() {
+    ManagedQuotaReservation reservation = org.mockito.Mockito.mock(ManagedQuotaReservation.class);
     RequestDTO request =
         new RequestDTO("hi", RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", null, null, null);
 
@@ -1080,6 +1085,7 @@ class ChatServiceTest {
     when(chatRepository.existsById(chatId)).thenReturn(true);
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
+    when(entitlementService.reserveManagedCall(userId)).thenReturn(reservation);
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENROUTER)).thenReturn(Optional.empty());
 
     when(providerClientFactory.getClient(
@@ -1113,7 +1119,36 @@ class ChatServiceTest {
             eq(15L),
             any(),
             eq(BillingMode.MANAGED));
-    verify(entitlementService).incrementCounter(userId);
+    verify(reservation).commit();
+  }
+
+  @Test
+  void streamMessage_parallelStreamLimit_throwsPlanRestriction() {
+    RequestDTO request =
+        new RequestDTO("hi", RequestDTO.Provider.OPENROUTER, "openai/gpt-5.2", null, null, null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+
+    doThrow(
+            new PlanRestrictionException(
+                PlanRestrictionException.Reason.PARALLEL_STREAMS_EXCEEDED,
+                Plan.FREE,
+                "Parallel stream limit reached"))
+        .when(streamConcurrencyGate)
+        .acquire(userId);
+
+    assertThatThrownBy(() -> chatService.streamMessage(chatId, userId, request))
+        .isInstanceOfSatisfying(
+            PlanRestrictionException.class,
+            ex ->
+                assertThat(ex.getReason())
+                    .isEqualTo(PlanRestrictionException.Reason.PARALLEL_STREAMS_EXCEEDED));
+
+    verify(streamConcurrencyGate, never()).release(userId);
+    verifyNoInteractions(providerClientFactory);
   }
 
   @Test

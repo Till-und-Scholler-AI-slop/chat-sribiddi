@@ -128,7 +128,10 @@ public class AnonymousChatService {
         .stream()
         .chatResponse()
         .subscribe(
-            chunk -> handleStreamChunk(chunk, fullText, streamedTextUtf8Bytes, lastUsage, emitter),
+            chunk ->
+                handleStreamChunk(
+                    chunk, fullText, streamedTextUtf8Bytes, lastUsage, emitter, quotaReservation,
+                    clientHandle, streamSample),
             error ->
                 handleStreamError(
                     request, streamId, error, streamedTextUtf8Bytes.get(), lastUsage, emitter,
@@ -157,7 +160,10 @@ public class AnonymousChatService {
       StringBuilder fullText,
       AtomicLong streamedTextUtf8Bytes,
       AtomicReference<Usage> lastUsage,
-      SseEmitter emitter) {
+      SseEmitter emitter,
+      GuestQuotaReservation quotaReservation,
+      ProviderClientHandle clientHandle,
+      ChatMetrics.StreamSample streamSample) {
     try {
       String text =
           Optional.ofNullable(chunk)
@@ -196,6 +202,33 @@ public class AnonymousChatService {
       log.warn("Failed to send anonymous SSE event", e);
     } catch (Exception e) {
       log.warn("Unexpected error processing anonymous stream chunk", e);
+      sendUnexpectedChunkError(emitter, quotaReservation, clientHandle, streamSample);
+    }
+  }
+
+  private void sendUnexpectedChunkError(
+      SseEmitter emitter,
+      GuestQuotaReservation quotaReservation,
+      ProviderClientHandle clientHandle,
+      ChatMetrics.StreamSample streamSample) {
+    quotaReservation.rollback();
+    try {
+      emitter.send(
+          SseEmitter.event()
+              .name(EVENT_ERROR)
+              .data(
+                  new StreamEventDTO(
+                      EVENT_ERROR,
+                      "An unexpected error occurred while processing the response stream.",
+                      null, null, null, null, null, null,
+                      null, null, null, "STREAM_CHUNK_ERROR", null, true),
+                  MediaType.APPLICATION_JSON));
+    } catch (IOException io) {
+      log.warn("Failed to send anonymous SSE unexpected-chunk error event", io);
+    } finally {
+      chatMetrics.recordStreamEnd(streamSample);
+      clientHandle.close();
+      emitter.complete();
     }
   }
 

@@ -115,14 +115,15 @@ const {
 })
 
 const status = computed(() => activeConversation.value?.status || 'ready')
-const errorMessage = computed(() => activeConversation.value?.error || modelsError.value)
-const translatedErrorMessage = computed(() =>
-  errorMessage.value ? tt(new Error(errorMessage.value)) : null
+const translatedPromptError = computed(() => {
+  const err = activeConversation.value?.error
+  return err ? tt(new Error(err)) : null
+})
+const translatedModelsError = computed(() =>
+  modelsError.value ? tt(new Error(modelsError.value)) : null
 )
 const promptError = computed(() =>
-  activeConversation.value?.error && translatedErrorMessage.value
-    ? new Error(translatedErrorMessage.value)
-    : undefined
+  translatedPromptError.value ? new Error(translatedPromptError.value) : undefined
 )
 
 type ChatMessagePart = { type: string; text?: string; mediaType?: string; filename?: string }
@@ -137,10 +138,24 @@ type ChatContentSlot = {
 // we look for the reason token substring — this keeps the trigger stable even
 // if the localized `message` text changes.
 const upgradeBannerDismissed = ref(false)
+function planRestrictionReason(errorText: string | null | undefined): string | null {
+  if (!errorText) return null
+  try {
+    const parsed = JSON.parse(errorText) as { reason?: unknown }
+    if (typeof parsed.reason === 'string') return parsed.reason
+  } catch {
+    // fall through — match reason token in plain text
+  }
+  const upper = errorText.toUpperCase()
+  if (upper.includes('DAILY_CAP_EXCEEDED')) return 'DAILY_CAP_EXCEEDED'
+  if (upper.includes('MODEL_NOT_ALLOWED')) return 'MODEL_NOT_ALLOWED'
+  if (upper.includes('PARALLEL_STREAMS_EXCEEDED')) return 'PARALLEL_STREAMS_EXCEEDED'
+  return null
+}
+
 const showUpgradeBanner = computed(() => {
   if (upgradeBannerDismissed.value) return false
-  const err = activeConversation.value?.error
-  return typeof err === 'string' && err.includes('DAILY_CAP_EXCEEDED')
+  return planRestrictionReason(activeConversation.value?.error) === 'DAILY_CAP_EXCEEDED'
 })
 
 // Reset dismissal whenever the active chat changes or a new error is surfaced
@@ -416,17 +431,19 @@ async function handleSubmit() {
   const text = input.value.trim() || t('chat.analyzeAttachment')
   const media = [...attachments.value]
   const documents = [...documentAttachments.value]
+  const savedInput = input.value
   input.value = ''
+  clearAttachments()
 
   try {
     for (const document of documents) {
       await uploadDocument(conversation.session.chatId, document.file)
     }
-    clearAttachments()
     await sendPrompt(conversation.session.chatId, text, model, {
       media
     })
   } catch (err) {
+    input.value = savedInput
     toast.add({
       title: t('chat.messageFailedTitle'),
       description: tt(err),
@@ -514,10 +531,16 @@ const handleReload = async () => {
           @close="dismissUpgradeBanner"
         />
         <UAlert
-          v-if="translatedErrorMessage"
+          v-if="translatedModelsError"
+          color="warning"
+          icon="i-heroicons-exclamation-triangle"
+          :description="translatedModelsError"
+        />
+        <UAlert
+          v-if="translatedPromptError"
           color="error"
           icon="i-heroicons-exclamation-triangle"
-          :description="translatedErrorMessage"
+          :description="translatedPromptError"
         />
 
         <div v-if="initializing" class="space-y-3">

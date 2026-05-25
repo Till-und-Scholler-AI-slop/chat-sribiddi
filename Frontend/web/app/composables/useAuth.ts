@@ -1,3 +1,5 @@
+import { AuthCheckError } from '~/composables/useChatApi'
+
 type AuthState = 'unknown' | 'authenticated' | 'unauthenticated'
 
 let authCheckPromise: Promise<AuthState> | null = null
@@ -14,8 +16,12 @@ export function useAuth() {
       try {
         const ok = await checkSession()
         status.value = ok ? 'authenticated' : 'unauthenticated'
-      } catch {
-        status.value = 'unauthenticated'
+      } catch (err) {
+        if (err instanceof AuthCheckError && err.code === 'network') {
+          status.value = 'unknown'
+        } else {
+          status.value = 'unauthenticated'
+        }
       }
       return status.value
     })()

@@ -190,6 +190,9 @@ public class BillingController {
       @RequestBody String payload,
       @RequestHeader(name = "Stripe-Signature", required = false) String signature) {
     Event event = stripeService.constructWebhookEvent(payload, signature);
+    if (event == null || event.getId() == null || event.getId().isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing Stripe event id");
+    }
     try {
       stripeWebhookProcessor.process(event);
     } catch (RuntimeException ex) {

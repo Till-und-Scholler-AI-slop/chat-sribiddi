@@ -286,7 +286,9 @@ public class StripeWebhookProcessor {
     }
     Plan previousPlan = user.getPlan();
     String previousStatus = user.getPlanStatus();
+    user.setPlan(Plan.FREE);
     user.setPlanStatus(PAYMENT_FAILED_STATUS);
+    user.setPlanValidUntil(null);
     userRepository.save(user);
     auditLogService.recordPlanStateChange(
         user.getId(),

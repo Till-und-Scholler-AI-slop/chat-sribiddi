@@ -4,6 +4,7 @@ import { isModelLocked, PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { calculateMessageCost } from '~/composables/chat-helpers'
 import { useUserSettings } from '~/composables/useUserSettings'
 import { chooseDefaultModel, resolveModelOption } from '~/composables/useModelStore'
+import { resolveStreamOutcome } from '~/composables/chat-helpers'
 
 export const COMPARE_MIN_PANELS = 2
 export const COMPARE_MAX_PANELS = 6
@@ -87,6 +88,7 @@ export function useCompareStore() {
   const models = useState<ModelOption[]>('compare-models', () => [])
   const modelsLoading = useState<boolean>('compare-models-loading', () => false)
   const modelsError = useState<string | null>('compare-models-error', () => null)
+  let modelsLoadPromise: Promise<ModelOption[]> | null = null
 
   const sortedModels = computed<ModelOption[]>(() =>
     [...models.value].sort((left, right) => {
@@ -145,9 +147,11 @@ export function useCompareStore() {
   }
 
   const ensureModels = async () => {
-    if (modelsLoading.value) return models.value
+    if (models.value.length > 0 && !modelsError.value) return models.value
+    if (modelsLoadPromise) return modelsLoadPromise
 
     modelsLoading.value = true
+    modelsLoadPromise = (async () => {
     try {
       const results = await Promise.allSettled(
         PROVIDERS.map(provider => fetchModels(provider, settings.value.expertMode))
@@ -171,18 +175,18 @@ export function useCompareStore() {
       modelsError.value = errorToString(error)
     } finally {
       modelsLoading.value = false
+      modelsLoadPromise = null
     }
 
     return models.value
+    })()
+
+    return modelsLoadPromise
   }
 
   const deleteUnkeptChat = async (panel: ComparePanelState) => {
     if (!panel.chatId || panel.kept) return
-    try {
-      await deleteChat(panel.chatId)
-    } catch (error) {
-      console.error(error)
-    }
+    await deleteChat(panel.chatId)
   }
 
   const resetPanelResult = async (panelId: string, deleteUnkept = true) => {
@@ -295,6 +299,11 @@ export function useCompareStore() {
     const controller = new AbortController()
     const userMessage = createMessage('user', prompt)
     const assistantMessage = createMessage('assistant', '')
+    const streamStatus = {
+      receivedDone: false,
+      receivedError: false,
+      receivedContent: false
+    }
 
     replacePanel(panelId, {
       chatId: null,
@@ -321,13 +330,21 @@ export function useCompareStore() {
           provider: model.provider,
           modelId: model.value
         },
-        event => applyStreamEvent(panelId, assistantMessage.id, event),
+        event => {
+          if (event.type === 'text' && event.content) {
+            streamStatus.receivedContent = true
+          }
+          if (event.type === 'done') streamStatus.receivedDone = true
+          if (event.type === 'error') streamStatus.receivedError = true
+          applyStreamEvent(panelId, assistantMessage.id, event)
+        },
         controller.signal
       )
 
       const updated = findPanel(panelId)
-      if (updated?.status === 'streaming') {
-        replacePanel(panelId, { status: 'ready' })
+      const outcome = resolveStreamOutcome(streamStatus, updated?.error)
+      if (updated?.status === 'streaming' || updated?.status === 'error') {
+        replacePanel(panelId, { status: outcome.status, error: outcome.error })
       }
     } catch (error) {
       if (isAbortError(error)) {
@@ -404,10 +421,15 @@ export function useCompareStore() {
     return panel.chatId
   }
 
-  const cleanupUnkeptChats = async () => {
+  const cleanupUnkeptChats = async (options?: { onFailure?: (message: string) => void }) => {
     cancelAll()
     const panelsToDelete = panels.value.filter(panel => panel.chatId && !panel.kept)
-    await Promise.allSettled(panelsToDelete.map(panel => deleteUnkeptChat(panel)))
+    const results = await Promise.allSettled(panelsToDelete.map(panel => deleteUnkeptChat(panel)))
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        options?.onFailure?.(errorToString(result.reason))
+      }
+    }
     panels.value = panels.value.map(panel =>
       panel.kept
         ? panel

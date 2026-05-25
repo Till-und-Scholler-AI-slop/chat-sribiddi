@@ -241,13 +241,12 @@ class StripeWebhookProcessorTest {
     ArgumentCaptor<User> userCap = ArgumentCaptor.forClass(User.class);
     verify(userRepository).save(userCap.capture());
     assertThat(userCap.getValue().getPlanStatus()).isEqualTo("PAYMENT_FAILED");
-    // Plan itself is intentionally left untouched here.
-    assertThat(userCap.getValue().getPlan()).isEqualTo(Plan.PREMIUM);
+    assertThat(userCap.getValue().getPlan()).isEqualTo(Plan.FREE);
     verify(auditLogService)
         .recordPlanStateChange(
             eq(42L),
             eq(Plan.PREMIUM),
-            eq(Plan.PREMIUM),
+            eq(Plan.FREE),
             eq("active"),
             eq("PAYMENT_FAILED"),
             eq("stripe_webhook"),

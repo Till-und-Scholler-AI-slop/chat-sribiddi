@@ -24,6 +24,7 @@ import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
 import com.rft.chat_sribiddi.billing.BillingModeResolver;
 import com.rft.chat_sribiddi.billing.EntitlementService;
 import com.rft.chat_sribiddi.billing.Entitlements;
+import com.rft.chat_sribiddi.billing.ManagedQuotaReservation;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
@@ -75,6 +76,7 @@ public class ChatService {
   private final ChatStreamSubscriber chatStreamSubscriber;
   private final BillingModeResolver billingModeResolver;
   private final EntitlementService entitlementService;
+  private final StreamConcurrencyGate streamConcurrencyGate;
 
   @Transactional
   public void deleteChat(UUID chatId, String userId) {
@@ -242,6 +244,7 @@ public class ChatService {
     ChatResponse chatResponse;
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
     boolean providerCallSucceeded = false;
+    try (ManagedQuotaReservation reservation = resolvedCall.quotaReservation()) {
     try (ProviderClientHandle clientHolder =
         providerClientFactory.getClient(
             requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.billingMode())) {
@@ -261,9 +264,11 @@ public class ChatService {
           promptSpec);
       chatResponse = promptSpec.call().chatResponse();
       providerCallSucceeded = true;
+      reservation.commit();
     } catch (RuntimeException | Error error) {
       chatUsageRecorder.recordRequestMetric(requestDTO.provider(), requestDTO.modelId(), plan, false);
       throw error;
+    }
     }
 
     if (log.isTraceEnabled()) {
@@ -329,14 +334,20 @@ public class ChatService {
     MessagePreparation prep =
         prepareUserMessage(chatId, chat, userId, requestDTO, resolvedCall.entitlements());
 
-    return createAndSubscribeStream(
-        userId,
-        requestDTO,
-        prep.promptMessages(),
-        chatId,
-        prep.updatedTitle(),
-        resolvedCall,
-        plan);
+    streamConcurrencyGate.acquire(userId);
+    try {
+      return createAndSubscribeStream(
+          userId,
+          requestDTO,
+          prep.promptMessages(),
+          chatId,
+          prep.updatedTitle(),
+          resolvedCall,
+          plan);
+    } catch (RuntimeException | Error error) {
+      streamConcurrencyGate.release(userId);
+      throw error;
+    }
   }
 
   /**
@@ -390,8 +401,14 @@ public class ChatService {
                 resolvedCall.entitlements(),
                 documentRetrievalService.retrieveContext(chatId, userId, requestDTO.content())));
 
-    return createAndSubscribeStream(
-        userId, requestDTO, promptMessages, chatId, null, resolvedCall, plan);
+    streamConcurrencyGate.acquire(userId);
+    try {
+      return createAndSubscribeStream(
+          userId, requestDTO, promptMessages, chatId, null, resolvedCall, plan);
+    } catch (RuntimeException | Error error) {
+      streamConcurrencyGate.release(userId);
+      throw error;
+    }
   }
 
   private record MessagePreparation(
@@ -472,11 +489,15 @@ public class ChatService {
               chatId,
               assistantContext,
               updatedTitle,
-              toolExecutionCollector));
+              toolExecutionCollector,
+              resolvedCall.quotaReservation()));
     } catch (RuntimeException | Error error) {
       clientHolder.close();
       throw error;
     }
+    emitter.onCompletion(() -> streamConcurrencyGate.release(userId));
+    emitter.onError(_ -> streamConcurrencyGate.release(userId));
+    emitter.onTimeout(() -> streamConcurrencyGate.release(userId));
     return emitter;
   }
 
@@ -492,15 +513,22 @@ public class ChatService {
     BillingModeResolver.ResolvedKey resolvedKey =
         billingModeResolver.resolve(
             userId, requestDTO.provider(), requestDTO.modelId(), requestedMode);
+    ManagedQuotaReservation reservation = ManagedQuotaReservation.noop();
     if (resolvedKey.effectiveMode() == BillingMode.MANAGED) {
-      entitlementService.assertWithinDailyCap(userId);
+      reservation = entitlementService.reserveManagedCall(userId);
     }
     return new ResolvedCall(
-        resolvedKey.apiKey(), resolvedKey.effectiveMode(), entitlementService.get(userId));
+        resolvedKey.apiKey(),
+        resolvedKey.effectiveMode(),
+        entitlementService.get(userId),
+        reservation);
   }
 
   private record ResolvedCall(
-      String apiKey, BillingMode billingMode, Entitlements entitlements) {}
+      String apiKey,
+      BillingMode billingMode,
+      Entitlements entitlements,
+      ManagedQuotaReservation quotaReservation) {}
 
   /**
    * Trims whitespace from the title and truncates it to {@code maxChatTitleLength}.

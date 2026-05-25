@@ -272,10 +272,12 @@ export function useChatStore() {
   )
 
   const loadMessagesForChat = async (chatId: string) => {
-    const conversation = conversations.value.find(c => c.session.chatId === chatId)
+    const requestedChatId = chatId
+    const conversation = conversations.value.find(c => c.session.chatId === requestedChatId)
     if (!conversation || conversation.local || conversation.messages.length > 0) return
 
-    const messages = await fetchChatMessages(chatId)
+    const messages = await fetchChatMessages(requestedChatId)
+    if (activeChatId.value !== requestedChatId) return
     const uiMessages = messages.map(toUiMessage)
     const lastUserMessage =
       [...messages].reverse().find(message => message.role === 'USER')?.message || null
@@ -531,6 +533,8 @@ export function useChatStore() {
     return updatedMessage
   }
 
+  const { caps, loaded: entitlementsLoaded } = useEntitlements()
+
   const sendPrompt = async (
     chatId: string,
     text: string,
@@ -547,6 +551,22 @@ export function useChatStore() {
 
     const effectiveModel = resolveAllowedModel(model, conversation)
     if (!effectiveModel) return null
+
+    if (!conversation.local && entitlementsLoaded.value) {
+      const limit = caps.value.parallelStreams ?? 1
+      if (limit > 0) {
+        const inFlight = conversations.value.filter(
+          c =>
+            !c.local
+            && c.session.chatId !== chatId
+            && (c.status === 'streaming' || c.status === 'submitted')
+        ).length
+        if (inFlight >= limit) {
+          const { t } = useI18n()
+          throw new Error(t('chat.parallelStreamsExceeded'))
+        }
+      }
+    }
 
     const appendUserMessage = options?.appendUserMessage ?? true
     const history = conversation.local

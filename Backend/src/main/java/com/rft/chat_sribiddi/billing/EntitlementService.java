@@ -225,12 +225,43 @@ public class EntitlementService {
   }
 
   /**
+   * Atomically reserves one managed-mode daily call slot. On success the caller must invoke
+   * {@link ManagedQuotaReservation#commit()} after the provider call completes, or
+   * {@link ManagedQuotaReservation#rollback()} / try-with-resources on failure.
+   *
+   * @return a no-op reservation when the tier has no daily cap or the user is not persisted
+   * @throws PlanRestrictionException with reason {@link
+   *     PlanRestrictionException.Reason#DAILY_CAP_EXCEEDED} when the cap is already exhausted
+   */
+  public ManagedQuotaReservation reserveManagedCall(String userId) {
+    Optional<User> user = resolveUser(userId);
+    Entitlements entitlements = entitlementsFor(user.orElse(null));
+    long cap = entitlements.dailyCap();
+    if (cap <= 0 || user.isEmpty()) {
+      return ManagedQuotaReservation.noop();
+    }
+    long internalId = user.get().getId();
+    LocalDate day = today();
+    long count = dailyQuotaCounterRepository.incrementAndGetCount(internalId, day);
+    if (count > cap) {
+      dailyQuotaCounterRepository.decrementCounter(internalId, day);
+      throw new PlanRestrictionException(
+          PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED,
+          entitlements.plan(),
+          "Daily call cap (%d) reached for plan %s".formatted(cap, entitlements.plan()));
+    }
+    return new ManagedQuotaReservation(dailyQuotaCounterRepository, internalId, day);
+  }
+
+  /**
    * Verifies that the user has not yet exhausted the daily managed-mode cap for their tier. A
    * non-positive cap disables the limit entirely.
    *
+   * @deprecated Prefer {@link #reserveManagedCall(String)} for atomic reserve-at-start semantics.
    * @throws PlanRestrictionException with reason {@link
    *     PlanRestrictionException.Reason#DAILY_CAP_EXCEEDED} when the user is over quota.
    */
+  @Deprecated
   public void assertWithinDailyCap(String userId) {
     Optional<User> user = resolveUser(userId);
     Entitlements entitlements = entitlementsFor(user.orElse(null));

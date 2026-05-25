@@ -61,14 +61,10 @@ public class ChatUsageRecorder {
           usage.billingMode());
     } catch (Exception ex) {
       log.warn("Failed to record usage event for user {}", usage.userId(), ex);
+      chatMetrics.recordRequest(usage.provider(), usage.modelId(), usage.plan(), "usage_record_failed");
     }
-    if (usage.billingMode() == BillingMode.MANAGED && usage.providerCallSucceeded()) {
-      try {
-        entitlementService.incrementCounter(usage.userId());
-      } catch (Exception ex) {
-        log.warn("Failed to increment managed usage counter for user {}", usage.userId(), ex);
-      }
-    }
+    // Managed daily quota is reserved at call start (EntitlementService.reserveManagedCall) and
+    // committed or rolled back there — not incremented here.
   }
 
   private static Long safeLong(Number value) {

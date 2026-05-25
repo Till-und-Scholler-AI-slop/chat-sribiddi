@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -43,6 +44,22 @@ public class BillingProperties {
   public TierConfig tier(Plan plan) {
     TierConfig config = tiers.get(plan);
     return config != null ? config : new TierConfig();
+  }
+
+  @PostConstruct
+  void validateDailyCaps() {
+    if (guestDailyCap <= 0) {
+      throw new IllegalStateException(
+          "app.billing.guest-daily-cap must be greater than 0 (was " + guestDailyCap + ")");
+    }
+    for (Plan plan : Plan.values()) {
+      long cap = tier(plan).getDailyCap();
+      if (cap <= 0) {
+        throw new IllegalStateException(
+            "app.billing.tiers.%s.daily-cap must be greater than 0 (was %d)"
+                .formatted(plan.name().toLowerCase(), cap));
+      }
+    }
   }
 
   @Getter

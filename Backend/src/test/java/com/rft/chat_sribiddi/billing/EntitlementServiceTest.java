@@ -373,7 +373,46 @@ class EntitlementServiceTest {
     verifyNoInteractions(modelPricingLookup);
   }
 
-  // -------- assertWithinDailyCap --------
+  // -------- reserveManagedCall --------
+
+  @Test
+  void reserveManagedCall_allowsWhenUnderCapForFree() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    when(dailyQuotaCounterRepository.incrementAndGetCount(INTERNAL_ID, TODAY)).thenReturn(5L);
+
+    ManagedQuotaReservation reservation = service.reserveManagedCall(USER_ID);
+    reservation.commit();
+
+    verify(dailyQuotaCounterRepository).incrementAndGetCount(INTERNAL_ID, TODAY);
+    verify(dailyQuotaCounterRepository, never()).decrementCounter(anyLong(), any());
+  }
+
+  @Test
+  void reserveManagedCall_rejectsWhenOverCapForFree() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
+    when(dailyQuotaCounterRepository.incrementAndGetCount(INTERNAL_ID, TODAY)).thenReturn(11L);
+
+    assertThatThrownBy(() -> service.reserveManagedCall(USER_ID))
+        .isInstanceOf(PlanRestrictionException.class)
+        .satisfies(
+            ex ->
+                assertThat(((PlanRestrictionException) ex).getReason())
+                    .isEqualTo(PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED));
+
+    verify(dailyQuotaCounterRepository).decrementCounter(INTERNAL_ID, TODAY);
+  }
+
+  @Test
+  void reserveManagedCall_noOpWhenCapIsZero() {
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.MAX)));
+
+    ManagedQuotaReservation reservation = service.reserveManagedCall(USER_ID);
+    assertThat(reservation.isNoop()).isTrue();
+
+    verifyNoInteractions(dailyQuotaCounterRepository);
+  }
+
+  // -------- assertWithinDailyCap (deprecated) --------
 
   @Test
   void assertWithinDailyCap_allowsWhenUnderCapForFree() {

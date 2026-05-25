@@ -23,6 +23,22 @@ public class DailyQuotaCounterRepository {
       DO UPDATE SET managed_calls_count = daily_quota_counters.managed_calls_count + 1
       """;
 
+  private static final String UPSERT_INCREMENT_RETURNING_SQL =
+      """
+      INSERT INTO daily_quota_counters (user_id, day, managed_calls_count)
+      VALUES (?, ?, 1)
+      ON CONFLICT (user_id, day)
+      DO UPDATE SET managed_calls_count = daily_quota_counters.managed_calls_count + 1
+      RETURNING managed_calls_count
+      """;
+
+  private static final String DECREMENT_SQL =
+      """
+      UPDATE daily_quota_counters
+      SET managed_calls_count = GREATEST(0, managed_calls_count - 1)
+      WHERE user_id = ? AND day = ? AND managed_calls_count > 0
+      """;
+
   private static final String SELECT_COUNT_SQL =
       "SELECT managed_calls_count FROM daily_quota_counters WHERE user_id = ? AND day = ?";
 
@@ -35,6 +51,25 @@ public class DailyQuotaCounterRepository {
   @Transactional
   public void incrementCounter(long userId, LocalDate day) {
     jdbcTemplate.update(UPSERT_INCREMENT_SQL, userId, day);
+  }
+
+  /**
+   * Atomically increments (or inserts with value 1) the managed-calls counter and returns the new
+   * count after the increment.
+   */
+  @Transactional
+  public long incrementAndGetCount(long userId, LocalDate day) {
+    Long count =
+        jdbcTemplate.queryForObject(UPSERT_INCREMENT_RETURNING_SQL, Long.class, userId, day);
+    return count == null ? 0L : count;
+  }
+
+  /**
+   * Decrements the managed-calls counter by one when above zero (used to roll back a reservation).
+   */
+  @Transactional
+  public void decrementCounter(long userId, LocalDate day) {
+    jdbcTemplate.update(DECREMENT_SQL, userId, day);
   }
 
   /** Returns the current managed-calls count for the user on the given day, or 0 if none. */

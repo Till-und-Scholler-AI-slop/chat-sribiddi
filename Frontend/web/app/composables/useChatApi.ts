@@ -160,6 +160,17 @@ export type ImportChat = {
 
 export const DEFAULT_BACKEND_BASE_URL = 'http://localhost:8080'
 
+/** Thrown by {@link useChatApi.checkSession} when the auth probe fails for transient reasons. */
+export class AuthCheckError extends Error {
+  readonly code: 'network' | 'unauthorized'
+
+  constructor(code: 'network' | 'unauthorized', message?: string) {
+    super(message ?? (code === 'network' ? 'Auth check failed (network)' : 'Not authenticated'))
+    this.name = 'AuthCheckError'
+    this.code = code
+  }
+}
+
 export function normalizeBaseUrl(value: string) {
   return value.endsWith('/') ? value.slice(0, -1) : value
 }
@@ -311,7 +322,7 @@ export function useChatApi() {
 
     if (!response.ok) {
       if (response.status === 401) {
-        throw new Error('Not authenticated. Please log in via the Login page.')
+        throw new AuthCheckError('unauthorized')
       }
       const errorText = await readErrorText(response)
       throw new Error(
@@ -353,7 +364,7 @@ export function useChatApi() {
 
     if (!response.ok) {
       if (response.status === 401) {
-        throw new Error('Not authenticated. Please log in via the Login page.')
+        throw new AuthCheckError('unauthorized')
       }
       const errorText = await readErrorText(response)
       throw new Error(
@@ -454,7 +465,7 @@ export function useChatApi() {
 
     if (!response.ok) {
       if (response.status === 401) {
-        throw new Error('Not authenticated. Please log in via the Login page.')
+        throw new AuthCheckError('unauthorized')
       }
       const errorText = await readErrorText(response)
       throw new Error(
@@ -618,20 +629,30 @@ export function useChatApi() {
    * /login.
    */
   const checkSession = async (): Promise<boolean> => {
+    const headers: Record<string, string> = {}
+    if (import.meta.client) {
+      Object.assign(headers, withRequestUserId({}, resolveUserId()))
+    }
+    let response: Response
     try {
-      const headers: Record<string, string> = {}
-      if (import.meta.client) {
-        Object.assign(headers, withRequestUserId({}, resolveUserId()))
-      }
-      const response = await fetch(buildUrl('/secured'), {
+      response = await fetch(buildUrl('/secured'), {
         method: 'GET',
         credentials: 'include',
         headers
       })
-      return response.ok
     } catch {
+      throw new AuthCheckError('network')
+    }
+    if (response.status === 401) {
       return false
     }
+    if (!response.ok) {
+      if (response.status >= 500) {
+        throw new AuthCheckError('network', `Auth check failed (${response.status})`)
+      }
+      return false
+    }
+    return true
   }
 
   const fetchModels = async (provider: Provider, expert = false) => {

@@ -138,7 +138,7 @@ public class BillingModeResolver {
       return entitlementService.get(userId).plan();
     } catch (RuntimeException ex) {
       log.debug("Could not resolve plan for user {}: {}", userId, ex.getMessage());
-      return null;
+      return Plan.FREE;
     }
   }
 

@@ -54,8 +54,27 @@ onMounted(async () => {
   }
 })
 
-onUnmounted(() => {
-  void cleanupUnkeptChats()
+onBeforeRouteLeave((_to, _from, next) => {
+  const hasUnkept = panels.value.some(panel => panel.chatId && !panel.kept)
+  if (!hasUnkept) {
+    next()
+    return
+  }
+  const confirmed = window.confirm(t('compare.leaveConfirm'))
+  if (!confirmed) {
+    next(false)
+    return
+  }
+  void cleanupUnkeptChats({
+    onFailure: message => {
+      toast.add({
+        title: t('compare.cleanupFailedTitle'),
+        description: message,
+        color: 'error'
+      })
+    }
+  })
+  next()
 })
 
 const handleSetPanelModel = async (panelId: string, model: ModelOption) => {

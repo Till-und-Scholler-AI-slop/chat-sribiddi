@@ -11,13 +11,11 @@ import com.rft.chat_sribiddi.audit.AuditLogService;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -110,60 +108,6 @@ class PlanLifecycleJobTest {
 
     verify(userRepository)
         .downgradeToFreeIfExpired(eq(55L), eq(PlanLifecycleJob.USER_EXPIRED_STATUS), any());
-  }
-
-  @Test
-  void processPaymentFailedGracePeriod_conditionallyDowngradesAndAuditsUsers() {
-    User user = newUser(21L);
-    user.setPlan(Plan.PREMIUM);
-    user.setPlanStatus(StripeWebhookProcessor.PAYMENT_FAILED_STATUS);
-    user.setPlanValidUntil(Instant.now().minus(Duration.ofDays(4)));
-    when(userRepository.findByPlanStatusAndPlanValidUntilBefore(
-            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS), any()))
-        .thenReturn(List.of(user));
-    when(userRepository.downgradePaymentFailedUserIfStillOverdue(
-            eq(21L),
-            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
-            eq(PlanLifecycleJob.USER_DOWNGRADED_STATUS),
-            any()))
-        .thenReturn(1);
-
-    job.processPaymentFailedGracePeriod();
-
-    verify(userRepository)
-        .downgradePaymentFailedUserIfStillOverdue(
-            eq(21L),
-            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
-            eq(PlanLifecycleJob.USER_DOWNGRADED_STATUS),
-            any());
-    verify(auditLogService)
-        .recordPlanStateChange(
-            eq(21L),
-            eq(Plan.PREMIUM),
-            eq(Plan.FREE),
-            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
-            eq(PlanLifecycleJob.USER_DOWNGRADED_STATUS),
-            eq("plan_lifecycle_job"),
-            eq("payment_failed_grace_elapsed"),
-            any());
-  }
-
-  @Test
-  void processPaymentFailedGracePeriod_usesThreeDayCutoff() {
-    when(userRepository.findByPlanStatusAndPlanValidUntilBefore(
-            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS), any()))
-        .thenReturn(List.of());
-
-    Instant before = Instant.now().minus(Duration.ofDays(3));
-    job.processPaymentFailedGracePeriod();
-    Instant after = Instant.now().minus(Duration.ofDays(3));
-
-    ArgumentCaptor<Instant> cutoffCap = ArgumentCaptor.forClass(Instant.class);
-    verify(userRepository)
-        .findByPlanStatusAndPlanValidUntilBefore(
-            eq(StripeWebhookProcessor.PAYMENT_FAILED_STATUS),
-            cutoffCap.capture());
-    assertThat(cutoffCap.getValue()).isBetween(before, after);
   }
 
   /**

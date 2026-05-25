@@ -2,9 +2,6 @@ package com.rft.chat_sribiddi.billing;
 
 import com.rft.chat_sribiddi.audit.AuditLogService;
 import com.rft.chat_sribiddi.auth.Plan;
-import com.rft.chat_sribiddi.auth.User;
-import com.rft.chat_sribiddi.auth.UserRepository;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,10 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>Subscriptions still flagged {@code active} whose {@code currentPeriodEnd} has already
  *       passed — the user is downgraded to {@link com.rft.chat_sribiddi.auth.Plan#FREE} with
  *       {@code planStatus=EXPIRED} and the subscription row is marked {@code expired}.</li>
- *   <li>Users whose {@code planStatus} is {@link StripeWebhookProcessor#PAYMENT_FAILED_STATUS}
- *       and whose {@code planValidUntil} is more than {@link #GRACE_PERIOD} in the past — the
- *       user is downgraded to {@link com.rft.chat_sribiddi.auth.Plan#FREE} with
- *       {@code planStatus=DOWNGRADED}.</li>
  * </ul>
  *
  * <p>Both transitions use conditional UPDATE queries that re-check state at write time, so a
@@ -46,12 +39,6 @@ public class PlanLifecycleJob {
 
   /** User.planStatus value set when an active subscription has expired. */
   static final String USER_EXPIRED_STATUS = "EXPIRED";
-
-  /** User.planStatus value set when a payment-failed grace period has elapsed. */
-  static final String USER_DOWNGRADED_STATUS = "DOWNGRADED";
-
-  /** Grace period granted to users in {@code PAYMENT_FAILED} state before forced downgrade. */
-  static final Duration GRACE_PERIOD = Duration.ofDays(3);
 
   /** Subscription.status value that marks an active (billable) subscription. */
   private static final String ACTIVE_STATUS = "active";
@@ -129,53 +116,6 @@ public class PlanLifecycleJob {
         "PlanLifecycleJob: expired {} subscription(s); downgraded {} user(s) to FREE",
         subsExpired,
         usersDowngraded);
-  }
-
-  /**
-   * Finds users whose payment-failed grace period has elapsed and forces them onto
-   * {@link com.rft.chat_sribiddi.auth.Plan#FREE}.
-   *
-   * <p>Uses a single bulk conditional UPDATE so a concurrent payment-recovery event from
-   * {@link StripeWebhookProcessor} that clears {@code planStatus=PAYMENT_FAILED} won't be
-   * overwritten.
-   */
-  @Scheduled(cron = "0 0 * * * *")
-  @Transactional
-  public void processPaymentFailedGracePeriod() {
-    Instant cutoff = Instant.now().minus(GRACE_PERIOD);
-    List<User> candidates =
-        userRepository.findByPlanStatusAndPlanValidUntilBefore(
-            StripeWebhookProcessor.PAYMENT_FAILED_STATUS, cutoff);
-    int downgraded = 0;
-    for (User user : candidates) {
-      int userUpdated =
-          userRepository.downgradePaymentFailedUserIfStillOverdue(
-              user.getId(),
-              StripeWebhookProcessor.PAYMENT_FAILED_STATUS,
-              USER_DOWNGRADED_STATUS,
-              cutoff);
-      if (userUpdated > 0) {
-        downgraded++;
-        auditLogService.recordPlanStateChange(
-            user.getId(),
-            user.getPlan(),
-            Plan.FREE,
-            user.getPlanStatus(),
-            USER_DOWNGRADED_STATUS,
-            "plan_lifecycle_job",
-            "payment_failed_grace_elapsed",
-            metadata(
-                "plan_valid_until",
-                instant(user.getPlanValidUntil()),
-                "cutoff",
-                instant(cutoff)));
-      }
-    }
-    if (downgraded > 0) {
-      log.info(
-          "PlanLifecycleJob: downgraded {} user(s) past payment-failed grace period",
-          downgraded);
-    }
   }
 
   private static Map<String, Object> metadata(Object... keyValues) {

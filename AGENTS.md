@@ -142,6 +142,10 @@ the owner must:
    OpenRouter `:free` models are listed. Selecting a paid model such as
    `gpt-5.2` must be rejected with a `PlanRestrictionException`
    (HTTP 402, `MODEL_NOT_ALLOWED`) and an upgrade hint.
+5. **Daily caps must be positive** in `application.yaml` (`app.billing.guest-daily-cap`
+   and each `app.billing.tiers.*.daily-cap`). The backend fails fast at startup
+   otherwise. Managed-mode calls reserve quota atomically at request start via
+   `EntitlementService.reserveManagedCall` (not at stream end).
 
 No DB migrations or additional OAuth scopes are required for BILL-7.
 
@@ -230,3 +234,15 @@ CSRF — Stripe authenticates via the `Stripe-Signature` header against
 4. **Idempotency is automatic**: duplicate deliveries are skipped via the
    `stripe_events.stripe_event_id` UNIQUE constraint (Flyway V7). No owner
    action required.
+5. **`invoice.payment_failed` downgrades immediately**: the user's plan is set
+   to `FREE` when the event is processed (no grace-period job). There is no
+   3-day delayed downgrade.
+6. **Malformed webhook payloads** without a Stripe event id are rejected with
+   HTTP 400 before processing.
+
+## Legal pages — owner checklist (locale text)
+
+The Impressum, Datenschutz, and AGB pages still contain `[TODO: Legal text …]`
+placeholders in `Frontend/web/i18n/locales/de.json` and `en.json`. The owner
+must replace those strings with counsel-reviewed legal copy. Do **not** let
+coding agents invent or auto-generate binding legal text.

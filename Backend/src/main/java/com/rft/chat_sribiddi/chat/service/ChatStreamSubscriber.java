@@ -2,6 +2,7 @@ package com.rft.chat_sribiddi.chat.service;
 
 import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.auth.Plan;
+import com.rft.chat_sribiddi.billing.ManagedQuotaReservation;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.dto.StreamEventDTO;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
@@ -60,26 +61,25 @@ public class ChatStreamSubscriber {
           .subscribe(
               chunk ->
                   handleStreamChunk(
-                      chunk,
-                      fullText,
-                      streamedTextUtf8Bytes,
-                      lastUsage,
-                      subscription.emitter()),
+                      chunk, fullText, streamedTextUtf8Bytes, lastUsage, subscription),
               error -> handleStreamError(subscription, error, streamedTextUtf8Bytes.get(),
                   lastUsage, streamSample),
               () -> handleStreamCompletion(subscription, fullText, lastUsage, streamSample));
     } catch (RuntimeException | Error error) {
+      subscription.quotaReservation().rollback();
       chatMetrics.recordStreamEnd(streamSample);
       throw error;
     }
 
     subscription.emitter().onTimeout(
         () -> {
+          subscription.quotaReservation().rollback();
           chatMetrics.recordStreamEnd(streamSample);
           subscription.clientHandle().close();
         });
     subscription.emitter().onError(
         _ -> {
+          subscription.quotaReservation().rollback();
           chatMetrics.recordStreamEnd(streamSample);
           subscription.clientHandle().close();
         });
@@ -91,7 +91,8 @@ public class ChatStreamSubscriber {
       StringBuilder fullText,
       AtomicLong streamedTextUtf8Bytes,
       AtomicReference<Usage> lastUsage,
-      SseEmitter emitter) {
+      ChatStreamSubscription subscription) {
+    SseEmitter emitter = subscription.emitter();
     try {
       String text =
           Optional.ofNullable(chunk)
@@ -130,6 +131,33 @@ public class ChatStreamSubscriber {
       log.warn("Failed to send SSE event", e);
     } catch (Exception e) {
       log.warn("Unexpected error processing stream chunk", e);
+      sendUnexpectedChunkError(subscription);
+    }
+  }
+
+  private void sendUnexpectedChunkError(ChatStreamSubscription subscription) {
+    subscription.quotaReservation().rollback();
+    try {
+      subscription.emitter().send(
+          SseEmitter.event()
+              .name(EVENT_ERROR)
+              .data(
+                  new StreamEventDTO(
+                      EVENT_ERROR,
+                      "An unexpected error occurred while processing the response stream.",
+                      null, null, null, null, null, null,
+                      subscription.provider().name(),
+                      subscription.modelId(),
+                      null,
+                      "STREAM_CHUNK_ERROR",
+                      null,
+                      true),
+                  MediaType.APPLICATION_JSON));
+    } catch (IOException io) {
+      log.warn("Failed to send SSE unexpected-chunk error event", io);
+    } finally {
+      subscription.emitter().complete();
+      subscription.clientHandle().close();
     }
   }
 
@@ -171,6 +199,7 @@ public class ChatStreamSubscriber {
     } catch (IOException e) {
       log.warn("Failed to send SSE error event", e);
     } finally {
+      subscription.quotaReservation().rollback();
       chatUsageRecorder.recordUsage(
           new ChatUsage(
               subscription.userId(),
@@ -211,12 +240,14 @@ public class ChatStreamSubscriber {
         log.warn(
             "Chat {} was deleted during streaming — skipping assistant message save",
             subscription.chatId());
+        subscription.quotaReservation().rollback();
         sendChatDeletedError(subscription.emitter());
         return;
       }
 
       if (!saveStreamedAssistantMessage(
           assistantMessage, subscription.chatId(), subscription.emitter())) {
+        subscription.quotaReservation().rollback();
         return;
       }
       savedMessageId.set(assistantMessage.getId());
@@ -244,9 +275,11 @@ public class ChatStreamSubscriber {
                       null,
                       null),
                   MediaType.APPLICATION_JSON));
+      subscription.quotaReservation().commit();
       subscription.emitter().complete();
     } catch (IOException e) {
       log.warn("Failed to send SSE done event", e);
+      subscription.quotaReservation().commit();
       subscription.emitter().complete();
     } finally {
       TokenUsage tokenUsage = chatUsageRecorder.tokenUsage(lastUsage.get());
@@ -388,5 +421,6 @@ public class ChatStreamSubscriber {
       UUID chatId,
       String assistantContext,
       String updatedTitle,
-      ToolExecutionCollector toolExecutionCollector) {}
+      ToolExecutionCollector toolExecutionCollector,
+      ManagedQuotaReservation quotaReservation) {}
 }

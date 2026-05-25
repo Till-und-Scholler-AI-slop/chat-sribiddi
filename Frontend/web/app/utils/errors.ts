@@ -53,11 +53,23 @@ export function friendlyErrorKey(err: unknown): FriendlyErrorResult {
   if (lower.includes('daily_cap_exceeded')) {
     return { key: 'errors.dailyCapExceeded', raw }
   }
+  if (lower.includes('parallel_streams_exceeded')) {
+    return { key: 'errors.parallelStreamsExceeded', raw }
+  }
   if (lower.includes('model_not_allowed')) {
     return { key: 'errors.modelNotAllowed', raw }
   }
+  if (lower.includes('tool_not_allowed')) {
+    return { key: 'errors.toolNotAllowed', raw }
+  }
   if (lower.includes('managed_provider_unconfigured')) {
     return { key: 'errors.managedProviderUnconfigured', raw }
+  }
+  if (lower.includes('billing unavailable') || lower.includes('billing_unavailable')) {
+    return { key: 'errors.billingUnavailable', raw }
+  }
+  if (lower.includes('cancelled') || lower.includes('canceled') || lower.includes('abort')) {
+    return { key: 'errors.cancelled', raw }
   }
   if (lower.includes('unsupported document type')) {
     return { key: 'errors.unsupportedDocumentType', raw }
