@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.config.RateLimitProperties;
 import java.time.Clock;
 import java.time.Instant;
@@ -16,11 +17,23 @@ class GuestQuotaServiceTest {
 
   @Test
   void springContextInstantiatesServiceWithProductionConstructor() {
+    BillingProperties billingProperties = validBillingProperties();
     new ApplicationContextRunner()
-        .withBean(BillingProperties.class)
+        .withBean(BillingProperties.class, () -> billingProperties)
         .withBean(RateLimitProperties.class)
         .withBean(GuestQuotaService.class)
         .run(context -> assertThat(context).hasSingleBean(GuestQuotaService.class));
+  }
+
+  private static BillingProperties validBillingProperties() {
+    BillingProperties billingProperties = new BillingProperties();
+    billingProperties.setGuestDailyCap(20);
+    for (Plan plan : Plan.values()) {
+      BillingProperties.TierConfig tier = new BillingProperties.TierConfig();
+      tier.setDailyCap(100);
+      billingProperties.getTiers().put(plan, tier);
+    }
+    return billingProperties;
   }
 
   @Test
