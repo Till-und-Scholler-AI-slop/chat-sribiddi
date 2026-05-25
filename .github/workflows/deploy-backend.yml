@@ -94,13 +94,15 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           BACKEND_ENV_FILE: ${{ secrets.BACKEND_ENV_FILE }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
           script_stop: true
           command_timeout: 40m
-          envs: BACKEND_ENV_FILE
+          envs: BACKEND_ENV_FILE,OPENROUTER_API_KEY,BRAVE_SEARCH_API_KEY
           script: |
             set -eu
             APP_DIR=/opt/chat-sribiddi
@@ -123,6 +125,19 @@ jobs:
             fi
 
             printf '%s\n' "$BACKEND_ENV_FILE" > "$APP_DIR/Backend/.env"
+            set_env_var() {
+              key="$1"
+              value="$2"
+              if [ -z "$value" ]; then
+                return 0
+              fi
+              tmp_file=$(mktemp)
+              grep -v "^${key}=" "$APP_DIR/Backend/.env" > "$tmp_file" || true
+              printf '%s=%s\n' "$key" "$value" >> "$tmp_file"
+              mv "$tmp_file" "$APP_DIR/Backend/.env"
+            }
+            set_env_var OPENROUTER_API_KEY "$OPENROUTER_API_KEY"
+            set_env_var BRAVE_SEARCH_API_KEY "$BRAVE_SEARCH_API_KEY"
             chmod 600 "$APP_DIR/Backend/.env"
 
             cd "$APP_DIR/Backend"

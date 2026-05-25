@@ -105,8 +105,12 @@ Backend deploy:
 1. `.github/workflows/deploy-backend.yml` validates `Backend` with Gradle.
 2. The workflow uploads the backend bundle and `infra/caddy`.
 3. On the VPS it writes `Backend/.env` from `BACKEND_ENV_FILE`.
-4. It runs `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build --remove-orphans`.
-5. It validates and installs the Caddyfile:
+4. Optional single GitHub secrets `OPENROUTER_API_KEY` and
+   `BRAVE_SEARCH_API_KEY` override the matching keys in `Backend/.env` when
+   they are set, so rotating those provider keys does not require editing the
+   whole multiline `BACKEND_ENV_FILE` secret.
+5. It runs `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build --remove-orphans`.
+6. It validates and installs the Caddyfile:
    - `caddy validate --config "$APP_DIR/infra/caddy/Caddyfile"`
    - `cp "$APP_DIR/infra/caddy/Caddyfile" /etc/caddy/Caddyfile`
    - `systemctl reload caddy || systemctl restart caddy`
