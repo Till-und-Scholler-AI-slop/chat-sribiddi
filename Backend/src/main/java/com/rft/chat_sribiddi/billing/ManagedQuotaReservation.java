@@ -23,7 +23,7 @@ public final class ManagedQuotaReservation implements AutoCloseable {
   }
 
   /** No-op reservation when daily cap is disabled or the user has no persisted record. */
-  static ManagedQuotaReservation noop() {
+  public static ManagedQuotaReservation noop() {
     return new ManagedQuotaReservation(null, -1L, null);
   }
 
