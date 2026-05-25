@@ -101,13 +101,13 @@ ai:
   models:
     featured:
       openai:
-        - gpt-5.2
-        - gpt-5.2-mini
-        - o3-2025-04-16
+        - gpt-5.5-2026-04-23
+        - gpt-5.4-2026-03-05
+        - gpt-5.4-mini-2026-03-17
+        - gpt-5.4-nano-2026-03-17
       google:
         - gemini-3.1-pro-preview
         - gemini-3.1-flash-lite-preview
-        - gemini-3-flash
       claude:
         - claude-sonnet-4-6-20260215
         - claude-opus-4-6-20260215
@@ -115,45 +115,19 @@ ai:
       openrouter:
         - openrouter/free
     openai:
-      - id: gpt-5.2
-        label: GPT-5.2
-      - id: gpt-5.2-mini
+      - id: gpt-5.5-2026-04-23
+        label: GPT-5.5
+      - id: gpt-5.4-2026-03-05
         label: GPT-5.2 Mini
-      - id: gpt-5.2-nano
-        label: GPT-5.2 Nano
-      - id: gpt-4.1-2025-04-14
-        label: GPT-4.1
-      - id: gpt-4.1-mini-2025-04-14
-        label: GPT-4.1 Mini
-      - id: gpt-4.1-nano-2025-04-14
-        label: GPT-4.1 Nano
-      - id: o3-2025-04-16
-        label: o3
-      - id: o4-mini-2025-04-16
-        label: o4-mini
+      - id: gpt-5.4-mini-2026-03-17
+        label: GPT-5.4 mini
+      - id: gpt-5.4-nano-2026-03-17
+        label: GPT-5.4 Nano
     google:
       - id: gemini-3.1-pro-preview
         label: Gemini 3.1 Pro
       - id: gemini-3.1-flash-lite-preview
         label: Gemini 3.1 Flash Lite
-      - id: gemini-3-flash
-        label: Gemini 3 Flash
-      - id: gemini-3-pro
-        label: Gemini 3 Pro
-      - id: gemini-2.5-pro-preview-05-06
-        label: Gemini 2.5 Pro
-      - id: gemini-2.5-flash-preview-05-20
-        label: Gemini 2.5 Flash
-      - id: gemini-2.0-flash
-        label: Gemini 2.0 Flash
-      - id: gemini-2.0-flash-lite
-        label: Gemini 2.0 Flash Lite
-      - id: gemma-3-27b-it
-        label: Gemma 3 27B
-      - id: gemma-3-12b-it
-        label: Gemma 3 12B
-      - id: gemma-3-4b-it
-        label: Gemma 3 4B
     claude:
       - id: claude-opus-4-6-20260215
         label: Claude Opus 4.6
@@ -172,14 +146,6 @@ ai:
         completion-price: "0"
       - id: openrouter/auto
         label: OpenRouter Auto
-      - id: openai/gpt-4o-mini
-        label: GPT-4o Mini
-        prompt-price: "0.00000015"
-        completion-price: "0.00000060"
-      - id: anthropic/claude-3.5-sonnet
-        label: Claude 3.5 Sonnet
-        prompt-price: "0.00000300"
-        completion-price: "0.00001500"
 
 management:
   endpoints:
