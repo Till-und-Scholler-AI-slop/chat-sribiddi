@@ -11,6 +11,7 @@ import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.SetChatToolRequestDTO;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
+import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
@@ -107,6 +108,36 @@ class ChatToolServiceTest {
 
     assertThat(tools).hasSize(1);
     assertThat(tools.getFirst().enabled()).isTrue();
+  }
+
+  @Test
+  void listAvailableTools_marksBraveSearchEnabledWhenUserKeyExistsEvenIfPlanDeniesTool() {
+    when(tool.getName()).thenReturn("brave-search");
+    when(tool.requiresUserConfig()).thenReturn(true);
+    when(entitlementService.get(userId)).thenReturn(entitlements(Plan.FREE, Set.of("calculator")));
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.BRAVE_SEARCH))
+        .thenReturn(Optional.of("user-brave-key"));
+
+    var tools = service.listAvailableTools(chatId, userId);
+
+    assertThat(tools).hasSize(1);
+    assertThat(tools.getFirst().enabled()).isTrue();
+  }
+
+  @Test
+  void setToolEnabled_allowsBraveSearchWhenUserKeyExistsEvenIfPlanDeniesTool() {
+    when(toolRegistry.has("brave-search")).thenReturn(true);
+    when(entitlementService.get(userId)).thenReturn(entitlements(Plan.FREE, Set.of("calculator")));
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.BRAVE_SEARCH))
+        .thenReturn(Optional.of("user-brave-key"));
+    when(chatToolRepository.findByChatIdAndToolName(chatId, "brave-search"))
+        .thenReturn(Optional.empty());
+    when(chatToolRepository.save(any(ChatToolEntity.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    service.setToolEnabled(chatId, userId, new SetChatToolRequestDTO("brave-search", true));
+
+    verify(chatToolRepository).save(any());
   }
 
   private static Entitlements entitlements(Plan plan, Set<String> tools) {

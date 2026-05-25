@@ -80,7 +80,7 @@ public class PromptToolBinder {
 
     Map<String, Boolean> enabledByToolName = null;
     for (ChatTool tool : toolRegistry.getAll()) {
-      if (!entitlements.allowsTool(tool.getName())) {
+      if (!isToolAllowed(tool, userId, entitlements)) {
         continue;
       }
       if (enabledByToolName == null) {
@@ -157,12 +157,23 @@ public class PromptToolBinder {
 
   private Optional<String> resolveWebSearchApiKey(String userId) {
     Optional<String> userKey =
-        apiKeyService.getKey(userId, Provider.BRAVE_SEARCH).filter(key -> !key.isBlank());
+        resolveUserWebSearchApiKey(userId);
     if (userKey.isPresent()) {
       return userKey;
     }
     String serverKey = webSearchProperties.getApiKey();
     return serverKey == null || serverKey.isBlank() ? Optional.empty() : Optional.of(serverKey);
+  }
+
+  private boolean isToolAllowed(ChatTool tool, String userId, Entitlements entitlements) {
+    if (entitlements.allowsTool(tool.getName())) {
+      return true;
+    }
+    return "brave-search".equals(tool.getName()) && resolveUserWebSearchApiKey(userId).isPresent();
+  }
+
+  private Optional<String> resolveUserWebSearchApiKey(String userId) {
+    return apiKeyService.getKey(userId, Provider.BRAVE_SEARCH).filter(key -> !key.isBlank());
   }
 
   private boolean matchesProviderModelPattern(

@@ -167,6 +167,37 @@ class PromptToolBinderTest {
     assertThat(boundTool.get().getClass().getSimpleName()).isEqualTo("LoggedBraveSearchTool");
   }
 
+  @Test
+  void bindTools_allowsBraveSearchWhenUserKeyExistsEvenIfPlanDeniesTool() {
+    ChatTool braveSearchTool = mock(ChatTool.class);
+    when(braveSearchTool.getName()).thenReturn("brave-search");
+    when(toolRegistry.getAll()).thenReturn(List.of(braveSearchTool));
+    when(entitlementService.get("user-123")).thenReturn(entitlements("calculator"));
+    when(apiKeyService.getKey("user-123", RequestDTO.Provider.BRAVE_SEARCH))
+        .thenReturn(Optional.of("user-brave-key"));
+    AtomicReference<Object> boundTool = new AtomicReference<>();
+    doAnswer(
+            invocation -> {
+              boundTool.set(invocation.getArgument(0));
+              return promptSpec;
+            })
+        .when(promptSpec)
+        .tools(any());
+
+    binder.bindTools(
+        chatId,
+        "user-123",
+        RequestDTO.Provider.OPENAI,
+        "gpt-5.2",
+        true,
+        List.of(),
+        new ToolExecutionCollector(),
+        promptSpec);
+
+    assertThat(boundTool.get()).isNotNull();
+    assertThat(boundTool.get().getClass().getSimpleName()).isEqualTo("LoggedBraveSearchTool");
+  }
+
   private static ChatToolEntity enabledTool(String toolName) {
     ChatToolEntity entity = new ChatToolEntity();
     entity.setToolName(toolName);

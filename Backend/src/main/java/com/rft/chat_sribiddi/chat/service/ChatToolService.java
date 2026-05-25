@@ -47,10 +47,9 @@ public class ChatToolService {
     Collection<ChatTool> tools = toolRegistry.getAll();
     Entitlements entitlements = entitlementService.get(userId);
     Map<String, Boolean> enabledByToolName = loadToolOverrides(chatId);
-    boolean braveSearchConfigured =
-        isBraveSearchConfigNeeded(tools, entitlements)
-            && (apiKeyService.getKey(userId, Provider.BRAVE_SEARCH).isPresent()
-                || hasServerWebSearchKey());
+    boolean userBraveSearchConfigured = hasUserWebSearchKey(userId);
+    boolean serverBraveSearchConfigured =
+        isServerBraveSearchConfigNeeded(tools, entitlements) && hasServerWebSearchKey();
 
     return tools.stream()
         .map(
@@ -60,7 +59,11 @@ public class ChatToolService {
                     tool.getDisplayName(),
                     tool.getDescription(),
                     isToolAvailableAndEnabled(
-                        tool, entitlements, enabledByToolName, braveSearchConfigured)))
+                        tool,
+                        entitlements,
+                        enabledByToolName,
+                        userBraveSearchConfigured,
+                        serverBraveSearchConfigured)))
         .toList();
   }
 
@@ -71,7 +74,7 @@ public class ChatToolService {
     String toolName = request.toolName().trim();
     ensureToolRegistered(toolName);
     Entitlements entitlements = entitlementService.get(userId);
-    if (request.enabled() && !entitlements.allowsTool(toolName)) {
+    if (request.enabled() && !isToolAllowed(toolName, userId, entitlements)) {
       throw new PlanRestrictionException(
           PlanRestrictionException.Reason.TOOL_NOT_ALLOWED,
           entitlements.plan(),
@@ -96,20 +99,31 @@ public class ChatToolService {
       ChatTool tool,
       Entitlements entitlements,
       Map<String, Boolean> enabledByToolName,
-      boolean braveSearchConfigured) {
+      boolean userBraveSearchConfigured,
+      boolean serverBraveSearchConfigured) {
     String toolName = tool.getName();
-    return entitlements.allowsTool(toolName)
-        && isToolEnabledForUser(toolName, tool.requiresUserConfig(), braveSearchConfigured)
+    return isToolAllowed(
+            toolName,
+            entitlements,
+            userBraveSearchConfigured)
+        && isToolEnabledForUser(
+            toolName,
+            tool.requiresUserConfig(),
+            userBraveSearchConfigured,
+            serverBraveSearchConfigured)
         && isToolEnabledForChat(toolName, enabledByToolName);
   }
 
   private boolean isToolEnabledForUser(
-      String toolName, boolean requiresUserConfig, boolean braveSearchConfigured) {
+      String toolName,
+      boolean requiresUserConfig,
+      boolean userBraveSearchConfigured,
+      boolean serverBraveSearchConfigured) {
     if (!requiresUserConfig) {
       return true;
     }
     return switch (toolName) {
-      case "brave-search" -> braveSearchConfigured;
+      case "brave-search" -> userBraveSearchConfigured || serverBraveSearchConfigured;
       default -> false;
     };
   }
@@ -137,7 +151,8 @@ public class ChatToolService {
     return enabledByToolName.getOrDefault(toolName, DEFAULT_ENABLED_TOOLS.contains(toolName));
   }
 
-  private boolean isBraveSearchConfigNeeded(Collection<ChatTool> tools, Entitlements entitlements) {
+  private boolean isServerBraveSearchConfigNeeded(
+      Collection<ChatTool> tools, Entitlements entitlements) {
     return tools.stream()
         .anyMatch(
             tool ->
@@ -149,5 +164,26 @@ public class ChatToolService {
   private boolean hasServerWebSearchKey() {
     String apiKey = webSearchProperties.getApiKey();
     return apiKey != null && !apiKey.isBlank();
+  }
+
+  private boolean isToolAllowed(String toolName, String userId, Entitlements entitlements) {
+    if (entitlements.allowsTool(toolName)) {
+      return true;
+    }
+    return "brave-search".equals(toolName) && hasUserWebSearchKey(userId);
+  }
+
+  private boolean isToolAllowed(
+      String toolName,
+      Entitlements entitlements,
+      boolean userBraveSearchConfigured) {
+    if (entitlements.allowsTool(toolName)) {
+      return true;
+    }
+    return "brave-search".equals(toolName) && userBraveSearchConfigured;
+  }
+
+  private boolean hasUserWebSearchKey(String userId) {
+    return apiKeyService.getKey(userId, Provider.BRAVE_SEARCH).isPresent();
   }
 }
