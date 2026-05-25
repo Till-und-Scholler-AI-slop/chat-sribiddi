@@ -20,8 +20,8 @@ A lightweight, blazing-fast AI chat wrapper that supports multiple models, tiere
 ## 📸 Preview
 
 <!-- Add your screenshots here -->
-| Web | Mobile |
-|:---:|:---:|
+|                      Web                       |                        Mobile                        |
+|:----------------------------------------------:|:----------------------------------------------------:|
 | ![Web screenshot](docs/assets/web-preview.png) | ![Mobile screenshot](docs/assets/mobile-preview.png) |
 
 > *Replace placeholders above with real screenshots after first deployment.*
@@ -122,11 +122,11 @@ This project is licensed under the terms of the [LICENSE](LICENSE) file in the r
 
 ## 🔗 Links
 
-| | |
-|:---|:---|
-| 🌐 **Live App** | [germinai.de](https://germinai.de) |
+|                 |                                                                                        |
+|:----------------|:---------------------------------------------------------------------------------------|
+| 🌐 **Live App** | [germinai.de](https://germinai.de)                                                     |
 | 📦 **Releases** | [GitHub Releases](https://github.com/Till-und-Scholler-AI-slop/chat-sribiddi/releases) |
-| 🐛 **Issues** | [GitHub Issues](https://github.com/Till-und-Scholler-AI-slop/chat-sribiddi/issues) |
+| 🐛 **Issues**   | [GitHub Issues](https://github.com/Till-und-Scholler-AI-slop/chat-sribiddi/issues)     |
 
 ---
 

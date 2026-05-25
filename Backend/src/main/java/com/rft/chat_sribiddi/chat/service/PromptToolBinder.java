@@ -151,9 +151,18 @@ public class PromptToolBinder {
   }
 
   private Optional<BraveSearchTool> resolveWebSearchTool(String userId) {
-    return apiKeyService
-        .getKey(userId, Provider.BRAVE_SEARCH)
+    return resolveWebSearchApiKey(userId)
         .map(key -> new BraveSearchTool(key, webSearchHttpClient, webSearchProperties));
+  }
+
+  private Optional<String> resolveWebSearchApiKey(String userId) {
+    Optional<String> userKey =
+        apiKeyService.getKey(userId, Provider.BRAVE_SEARCH).filter(key -> !key.isBlank());
+    if (userKey.isPresent()) {
+      return userKey;
+    }
+    String serverKey = webSearchProperties.getApiKey();
+    return serverKey == null || serverKey.isBlank() ? Optional.empty() : Optional.of(serverKey);
   }
 
   private boolean matchesProviderModelPattern(

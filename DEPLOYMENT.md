@@ -119,11 +119,3 @@ Bei Änderungen an beiden wird jede Pipeline unabhängig voneinander ausgelöst.
 2. `https://germinai.de/api/login` antwortet (Backend erreichbar über Proxy)
 3. `docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"` zeigt laufende Container
 
-## 9) Offene manuelle To-dos
-
-1. DNS A-Record `germinai.de` auf `45.81.235.217` setzen.
-2. Optional DNS A-Record `www.germinai.de` auf `45.81.235.217` setzen.
-3. Falls ein AAAA-Record gesetzt ist: auf die korrekte IPv6 dieses Servers ändern oder entfernen.
-4. Google OAuth Consent Screen finalisieren (falls noch nicht publiziert/konfiguriert).
-5. Repository Secrets in GitHub mit Domain-Werten aktualisieren.
-6. SSH-Key-basiertes Deploy statt Root-Passwort einrichten.

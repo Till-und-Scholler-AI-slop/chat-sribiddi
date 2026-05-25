@@ -14,6 +14,7 @@ import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
+import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +36,7 @@ public class ChatToolService {
   private final ToolRegistry toolRegistry;
   private final ApiKeyService apiKeyService;
   private final EntitlementService entitlementService;
+  private final WebSearchProperties webSearchProperties;
 
   private static final Set<String> DEFAULT_ENABLED_TOOLS =
       Set.of("calculator", "current-datetime", "brave-search");
@@ -45,8 +47,10 @@ public class ChatToolService {
     Collection<ChatTool> tools = toolRegistry.getAll();
     Entitlements entitlements = entitlementService.get(userId);
     Map<String, Boolean> enabledByToolName = loadToolOverrides(chatId);
-    boolean braveSearchConfigured = isBraveSearchConfigNeeded(tools, entitlements)
-        && apiKeyService.getKey(userId, Provider.BRAVE_SEARCH).isPresent();
+    boolean braveSearchConfigured =
+        isBraveSearchConfigNeeded(tools, entitlements)
+            && (apiKeyService.getKey(userId, Provider.BRAVE_SEARCH).isPresent()
+                || hasServerWebSearchKey());
 
     return tools.stream()
         .map(
@@ -140,5 +144,10 @@ public class ChatToolService {
                 "brave-search".equals(tool.getName())
                     && tool.requiresUserConfig()
                     && entitlements.allowsTool(tool.getName()));
+  }
+
+  private boolean hasServerWebSearchKey() {
+    String apiKey = webSearchProperties.getApiKey();
+    return apiKey != null && !apiKey.isBlank();
   }
 }

@@ -247,6 +247,7 @@ app:
       pids-limit: ${TOOLS_PYTHON_PIDS_LIMIT:64}
       tmpfs: ${TOOLS_PYTHON_TMPFS:/tmp:rw,noexec,nosuid,size=16m}
   web-search:
+    api-key: ${BRAVE_SEARCH_API_KEY:}
     max-results: ${WEB_SEARCH_MAX_RESULTS:5}
     request-timeout: ${WEB_SEARCH_REQUEST_TIMEOUT:10s}
     user-agent: ${WEB_SEARCH_USER_AGENT:ChatSribiddi/1.0 (WebSearch)}

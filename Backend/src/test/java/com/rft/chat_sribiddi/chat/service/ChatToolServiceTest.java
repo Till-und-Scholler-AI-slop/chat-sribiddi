@@ -8,6 +8,7 @@ import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.billing.EntitlementService;
 import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.billing.PlanRestrictionException;
+import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.SetChatToolRequestDTO;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
@@ -15,6 +16,7 @@ import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
+import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -36,14 +38,21 @@ class ChatToolServiceTest {
   @Mock private ChatTool tool;
 
   private ChatToolService service;
+  private WebSearchProperties webSearchProperties;
   private UUID chatId;
   private String userId;
 
   @BeforeEach
   void setUp() {
+    webSearchProperties = new WebSearchProperties();
     service =
         new ChatToolService(
-            chatRepository, chatToolRepository, toolRegistry, apiKeyService, entitlementService);
+            chatRepository,
+            chatToolRepository,
+            toolRegistry,
+            apiKeyService,
+            entitlementService,
+            webSearchProperties);
     chatId = UUID.randomUUID();
     userId = "user-123";
 
@@ -82,6 +91,22 @@ class ChatToolServiceTest {
 
     assertThat(tools).hasSize(1);
     assertThat(tools.getFirst().enabled()).isFalse();
+  }
+
+  @Test
+  void listAvailableTools_marksBraveSearchEnabledWhenServerKeyExists() {
+    when(tool.getName()).thenReturn("brave-search");
+    when(tool.requiresUserConfig()).thenReturn(true);
+    when(entitlementService.get(userId))
+        .thenReturn(entitlements(Plan.PREMIUM, Set.of("brave-search")));
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.BRAVE_SEARCH))
+        .thenReturn(Optional.empty());
+    webSearchProperties.setApiKey("server-brave-key");
+
+    var tools = service.listAvailableTools(chatId, userId);
+
+    assertThat(tools).hasSize(1);
+    assertThat(tools.getFirst().enabled()).isTrue();
   }
 
   private static Entitlements entitlements(Plan plan, Set<String> tools) {

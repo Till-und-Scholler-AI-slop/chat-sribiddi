@@ -20,8 +20,10 @@ import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.net.http.HttpClient;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -117,6 +119,52 @@ class PromptToolBinderTest {
     verify(promptSpec, never()).tools(any());
     verify(chatToolRepository, never()).findByChatIdAndToolName(any(), anyString());
     verify(chatToolRepository, never()).findByChatId(any());
+  }
+
+  @Test
+  void bindTools_usesServerWebSearchKeyWhenUserKeyMissing() {
+    ChatTool braveSearchTool = mock(ChatTool.class);
+    when(braveSearchTool.getName()).thenReturn("brave-search");
+    when(toolRegistry.getAll()).thenReturn(List.of(braveSearchTool));
+    when(entitlementService.get("user-123")).thenReturn(entitlements("brave-search"));
+    when(apiKeyService.getKey("user-123", RequestDTO.Provider.BRAVE_SEARCH))
+        .thenReturn(Optional.empty());
+    WebSearchProperties properties = new WebSearchProperties();
+    properties.setApiKey("server-brave-key");
+    binder =
+        new PromptToolBinder(
+            chatProperties,
+            chatToolRepository,
+            apiKeyService,
+            properties,
+            webSearchHttpClient,
+            toolRegistry,
+            calculatorTool,
+            urlFetcherTool,
+            pythonInterpreterTool,
+            new CurrentDateTimeTool(),
+            entitlementService);
+    AtomicReference<Object> boundTool = new AtomicReference<>();
+    doAnswer(
+            invocation -> {
+              boundTool.set(invocation.getArgument(0));
+              return promptSpec;
+            })
+        .when(promptSpec)
+        .tools(any());
+
+    binder.bindTools(
+        chatId,
+        "user-123",
+        RequestDTO.Provider.OPENAI,
+        "gpt-5.2",
+        true,
+        List.of(),
+        new ToolExecutionCollector(),
+        promptSpec);
+
+    assertThat(boundTool.get()).isNotNull();
+    assertThat(boundTool.get().getClass().getSimpleName()).isEqualTo("LoggedBraveSearchTool");
   }
 
   private static ChatToolEntity enabledTool(String toolName) {

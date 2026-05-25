@@ -10,11 +10,10 @@ import com.rft.chat_sribiddi.websearch.BraveSearchChatToolAdapter;
 import com.rft.chat_sribiddi.websearch.BraveSearchTool;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import jakarta.annotation.PostConstruct;
+import java.net.http.HttpClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-
-import java.net.http.HttpClient;
 
 /**
  * Auto-registers all ChatTool implementations with the ToolRegistry on startup.
@@ -31,9 +30,6 @@ public class ToolAutoRegistration {
   private final WebSearchProperties webSearchProperties;
   private final HttpClient httpClient;
 
-  @Value("${BRAVE_SEARCH_API_KEY:}")
-  private String braveSearchApiKey;
-
   @Value("${app.tools.python-enabled:false}")
   private boolean pythonEnabled;
 
@@ -47,7 +43,7 @@ public class ToolAutoRegistration {
     }
     // Always register BraveSearch so per-user keys work via wireTools()
     register(new BraveSearchChatToolAdapter(
-        new BraveSearchTool(braveSearchApiKey.isBlank() ? "" : braveSearchApiKey, httpClient, webSearchProperties)));
+        new BraveSearchTool(webSearchProperties.getApiKey(), httpClient, webSearchProperties)));
 
   }
 

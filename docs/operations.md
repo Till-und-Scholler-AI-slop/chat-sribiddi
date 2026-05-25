@@ -72,6 +72,13 @@ Rate and quota defaults:
   available because Redis-backed rate limiting and guest quota checks fail
   closed when Redis is configured but unavailable.
 
+Tool configuration:
+
+- Web search uses Brave Search. Set `BRAVE_SEARCH_API_KEY` in the backend
+  deployment environment to provide the managed web-search tool for eligible
+  plans. Users can still store their own `BRAVE_SEARCH` BYOK key in Settings;
+  that user key takes precedence over the server-side key.
+
 ## Repo-Owned Infra
 
 Everything required to recreate production routing and container startup should

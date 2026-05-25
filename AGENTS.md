@@ -145,6 +145,22 @@ the owner must:
 
 No DB migrations or additional OAuth scopes are required for BILL-7.
 
+## TOOLS-1 — Managed Brave Search web tool
+
+To enable the web-search tool for eligible paid plans without requiring every
+user to store their own Brave key, the owner must:
+
+1. **Create a Brave Search API account/key** at <https://brave.com/search/api/>
+   and choose a plan with enough query volume for the deployment.
+2. **Store the key as a backend deployment secret** named
+   `BRAVE_SEARCH_API_KEY`. The backend reads it via `app.web-search.api-key`.
+   A blank value leaves web search available only to users who store their own
+   `BRAVE_SEARCH` key in Settings.
+3. **Verify after deployment**: sign in as a Premium or Max user without a
+   stored Brave key, enable Web in the chat composer, ask for current
+   information, and confirm the assistant message records a
+   `BraveSearchTool.searchWeb` tool call.
+
 ## BILL-11 — Stripe Checkout & Customer Portal
 
 To enable the paid-tier billing flow (`POST /billing/checkout-session`,
@@ -214,4 +230,3 @@ CSRF — Stripe authenticates via the `Stripe-Signature` header against
 4. **Idempotency is automatic**: duplicate deliveries are skipped via the
    `stripe_events.stripe_event_id` UNIQUE constraint (Flyway V7). No owner
    action required.
-
