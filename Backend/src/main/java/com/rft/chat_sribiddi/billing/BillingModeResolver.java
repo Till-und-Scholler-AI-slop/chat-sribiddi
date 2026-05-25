@@ -7,6 +7,8 @@ import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 /**
@@ -37,14 +39,25 @@ public class BillingModeResolver {
   private final ApiKeyService apiKeyService;
   private final EntitlementService entitlementService;
   private final ManagedApiKeyProperties managedKeys;
+  private final Environment environment;
+
+  @Autowired
+  public BillingModeResolver(
+      ApiKeyService apiKeyService,
+      EntitlementService entitlementService,
+      ManagedApiKeyProperties managedKeys,
+      Environment environment) {
+    this.apiKeyService = apiKeyService;
+    this.entitlementService = entitlementService;
+    this.managedKeys = managedKeys;
+    this.environment = environment;
+  }
 
   public BillingModeResolver(
       ApiKeyService apiKeyService,
       EntitlementService entitlementService,
       ManagedApiKeyProperties managedKeys) {
-    this.apiKeyService = apiKeyService;
-    this.entitlementService = entitlementService;
-    this.managedKeys = managedKeys;
+    this(apiKeyService, entitlementService, managedKeys, null);
   }
 
   /**
@@ -131,13 +144,24 @@ public class BillingModeResolver {
 
   private String serverKeyFor(Provider provider) {
     return switch (provider) {
-      case OPENAI -> managedKeys.getOpenai();
-      case GOOGLE -> managedKeys.getGoogle();
-      case CLAUDE -> managedKeys.getClaude();
-      case OPENROUTER -> managedKeys.getOpenrouter();
+      case OPENAI -> configuredKey(managedKeys.getOpenai(), "OPENAI_API_KEY");
+      case GOOGLE -> configuredKey(managedKeys.getGoogle(), "GOOGLE_API_KEY");
+      case CLAUDE -> configuredKey(managedKeys.getClaude(), "CLAUDE_API_KEY");
+      case OPENROUTER -> configuredKey(managedKeys.getOpenrouter(), "OPENROUTER_API_KEY");
       case BRAVE_SEARCH ->
           throw new IllegalArgumentException("BRAVE_SEARCH is not a chat model provider");
     };
+  }
+
+  private String configuredKey(String managedKey, String fallbackEnvName) {
+    if (managedKey != null && !managedKey.isBlank()) {
+      return managedKey;
+    }
+    if (environment == null) {
+      return managedKey;
+    }
+    String fallback = environment.getProperty(fallbackEnvName);
+    return fallback == null || fallback.isBlank() ? managedKey : fallback;
   }
 
   /** Resolved API key together with the effective {@link BillingMode} under which it applies. */

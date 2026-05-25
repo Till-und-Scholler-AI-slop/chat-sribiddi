@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.env.MockEnvironment;
 
 @ExtendWith(MockitoExtension.class)
 class BillingModeResolverTest {
@@ -42,6 +43,15 @@ class BillingModeResolverTest {
 
   private BillingModeResolver newResolverWithAllServerKeys() {
     return newResolver("srv-openai", "srv-google", "srv-claude", "srv-openrouter");
+  }
+
+  private BillingModeResolver newResolverWithEnvironmentFallback(
+      String openRouterServerKey, String openRouterEnvKey) {
+    ManagedApiKeyProperties props = new ManagedApiKeyProperties();
+    props.setOpenrouter(openRouterServerKey);
+    MockEnvironment environment = new MockEnvironment();
+    environment.setProperty("OPENROUTER_API_KEY", openRouterEnvKey);
+    return new BillingModeResolver(apiKeyService, entitlementService, props, environment);
   }
 
   // ---------- BYOK ----------
@@ -262,6 +272,27 @@ class BillingModeResolverTest {
             ModelPricingLookup.OPENROUTER_FREE_MODEL_ID,
             BillingMode.MANAGED);
     verify(apiKeyService, never()).getKey(any(), any());
+  }
+
+  @Test
+  void managed_anonymousOpenRouterFreeWithBlankManagedProperty_usesOpenRouterEnvFallback() {
+    BillingModeResolver resolver = newResolverWithEnvironmentFallback("", "env-openrouter");
+
+    BillingModeResolver.ResolvedKey resolved =
+        resolver.resolve(
+            null,
+            Provider.OPENROUTER,
+            ModelPricingLookup.OPENROUTER_FREE_MODEL_ID,
+            BillingMode.MANAGED);
+
+    assertThat(resolved.apiKey()).isEqualTo("env-openrouter");
+    assertThat(resolved.effectiveMode()).isEqualTo(BillingMode.MANAGED);
+    verify(entitlementService)
+        .assertCanUseModel(
+            null,
+            Provider.OPENROUTER,
+            ModelPricingLookup.OPENROUTER_FREE_MODEL_ID,
+            BillingMode.MANAGED);
   }
 
   @Test
