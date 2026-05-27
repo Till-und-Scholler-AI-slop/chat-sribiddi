@@ -78,20 +78,18 @@ function statusIcon(tc: ToolCallLog) {
       :aria-expanded="expanded"
       @click="toggle"
     >
-      <span class="trigger-icon">
-        <UIcon
-          :name="loading ? 'i-heroicons-arrow-path' : 'i-heroicons-wrench-screwdriver'"
-          class="size-3.5"
-          :class="{ 'animate-spin': loading }"
-        />
-      </span>
+      <UIcon
+        :name="loading ? 'i-heroicons-arrow-path' : 'i-heroicons-wrench-screwdriver'"
+        class="size-3 trigger-icon-inline"
+        :class="{ 'animate-spin': loading }"
+      />
       <span class="trigger-label">{{ toolTriggerLabel }}</span>
       <span v-if="!loading && toolCalls.length > 1" class="tool-call-count">
-        {{ toolCalls.length }}
+        ({{ toolCalls.length }})
       </span>
       <UIcon
         :name="expanded ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
-        class="size-3.5 trigger-chevron"
+        class="size-3 trigger-chevron"
       />
     </button>
 
@@ -208,51 +206,37 @@ function statusIcon(tc: ToolCallLog) {
   margin-bottom: 0.75rem;
 }
 
-/* ── Trigger pill ──────────────────────────────────────────────────── */
+/* ── Trigger text link ─────────────────────────────────────────────── */
 .tool-call-trigger {
-  width: 100%;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.625rem;
-  padding: 0.5rem 0.875rem;
-  border-radius: 0.75rem;
-  border: 1px solid var(--accent-line);
-  background: var(--accent-soft);
-  font-size: 0.8125rem;
-  line-height: 1.1rem;
-  color: var(--accent-ink);
-  text-align: left;
-  transition: all 160ms ease;
+  gap: 0.375rem;
+  padding: 0.125rem 0;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: color 150ms ease;
 }
 
 .tool-call-trigger:hover {
-  background: color-mix(in oklab, var(--accent) 14%, var(--accent-soft));
-  border-color: var(--accent);
+  color: var(--ink);
 }
 
-.trigger-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: 0.5rem;
-  background: color-mix(in oklab, var(--accent) 22%, transparent);
-  color: var(--accent-ink);
+.trigger-icon-inline {
+  color: var(--ink-2);
   flex-shrink: 0;
 }
 
 .trigger-label {
-  flex: 1;
-  font-weight: 500;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 400;
 }
 
 .trigger-chevron {
-  opacity: 0.6;
+  opacity: 0.5;
   transition: transform 200ms ease;
 }
 
@@ -261,17 +245,9 @@ function statusIcon(tc: ToolCallLog) {
 }
 
 .tool-call-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.25rem;
-  height: 1.25rem;
-  padding: 0 0.375rem;
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--accent) 25%, transparent);
-  color: var(--accent-ink);
   font-size: 0.6875rem;
-  font-weight: 600;
+  color: var(--ink-2);
+  font-weight: 400;
 }
 
 /* ── Collapsible ───────────────────────────────────────────────────── */
