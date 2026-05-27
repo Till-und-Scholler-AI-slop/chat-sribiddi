@@ -124,7 +124,9 @@
     "suggestionPythonAria": "Have a Python function written",
     "suggestionAi": "🤖 Current AI trends",
     "suggestionAiPrompt": "What are the current trends in AI?",
-    "suggestionAiAria": "Learn about current AI trends"
+    "suggestionAiAria": "Learn about current AI trends",
+    "copyResponse": "Copy response",
+    "copiedResponse": "Copied"
   },
   "tools": {
     "running": "Tools are running",

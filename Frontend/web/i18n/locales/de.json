@@ -124,7 +124,9 @@
     "suggestionPythonAria": "Python-Funktion schreiben lassen",
     "suggestionAi": "🤖 Aktuelle KI-Trends",
     "suggestionAiPrompt": "Welche aktuellen Trends gibt es im Bereich KI?",
-    "suggestionAiAria": "Aktuelle KI-Trends erfahren"
+    "suggestionAiAria": "Aktuelle KI-Trends erfahren",
+    "copyResponse": "Antwort kopieren",
+    "copiedResponse": "Kopiert"
   },
   "tools": {
     "running": "Tools werden ausgeführt",

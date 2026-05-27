@@ -244,6 +244,21 @@ const isLastMessage = (message?: { id?: string }) => {
   return msgs[msgs.length - 1]?.id === message.id
 }
 
+const copiedMessageId = ref<string | null>(null)
+
+const copyMessage = async (messageId: string | undefined, text: string) => {
+  if (!messageId || !text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    copiedMessageId.value = messageId
+    setTimeout(() => {
+      copiedMessageId.value = null
+    }, 2000)
+  } catch (err) {
+    console.error('Failed to copy message', err)
+  }
+}
+
 const modelPricingSummary = computed(() => {
   const model = selectedModel.value
   const p = formatRatePerMillion(model?.promptPrice)
@@ -558,40 +573,6 @@ const handleReload = async () => {
           </div>
 
         <div v-else class="space-y-4 flex-1 min-h-0 flex flex-col">
-          <header class="chat-page-header">
-            <div class="chat-page-header__titles">
-              <h1 class="chat-page-header__title">
-                {{ activeConversation.session.title || t('chat.newChatPlaceholder') }}
-              </h1>
-              <span v-if="selectedModel" class="chat-page-header__subtitle">
-                {{ providerLabel(selectedModel.provider) }} · {{ selectedModel.label }}
-              </span>
-            </div>
-            <div class="chat-page-header__meta">
-              <UTooltip :text="t('chat.exportRunbook')">
-                <UButton
-                  v-if="!activeConversation.local"
-                  icon="i-heroicons-arrow-down-tray"
-                  color="neutral"
-                  variant="ghost"
-                  size="sm"
-                  :loading="exportingRunbook"
-                  :disabled="!activeConversation.messages.length"
-                  :aria-label="t('chat.exportRunbook')"
-                  class="btn-interactive"
-                  @click="downloadRunbook"
-                />
-              </UTooltip>
-              <UBadge
-                v-if="selectedModel"
-                color="primary"
-                variant="soft"
-                :label="selectedModel.label"
-                :ui="{ rounded: 'rounded-full' }"
-              />
-            </div>
-          </header>
-
           <div class="flex-1 min-h-0">
             <UCard class="h-full" :ui="{ root: 'bg-transparent ring-0 divide-y-0', body: 'h-full overflow-hidden' }">
               <div ref="messagesContainer" class="h-full overflow-y-auto scrollbar-thin">
@@ -675,6 +656,36 @@ const handleReload = async () => {
                           :format-token-count="formatTokenCount"
                           :format-cost="formatCost"
                         />
+                        <div
+                          v-if="isLastMessage(message) && status !== 'streaming' && firstText(parts)"
+                          class="flex items-center gap-1.5 mt-2"
+                        >
+                          <UTooltip :text="copiedMessageId === message.id ? t('chat.copiedResponse') : t('chat.copyResponse')">
+                            <UButton
+                              :icon="copiedMessageId === message.id ? 'i-heroicons-check' : 'i-heroicons-clipboard-document'"
+                              color="neutral"
+                              variant="ghost"
+                              size="xs"
+                              :padded="false"
+                              :aria-label="t('chat.copyResponse')"
+                              class="btn-interactive"
+                              @click="copyMessage(message.id, firstText(parts))"
+                            />
+                          </UTooltip>
+                          <UTooltip v-if="!activeConversation.local" :text="t('chat.exportRunbook')">
+                            <UButton
+                              icon="i-heroicons-arrow-down-tray"
+                              color="neutral"
+                              variant="ghost"
+                              size="xs"
+                              :padded="false"
+                              :loading="exportingRunbook"
+                              :aria-label="t('chat.exportRunbook')"
+                              class="btn-interactive"
+                              @click="downloadRunbook"
+                            />
+                          </UTooltip>
+                        </div>
                       </template>
                       <div
                         v-else-if="message?.createdAt && formatTimestamp(message.createdAt)"
@@ -928,44 +939,6 @@ const handleReload = async () => {
 </template>
 
 <style scoped>
-.chat-page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
-  border-radius: 0.875rem;
-  border: 1px solid var(--hair);
-  background: var(--paper-2);
-}
-.chat-page-header__titles {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.chat-page-header__title {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--ink);
-  letter-spacing: -0.01em;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chat-page-header__subtitle {
-  font-size: 0.75rem;
-  color: var(--ink-2);
-  font-family: var(--font-mono, monospace);
-  margin-top: 0.125rem;
-}
-.chat-page-header__meta {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-shrink: 0;
-}
-
 /* Larger Web toggle inside the prompt header */
 .web-toggle {
   font-weight: 500;
