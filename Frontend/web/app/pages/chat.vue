@@ -593,7 +593,7 @@ const handleReload = async () => {
           </header>
 
           <div class="flex-1 min-h-0">
-            <UCard class="h-full card-elevated" :ui="{ body: 'h-full overflow-hidden' }">
+            <UCard class="h-full" :ui="{ root: 'bg-transparent ring-0 divide-y-0', body: 'h-full overflow-hidden' }">
               <div ref="messagesContainer" class="h-full overflow-y-auto scrollbar-thin">
                 <UChatMessages
                   class="h-full"
@@ -693,7 +693,7 @@ const handleReload = async () => {
     </template>
 
     <template #footer>
-      <div class="relative glass-surface-light border-t border-gray-200/60 dark:border-white/[0.06]">
+      <div class="relative">
 
         <UContainer class="pb-4 sm:pb-6 space-y-2">
           <input
