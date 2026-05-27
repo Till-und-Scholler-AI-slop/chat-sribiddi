@@ -227,7 +227,7 @@ onMounted(async () => {
           </header>
 
           <!-- Catalogue controls -->
-          <div class="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div class="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <UInput
               v-model="searchQuery"
               type="search"
@@ -237,10 +237,23 @@ onMounted(async () => {
               class="w-full lg:max-w-md"
             />
 
-            <div class="flex flex-wrap gap-2">
+            <div class="flex flex-col gap-3">
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="filter in providerFilters"
+                  :key="filter.value"
+                  type="button"
+                  :aria-pressed="providerFilter === filter.value"
+                  class="filter-pill"
+                  :class="providerFilter === filter.value ? 'filter-pill-active' : 'filter-pill-inactive'"
+                  @click="providerFilter = filter.value"
+                >
+                  {{ filter.label }}
+                </button>
+              </div>
               <div
                 v-if="isAuthenticated"
-                class="flex items-center rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-800"
+                class="flex items-center rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-700"
               >
                 <UCheckbox
                   :model-value="settings.expertMode"
@@ -250,17 +263,6 @@ onMounted(async () => {
                   @update:model-value="handleExpertModeUpdate"
                 />
               </div>
-              <button
-                v-for="filter in providerFilters"
-                :key="filter.value"
-                type="button"
-                :aria-pressed="providerFilter === filter.value"
-                class="filter-pill"
-                :class="providerFilter === filter.value ? 'filter-pill-active' : 'filter-pill-inactive'"
-                @click="providerFilter = filter.value"
-              >
-                {{ filter.label }}
-              </button>
             </div>
           </div>
 
@@ -377,9 +379,9 @@ onMounted(async () => {
   border-color: var(--color-gray-900);
 }
 :global(.dark) .filter-pill-active {
-  background: var(--color-gray-50);
-  color: var(--color-gray-900);
-  border-color: var(--color-gray-50);
+  background: var(--color-gray-700);
+  color: var(--color-gray-100);
+  border-color: var(--color-gray-600);
 }
 .filter-pill-inactive {
   background: transparent;
@@ -391,12 +393,12 @@ onMounted(async () => {
   border-color: var(--color-gray-300);
 }
 :global(.dark) .filter-pill-inactive {
-  color: var(--color-gray-300);
-  border-color: var(--color-gray-700);
+  color: var(--color-gray-200);
+  border-color: var(--color-gray-600);
 }
 :global(.dark) .filter-pill-inactive:hover {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: var(--color-gray-600);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--color-gray-500);
 }
 
 /* ── Model card ──────────────────────────────────────────────────────── */

@@ -18,7 +18,6 @@ const { settings } = useUserSettings()
 const {
   conversations,
   activeChatId,
-  ensureModels,
   selectChat,
   startChat,
   loadChatsFromBackend,
@@ -36,8 +35,6 @@ const processingChatId = ref<string | null>(null)
 const colorMode = useColorMode()
 const guestImportOpen = ref(false)
 const importingGuestChats = ref(false)
-const expertModeLoading = ref(false)
-
 // Delete-confirmation modal state.
 const deleteTarget = ref<{ chatId: string; title: string } | null>(null)
 const deleteModalOpen = computed({
@@ -232,22 +229,6 @@ const handleSwitchAccount = async () => {
   }
 }
 
-const handleExpertModeUpdate = async (value: boolean | 'indeterminate') => {
-  settings.value.expertMode = value === true
-  expertModeLoading.value = true
-  try {
-    await ensureModels()
-  } catch (err) {
-    toast.add({
-      title: t('models.loadCatalogFailed'),
-      description: tt(err, 'models.backendNotReachable'),
-      color: 'error'
-    })
-  } finally {
-    expertModeLoading.value = false
-  }
-}
-
 const keepGuestChatsLocal = () => {
   settings.value.guestImportDismissed = true
   guestImportOpen.value = false
@@ -428,27 +409,6 @@ const planBadgeLabel = computed<string>(() => {
             />
           </NuxtLink>
         </div>
-        <div
-          v-if="!collapsed"
-          class="px-2 py-2 rounded-lg bg-gray-50/70 dark:bg-white/[0.03] space-y-1.5"
-        >
-          <UCheckbox
-            :model-value="settings.expertMode"
-            :label="t('sidebar.expertMode')"
-            :description="t('sidebar.expertModeDescription')"
-            :disabled="expertModeLoading"
-            @update:model-value="handleExpertModeUpdate"
-          />
-        </div>
-        <UButton
-          v-else
-          variant="ghost"
-          :icon="settings.expertMode ? 'i-heroicons-adjustments-horizontal-solid' : 'i-heroicons-adjustments-horizontal'"
-          :aria-label="t('sidebar.expertMode')"
-          :loading="expertModeLoading"
-          class="w-full justify-start btn-interactive"
-          @click="handleExpertModeUpdate(!settings.expertMode)"
-        />
         <UButton
           variant="ghost"
           icon="i-heroicons-cpu-chip"
