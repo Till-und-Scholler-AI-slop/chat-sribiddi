@@ -493,14 +493,16 @@ async function handleDeleteAccount() {
         </div>
 
         <div v-else>
-          <UTabs
-            v-model="activeTab"
-            :items="tabItems"
-            :content="false"
-            color="primary"
-            variant="link"
-            class="w-full"
-          />
+          <div class="overflow-x-auto">
+            <UTabs
+              v-model="activeTab"
+              :items="tabItems"
+              :content="false"
+              color="primary"
+              variant="link"
+              class="w-full"
+            />
+          </div>
 
           <div class="space-y-8 mt-8">
             <template v-if="activeTab === 'keys'">

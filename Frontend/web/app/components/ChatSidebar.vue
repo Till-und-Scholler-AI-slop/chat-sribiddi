@@ -3,7 +3,7 @@ defineProps<{
   collapsed: boolean
 }>()
 
-const emit = defineEmits<(e: 'toggle') => void>()
+const emit = defineEmits<(e: 'toggle' | 'close') => void>()
 
 const router = useRouter()
 const route = useRoute()
@@ -102,6 +102,7 @@ const handleNewChat = async () => {
     }
     const session = await startChat()
     selectChat(session.chatId)
+    emit('close')
     if (route.path !== '/chat') {
       router.push('/chat')
     }
@@ -117,6 +118,7 @@ const handleNewChat = async () => {
 
 const handleSelect = (chatId: string) => {
   selectChat(chatId)
+  emit('close')
   if (route.path !== '/chat') {
     router.push('/chat')
   }
