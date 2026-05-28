@@ -27,11 +27,15 @@ const codeBlockProps = {
 }
 
 const content = computed(() => props.text || '')
-const isDark = computed(() => colorMode.value === 'dark')
+const isDark = computed(() => {
+  const mode = colorMode.value
+  if (typeof mode !== 'string' || mode === 'system') return true
+  return mode === 'dark'
+})
 </script>
 
 <template>
-  <div class="markdown-body prose max-w-none dark:prose-invert">
+  <div class="markdown-body prose max-w-none dark:prose-invert" :class="{ dark: isDark }">
     <MarkdownRender
       custom-id="chat"
       :content="content"
