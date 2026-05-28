@@ -1,6 +1,7 @@
 import type { ModelOption } from '~/composables/useChatApi'
 import { PROVIDERS, useChatApi } from '~/composables/useChatApi'
-import { favoriteModelKey } from '~/composables/chat-helpers'
+import { favoriteModelKey } from '~/utils/model-utils'
+import { fetchAllProviderModels } from '~/utils/model-fetch'
 import { useUserSettings } from '~/composables/useUserSettings'
 
 const PROVIDER_RANK = new Map(PROVIDERS.map((provider, index) => [provider, index]))
@@ -85,22 +86,10 @@ export function useModelStore() {
 
     modelsLoading.value = true
     try {
-      const results = await Promise.allSettled([
-        ...PROVIDERS.map(provider => fetchModels(provider, settings.value.expertMode))
-      ])
-
-      const loaded: ModelOption[] = []
-      const errors: string[] = []
-
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          loaded.push(...result.value)
-        } else {
-          const msg = result.reason instanceof Error ? result.reason.message : String(result.reason)
-          errors.push(msg)
-          console.error('Failed to load models for a provider:', msg)
-        }
-      }
+      const { models: loaded, errors } = await fetchAllProviderModels(
+        fetchModels,
+        settings.value.expertMode
+      )
 
       models.value = loaded
       loadedExpertMode.value = settings.value.expertMode

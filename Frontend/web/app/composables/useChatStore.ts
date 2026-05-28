@@ -12,6 +12,7 @@ import {
   parseAttachmentContext,
   resolveStreamOutcome
 } from '~/composables/chat-helpers'
+import { rekeyStateEntry } from '~/utils/model-utils'
 
 type Conversation = {
   session: ChatSession
@@ -502,12 +503,6 @@ export function useChatStore() {
     clearMessageMetadata(message.id)
   }
 
-  const rekeyStateEntry = <T>(map: Record<string, T>, oldId: string, newId: string) => {
-    if (oldId === newId || !(oldId in map)) return
-    map[newId] = map[oldId]
-    Reflect.deleteProperty(map, oldId)
-  }
-
   const rekeyMessageMetadata = (oldId: string, newId: string) => {
     rekeyStateEntry(tokenUsageMap.value, oldId, newId)
     rekeyStateEntry(messagePricingMap.value, oldId, newId)
@@ -534,6 +529,82 @@ export function useChatStore() {
   }
 
   const { caps, loaded: entitlementsLoaded } = useEntitlements()
+
+  type StreamHandlerDeps = {
+    conversation: Conversation
+    assistantMessageIndex: number
+    assistantMessage: UIMessage
+    streamStatus: { receivedDone: boolean; receivedError: boolean; receivedContent: boolean }
+    model: ModelOption
+  }
+
+  const createStreamEventHandler = (
+    deps: StreamHandlerDeps,
+    onDone?: (messageId: string, event: StreamEvent) => void
+  ) => {
+    let currentMessage = deps.assistantMessage
+
+    const handler = (event: StreamEvent) => {
+      switch (event.type) {
+        case 'text':
+          if (event.content) {
+            deps.streamStatus.receivedContent = true
+            deps.conversation.status = 'streaming'
+            currentMessage = appendTextToMessage(currentMessage, event.content)
+            replaceMessageAtIndex(
+              deps.conversation,
+              deps.assistantMessageIndex,
+              deps.assistantMessage.id,
+              currentMessage
+            )
+          }
+          break
+
+        case 'reasoning':
+          if (event.content) {
+            deps.streamStatus.receivedContent = true
+            deps.conversation.status = 'streaming'
+            reasoningMap.value[currentMessage.id] =
+              (reasoningMap.value[currentMessage.id] || '') + event.content
+          }
+          break
+
+        case 'done':
+          deps.streamStatus.receivedDone = true
+          currentMessage = finalizeAssistantMessage(
+            deps.conversation,
+            deps.assistantMessageIndex,
+            currentMessage,
+            event
+          )
+          if (
+            event.promptTokens != null ||
+            event.generationTokens != null ||
+            event.totalTokens != null
+          ) {
+            tokenUsageMap.value[currentMessage.id] = {
+              promptTokens: event.promptTokens ?? null,
+              generationTokens: event.generationTokens ?? null,
+              totalTokens: event.totalTokens ?? null
+            }
+            messagePricingMap.value[currentMessage.id] = {
+              promptPrice: deps.model.promptPrice ?? null,
+              completionPrice: deps.model.completionPrice ?? null,
+              requestPrice: deps.model.requestPrice ?? null
+            }
+          }
+          onDone?.(currentMessage.id, event)
+          break
+
+        case 'error':
+          deps.streamStatus.receivedError = true
+          deps.conversation.error = event.content || 'Streaming error'
+          break
+      }
+    }
+
+    return { handler, getCurrentMessage: () => currentMessage }
+  }
 
   const sendPrompt = async (
     chatId: string,
@@ -642,91 +713,46 @@ export function useChatStore() {
         webSearchEnabled: webSearchEnabled.value || undefined
       }
 
-      const stream = conversation.local
-        ? streamAnonymousMessage(
-            {
-              content: input.content,
-              provider: input.provider,
-              modelId: input.modelId,
-              media: input.media,
-              history
-            },
-            handleStreamEvent,
-            controller.signal
-          )
-        : streamMessage(
-            chatId,
-            input,
-            handleStreamEvent,
-            controller.signal
-          )
-
-      function handleStreamEvent(event: StreamEvent) {
-        switch (event.type) {
-          case 'text':
-            if (event.content) {
-              streamStatus.receivedContent = true
-              conversation.status = 'streaming'
-              currentAssistantMessage = appendTextToMessage(currentAssistantMessage, event.content)
-              replaceMessageAtIndex(
-                conversation,
-                assistantMessageIndex,
-                assistantMessage.id,
-                currentAssistantMessage
-              )
-            }
-            break
-
-          case 'reasoning':
-            if (event.content) {
-              streamStatus.receivedContent = true
-              conversation.status = 'streaming'
-              reasoningMap.value[currentAssistantMessage.id] =
-                (reasoningMap.value[currentAssistantMessage.id] || '') + event.content
-            }
-            break
-
-          case 'done':
-            streamStatus.receivedDone = true
-            currentAssistantMessage = finalizeAssistantMessage(
-              conversation,
-              assistantMessageIndex,
-              currentAssistantMessage,
-              event
-            )
-            if (event.chatTitle) {
-              conversation.session.title = event.chatTitle
-            } else if (conversation.local && !conversation.session.title) {
-              conversation.session.title = text.length > 72 ? `${text.slice(0, 72).trim()}...` : text
-            }
-            if (
-              event.promptTokens != null ||
-              event.generationTokens != null ||
-              event.totalTokens != null
-            ) {
-              tokenUsageMap.value[currentAssistantMessage.id] = {
-                promptTokens: event.promptTokens ?? null,
-                generationTokens: event.generationTokens ?? null,
-                totalTokens: event.totalTokens ?? null
-              }
-              messagePricingMap.value[currentAssistantMessage.id] = {
-                promptPrice: model.promptPrice ?? null,
-                completionPrice: model.completionPrice ?? null,
-                requestPrice: model.requestPrice ?? null
-              }
-            }
-            break
-
-          case 'error':
-            streamStatus.receivedError = true
-            conversation.error = event.content || 'Streaming error'
-            break
+      const { handler, getCurrentMessage } = createStreamEventHandler(
+        {
+          conversation,
+          assistantMessageIndex,
+          assistantMessage,
+          streamStatus,
+          model: effectiveModel
+        },
+        (_messageId, event) => {
+          if (event.chatTitle) {
+            conversation.session.title = event.chatTitle
+          } else if (conversation.local && !conversation.session.title) {
+            conversation.session.title = text.length > 72 ? `${text.slice(0, 72).trim()}...` : text
+          }
         }
+      )
+
+      if (conversation.local) {
+        await streamAnonymousMessage(
+          {
+            content: input.content,
+            provider: input.provider,
+            modelId: input.modelId,
+            media: input.media,
+            history
+          },
+          handler,
+          controller.signal
+        )
+      } else {
+        await streamMessage(
+          chatId,
+          input,
+          handler,
+          controller.signal
+        )
       }
 
-      await stream
-
       conversation.activeRequest = undefined
+      currentAssistantMessage = getCurrentMessage()
       const outcome = resolveStreamOutcome(streamStatus, conversation.error)
       conversation.status = outcome.status
       conversation.error = outcome.error
@@ -858,71 +884,26 @@ export function useChatStore() {
         webSearchEnabled: webSearchEnabled.value || undefined
       }
 
+      const { handler, getCurrentMessage } = createStreamEventHandler(
+        {
+          conversation,
+          assistantMessageIndex,
+          assistantMessage,
+          streamStatus,
+          model
+        }
+      )
+
       await editAndStreamMessage(
         chatId,
         backendId,
         input,
-        (event: StreamEvent) => {
-          switch (event.type) {
-            case 'text':
-              if (event.content) {
-                streamStatus.receivedContent = true
-                conversation.status = 'streaming'
-                currentAssistantMessage = appendTextToMessage(currentAssistantMessage, event.content)
-                replaceMessageAtIndex(
-                  conversation,
-                  assistantMessageIndex,
-                  assistantMessage.id,
-                  currentAssistantMessage
-                )
-              }
-              break
-
-            case 'reasoning':
-              if (event.content) {
-                streamStatus.receivedContent = true
-                conversation.status = 'streaming'
-                reasoningMap.value[currentAssistantMessage.id] =
-                  (reasoningMap.value[currentAssistantMessage.id] || '') + event.content
-              }
-              break
-
-            case 'done':
-              streamStatus.receivedDone = true
-              currentAssistantMessage = finalizeAssistantMessage(
-                conversation,
-                assistantMessageIndex,
-                currentAssistantMessage,
-                event
-              )
-              if (
-                event.promptTokens != null ||
-                event.generationTokens != null ||
-                event.totalTokens != null
-              ) {
-                tokenUsageMap.value[currentAssistantMessage.id] = {
-                  promptTokens: event.promptTokens ?? null,
-                  generationTokens: event.generationTokens ?? null,
-                  totalTokens: event.totalTokens ?? null
-                }
-                messagePricingMap.value[currentAssistantMessage.id] = {
-                  promptPrice: model.promptPrice ?? null,
-                  completionPrice: model.completionPrice ?? null,
-                  requestPrice: model.requestPrice ?? null
-                }
-              }
-              break
-
-            case 'error':
-              streamStatus.receivedError = true
-              conversation.error = event.content || 'Streaming error'
-              break
-          }
-        },
+        handler,
         controller.signal
       )
 
       conversation.activeRequest = undefined
+      currentAssistantMessage = getCurrentMessage()
       const outcome = resolveStreamOutcome(streamStatus, conversation.error)
       conversation.status = outcome.status
       conversation.error = outcome.error

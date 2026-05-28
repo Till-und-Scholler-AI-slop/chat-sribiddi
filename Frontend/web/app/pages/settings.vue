@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type {Provider} from '~/composables/useChatApi'
 import type { BillingMode } from '~/composables/useEntitlements'
+import { providerLabel } from '~/utils/format'
 
 const { t, locale, locales, setLocale } = useI18n()
 const tt = useTranslatedError()
@@ -197,15 +198,6 @@ const deletingBraveSearch = ref(false)
 
 const braveSearchStatus = computed(() => status.value?.brave_search ?? false)
 
-const providerDisplay = (provider: Provider) =>
-    provider === 'OPENAI'
-      ? 'OpenAI'
-      : provider === 'GOOGLE'
-        ? 'Google'
-        : provider === 'CLAUDE'
-          ? 'Claude'
-          : 'OpenRouter'
-
 const statusByProvider = (provider: Provider) => {
   if (!status.value) return false
   return provider === 'OPENAI'
@@ -305,7 +297,7 @@ async function handleSave(provider: Provider) {
   if (!key) {
     toast.add({
       title: t('settings.missingKeyTitle'),
-      description: t('settings.missingKeyDescription', { provider: providerDisplay(provider) }),
+      description: t('settings.missingKeyDescription', { provider: providerLabel(provider) }),
       color: 'warning'
     })
     return
@@ -318,13 +310,13 @@ async function handleSave(provider: Provider) {
     models.value = []
     await refreshStatus()
     toast.add({
-      title: t('settings.keySavedTitle', { provider: providerDisplay(provider) }),
+      title: t('settings.keySavedTitle', { provider: providerLabel(provider) }),
       description: t('settings.keySavedDescription'),
       color: 'primary'
     })
   } catch (err) {
     toast.add({
-      title: t('settings.keySaveFailed', { provider: providerDisplay(provider) }),
+      title: t('settings.keySaveFailed', { provider: providerLabel(provider) }),
       description: tt(err),
       color: 'error'
     })
@@ -340,12 +332,12 @@ async function handleDelete(provider: Provider) {
     models.value = []
     await refreshStatus()
     toast.add({
-      title: t('settings.keyRemovedTitle', { provider: providerDisplay(provider) }),
+      title: t('settings.keyRemovedTitle', { provider: providerLabel(provider) }),
       color: 'neutral'
     })
   } catch (err) {
     toast.add({
-      title: t('settings.keyRemoveFailed', { provider: providerDisplay(provider) }),
+      title: t('settings.keyRemoveFailed', { provider: providerLabel(provider) }),
       description: tt(err),
       color: 'error'
     })
