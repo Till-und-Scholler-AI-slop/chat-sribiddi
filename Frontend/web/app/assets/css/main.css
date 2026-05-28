@@ -726,6 +726,7 @@ body {
 @media (max-width: 768px) {
   body {
     font-size: 16px;
+    overscroll-behavior: none;
   }
 
   .btn-interactive {
@@ -787,11 +788,34 @@ body {
   }
 
   .msg-actions {
-    display: none;
+    opacity: 1;
+    transform: none;
+    left: auto;
+    right: 0.25rem;
+    top: 0.25rem;
   }
 
   /* Allow user messages to use more width on mobile */
   [data-side="right"] .max-w-\[75\%\] {
     max-width: 90% !important;
+  }
+
+  /* Chat message compaction */
+  article.group\/message[class*="scroll-mt"] {
+    scroll-margin-top: 0.5rem;
+  }
+
+  /* Overscroll protection */
+  .scrollbar-thin {
+    overscroll-behavior: contain;
+  }
+
+  /* Prompt footer separator */
+  [data-slot="footer"] {
+    box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.06);
+  }
+
+  .dark [data-slot="footer"] {
+    box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.2);
   }
 }
