@@ -622,6 +622,7 @@ body {
   padding: 1.05rem 1.1rem;
 }
 .dark .markdown-body .markstream-vue {
+  /* ── Project-specific overrides ── */
   --inline-code-bg: color-mix(in oklab, var(--paper-2) 72%, var(--accent) 10%);
   --inline-code-fg: color-mix(in oklab, var(--ink) 86%, var(--accent));
   --inline-code-border: color-mix(in oklab, var(--accent-line) 48%, var(--hair));
@@ -635,6 +636,33 @@ body {
   --code-action-hover-bg: rgb(173 186 199 / 0.1);
   --code-action-hover-fg: #cdd9e5;
   --table-header-bg: color-mix(in oklab, var(--paper-2) 84%, var(--accent) 8%);
+  /* ── markstream-vue generic tokens – overwrite light-mode defaults ── */
+  --ms-background: 0 0% 7%;
+  --ms-foreground: 0 0% 93%;
+  --ms-muted: 0 0% 12%;
+  --ms-muted-foreground: 0 0% 60%;
+  --ms-secondary: 0 0% 16%;
+  --ms-secondary-foreground: 0 0% 93%;
+  --ms-accent: 0 0% 24%;
+  --ms-accent-foreground: 0 0% 93%;
+  --ms-primary: 0 0% 93%;
+  --ms-primary-foreground: 0 0% 10%;
+  --ms-destructive: 0 60% 50%;
+  --ms-destructive-foreground: 0 0% 93%;
+  --ms-border: 0 0% 20%;
+  --ms-ring: 0 0% 80%;
+  --ms-popover: 0 0% 9%;
+  --ms-popover-foreground: 0 0% 93%;
+  --ms-info: 215 55% 62%;
+  --ms-info-foreground: 0 0% 100%;
+  --ms-success: 152 48% 55%;
+  --ms-success-foreground: 0 0% 100%;
+  --ms-warning: 32 65% 58%;
+  --ms-warning-foreground: 0 0% 9%;
+  --ms-diff-added: 152 42% 60%;
+  --ms-diff-removed: 0 58% 58%;
+  --ms-highlight: 48 65% 50%;
+  --ms-highlight-foreground: 0 0% 0%;
 }
 .dark .markdown-body .markstream-vue .blockquote {
   box-shadow: inset 0 1px color-mix(in oklab, white 7%, transparent);
