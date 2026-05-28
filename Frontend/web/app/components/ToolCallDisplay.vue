@@ -487,4 +487,24 @@ function statusIcon(tc: ToolCallLog) {
 .raw-json-block pre {
   max-height: 20rem;
 }
+
+@media (max-width: 768px) {
+  .tool-call-entry-summary {
+    flex-wrap: wrap;
+    padding: 0.75rem;
+  }
+
+  .tool-call-meta {
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+
+  .tool-call-panel {
+    padding: 0.75rem;
+  }
+
+  .payload-block pre {
+    font-size: 0.6875rem;
+  }
+}
 </style>

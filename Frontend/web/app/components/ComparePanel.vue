@@ -390,4 +390,18 @@ const canDiscard = computed(() =>
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+@media (max-width: 768px) {
+  .compare-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .compare-message__bubble {
+    font-size: 1rem;
+  }
+
+  .compare-panel__header {
+    flex-wrap: wrap;
+  }
+}
 </style>

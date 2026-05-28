@@ -314,5 +314,19 @@ onMounted(loadUsage)
   .usage-model-row {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .usage-daily-chart {
+    overflow-x: auto;
+    gap: 0.25rem;
+  }
+
+  .usage-daily-column {
+    min-width: 1.25rem;
+    font-size: 0.625rem;
+  }
+
+  .usage-daily-bar {
+    max-width: 1.5rem;
+  }
 }
 </style>

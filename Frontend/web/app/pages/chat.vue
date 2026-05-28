@@ -757,6 +757,7 @@ const handleReload = async () => {
             @submit="handleSubmit"
           >
             <template #header>
+              <div class="flex flex-wrap items-center gap-2">
               <UTooltip :text="t('chat.addAttachments')">
                 <UButton
                   icon="i-heroicons-paper-clip"
@@ -781,7 +782,7 @@ const handleReload = async () => {
               <USelectMenu
                 v-model="selectedModel"
                 :items="sortedModels"
-                class="w-56"
+                class="w-full sm:w-56"
                 :loading="modelsLoading"
                 label-key="label"
                 by="value"
@@ -840,11 +841,12 @@ const handleReload = async () => {
               </UTooltip>
               <span
                 v-if="modelPricingSummary"
-                class="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1"
+                class="hidden sm:inline-flex text-xs text-gray-500 dark:text-gray-400 items-center gap-1"
               >
                 <UIcon name="i-heroicons-banknotes" class="size-3 text-emerald-500" />
                 {{ modelPricingSummary }}
               </span>
+              </div>
             </template>
 
             <div class="flex items-center gap-2">

@@ -346,5 +346,13 @@ const handleKeep = async (panelId: string) => {
   .compare-prompt__actions {
     justify-content: stretch;
   }
+
+  .compare-prompt__input {
+    font-size: 1rem;
+  }
+
+  .compare-header__title {
+    font-size: 1.25rem;
+  }
 }
 </style>
