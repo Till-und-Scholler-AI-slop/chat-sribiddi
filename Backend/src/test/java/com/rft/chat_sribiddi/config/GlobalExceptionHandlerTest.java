@@ -82,4 +82,33 @@ class GlobalExceptionHandlerTest {
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
     assertThat(response.getBody()).containsEntry("message", "Rate limit exceeded");
   }
+
+  @Test
+  void handleTransientAi_preservesWrappedProviderStatusAndMessage() {
+    var providerCause =
+        new WebClientResponseException(
+            429,
+            "Too Many Requests",
+            null,
+            "{\"message\":\"Provider rate limit\"}".getBytes(StandardCharsets.UTF_8),
+            StandardCharsets.UTF_8);
+    var ex =
+        new org.springframework.ai.retry.TransientAiException(
+            "Spring AI transient failure", providerCause);
+
+    var response = handler.handleTransientAi(ex);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    assertThat(response.getBody()).containsEntry("message", "Provider rate limit");
+  }
+
+  @Test
+  void handleNonTransientAi_mapsToBadRequestWhenNoProviderStatusExists() {
+    var ex = new org.springframework.ai.retry.NonTransientAiException("Invalid AI request");
+
+    var response = handler.handleNonTransientAi(ex);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(response.getBody()).containsEntry("message", "Invalid AI request");
+  }
 }

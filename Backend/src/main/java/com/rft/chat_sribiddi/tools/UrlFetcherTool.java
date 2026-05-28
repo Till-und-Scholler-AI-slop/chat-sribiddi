@@ -51,13 +51,6 @@ public class UrlFetcherTool implements ChatTool {
   }
 
   @Override
-  public String getDescription() {
-    return "Fetch and read the content of a web page URL. "
-        + "Returns the page text content (HTML stripped). "
-        + "Use this when the user wants you to read or summarize a specific webpage.";
-  }
-
-  @Override
   public ToolRiskLevel riskLevel() {
     return ToolRiskLevel.HIGH;
   }

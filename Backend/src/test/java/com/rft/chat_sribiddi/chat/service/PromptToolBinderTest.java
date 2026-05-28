@@ -16,20 +16,27 @@ import com.rft.chat_sribiddi.tools.CurrentDateTimeTool;
 import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
 import com.rft.chat_sribiddi.tools.UrlFetcherTool;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
+import com.rft.chat_sribiddi.tools.api.ToolResult;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.net.http.HttpClient;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.annotation.Tool;
 
 @ExtendWith(MockitoExtension.class)
 class PromptToolBinderTest {
@@ -80,8 +87,7 @@ class PromptToolBinderTest {
 
   @Test
   void bindTools_wiresEnabledCustomToolDirectly() {
-    ChatTool customTool = mock(ChatTool.class);
-    when(customTool.getName()).thenReturn("custom-tool");
+    ChatTool customTool = new CustomAnnotatedTool();
     when(toolRegistry.getAll()).thenReturn(List.of(customTool));
     when(entitlementService.get("user-123")).thenReturn(entitlements("*"));
     when(chatToolRepository.findByChatId(chatId)).thenReturn(List.of(enabledTool("custom-tool")));
@@ -96,7 +102,12 @@ class PromptToolBinderTest {
         new ToolExecutionCollector(),
         promptSpec);
 
-    verify(promptSpec).tools(customTool);
+    ArgumentCaptor<Consumer<ChatClient.ToolSpec>> toolsCaptor =
+        ArgumentCaptor.forClass(Consumer.class);
+    verify(promptSpec).tools(toolsCaptor.capture());
+    assertThat(captureCallbacks(toolsCaptor.getValue()))
+        .singleElement()
+        .satisfies(callback -> assertThat(callback.getToolDefinition().name()).isEqualTo("run"));
   }
 
   @Test
@@ -116,7 +127,7 @@ class PromptToolBinderTest {
         new ToolExecutionCollector(),
         promptSpec);
 
-    verify(promptSpec, never()).tools(any());
+    verify(promptSpec, never()).tools(ArgumentMatchers.<Consumer<ChatClient.ToolSpec>>any());
     verify(chatToolRepository, never()).findByChatIdAndToolName(any(), anyString());
     verify(chatToolRepository, never()).findByChatId(any());
   }
@@ -144,14 +155,15 @@ class PromptToolBinderTest {
             pythonInterpreterTool,
             new CurrentDateTimeTool(),
             entitlementService);
-    AtomicReference<Object> boundTool = new AtomicReference<>();
+    AtomicReference<ToolCallback[]> boundCallbacks = new AtomicReference<>();
     doAnswer(
             invocation -> {
-              boundTool.set(invocation.getArgument(0));
+              Consumer<ChatClient.ToolSpec> consumer = invocation.getArgument(0);
+              boundCallbacks.set(captureCallbacks(consumer));
               return promptSpec;
             })
         .when(promptSpec)
-        .tools(any());
+        .tools(ArgumentMatchers.<Consumer<ChatClient.ToolSpec>>any());
 
     binder.bindTools(
         chatId,
@@ -163,8 +175,10 @@ class PromptToolBinderTest {
         new ToolExecutionCollector(),
         promptSpec);
 
-    assertThat(boundTool.get()).isNotNull();
-    assertThat(boundTool.get().getClass().getSimpleName()).isEqualTo("LoggedBraveSearchTool");
+    assertThat(boundCallbacks.get()).isNotNull();
+    assertThat(boundCallbacks.get())
+        .singleElement()
+        .satisfies(callback -> assertThat(callback.getToolDefinition().name()).isEqualTo("searchWeb"));
   }
 
   @Test
@@ -175,14 +189,15 @@ class PromptToolBinderTest {
     when(entitlementService.get("user-123")).thenReturn(entitlements("calculator"));
     when(apiKeyService.getKey("user-123", RequestDTO.Provider.BRAVE_SEARCH))
         .thenReturn(Optional.of("user-brave-key"));
-    AtomicReference<Object> boundTool = new AtomicReference<>();
+    AtomicReference<ToolCallback[]> boundCallbacks = new AtomicReference<>();
     doAnswer(
             invocation -> {
-              boundTool.set(invocation.getArgument(0));
+              Consumer<ChatClient.ToolSpec> consumer = invocation.getArgument(0);
+              boundCallbacks.set(captureCallbacks(consumer));
               return promptSpec;
             })
         .when(promptSpec)
-        .tools(any());
+        .tools(ArgumentMatchers.<Consumer<ChatClient.ToolSpec>>any());
 
     binder.bindTools(
         chatId,
@@ -194,8 +209,51 @@ class PromptToolBinderTest {
         new ToolExecutionCollector(),
         promptSpec);
 
-    assertThat(boundTool.get()).isNotNull();
-    assertThat(boundTool.get().getClass().getSimpleName()).isEqualTo("LoggedBraveSearchTool");
+    assertThat(boundCallbacks.get()).isNotNull();
+    assertThat(boundCallbacks.get())
+        .singleElement()
+        .satisfies(callback -> assertThat(callback.getToolDefinition().name()).isEqualTo("searchWeb"));
+  }
+
+  private static final class CustomAnnotatedTool implements ChatTool {
+
+    @Override
+    public String getName() {
+      return "custom-tool";
+    }
+
+    @Override
+    public String getDisplayName() {
+      return "Custom Tool";
+    }
+
+    @Override
+    public ToolResult execute(String userId, Map<String, Object> parameters) {
+      return ToolResult.success("ok");
+    }
+
+    @Tool(description = "Run the custom test tool.")
+    public String run() {
+      return "ok";
+    }
+  }
+
+  private static ToolCallback[] captureCallbacks(Consumer<ChatClient.ToolSpec> consumer) {
+    ChatClient.ToolSpec toolSpec = mock(ChatClient.ToolSpec.class);
+    AtomicReference<ToolCallback[]> callbacksRef = new AtomicReference<>();
+    when(toolSpec.callbacks((ToolCallback[]) any(ToolCallback[].class)))
+        .thenAnswer(
+            invocation -> {
+              Object[] arguments = invocation.getArguments();
+              ToolCallback[] callbacks = new ToolCallback[arguments.length];
+              for (int i = 0; i < arguments.length; i++) {
+                callbacks[i] = (ToolCallback) arguments[i];
+              }
+              callbacksRef.set(callbacks);
+              return toolSpec;
+            });
+    consumer.accept(toolSpec);
+    return callbacksRef.get();
   }
 
   private static ChatToolEntity enabledTool(String toolName) {

@@ -245,7 +245,7 @@ public class GuestQuotaService {
     }
   }
 
-  public static final class GuestQuotaReservation {
+  public static final class GuestQuotaReservation implements QuotaReservation {
     private static final GuestQuotaReservation NOOP = new GuestQuotaReservation(null, List.of());
 
     private final GuestQuotaService service;
@@ -261,10 +261,12 @@ public class GuestQuotaService {
       return NOOP;
     }
 
+    @Override
     public void commit() {
       closed.compareAndSet(false, true);
     }
 
+    @Override
     public void rollback() {
       if (service != null && closed.compareAndSet(false, true)) {
         service.rollbackKeys(reservedKeys);

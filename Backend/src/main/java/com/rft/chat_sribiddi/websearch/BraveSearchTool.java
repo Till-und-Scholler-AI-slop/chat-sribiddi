@@ -17,8 +17,8 @@ import org.springframework.ai.tool.annotation.ToolParam;
 /**
  * Spring AI tool that performs web searches via the Brave Search API.
  *
- * <p>Instances are created per-request with the user's API key and passed to the ChatClient via
- * {@code .tools(new BraveSearchTool(apiKey, httpClient, properties))}.
+ * <p>Instances are created per-request with the user's API key, adapted to Spring AI
+ * {@code ToolCallback}s, and passed to the ChatClient for that single prompt.
  */
 public class BraveSearchTool {
 

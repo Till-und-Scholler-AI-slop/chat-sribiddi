@@ -1,6 +1,9 @@
 package com.rft.chat_sribiddi.chat.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -11,19 +14,24 @@ import com.rft.chat_sribiddi.billing.BillingModeResolver;
 import com.rft.chat_sribiddi.billing.EntitlementService;
 import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.billing.GuestQuotaService;
-import com.rft.chat_sribiddi.billing.UsageEventService;
 import com.rft.chat_sribiddi.chat.dto.AnonymousChatRequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
-import com.rft.chat_sribiddi.observability.ChatMetrics;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.prompt.ChatOptions;
 
 @ExtendWith(MockitoExtension.class)
 class AnonymousChatServiceTest {
@@ -32,10 +40,12 @@ class AnonymousChatServiceTest {
   @Mock private MessageRepository messageRepository;
   @Mock private BillingModeResolver billingModeResolver;
   @Mock private EntitlementService entitlementService;
-  @Mock private UsageEventService usageEventService;
   @Mock private GuestQuotaService guestQuotaService;
-  @Mock private ChatMetrics chatMetrics;
+  @Mock private GuestQuotaService.GuestQuotaReservation quotaReservation;
   @Mock private HttpServletRequest servletRequest;
+  @Mock private ChatClient chatClient;
+  @Mock private ChatClient.ChatClientRequestSpec requestSpec;
+  @Mock private ChatStreamSubscriber chatStreamSubscriber;
 
   private AnonymousChatService service;
 
@@ -44,9 +54,7 @@ class AnonymousChatServiceTest {
     ChatProperties chatProperties = new ChatProperties();
     MediaValidationService mediaValidationService = new MediaValidationService(chatProperties);
     PromptMessageBuilder promptMessageBuilder =
-        new PromptMessageBuilder(messageRepository, chatProperties, mediaValidationService);
-    ChatUsageRecorder chatUsageRecorder =
-        new ChatUsageRecorder(entitlementService, usageEventService, chatMetrics);
+        new PromptMessageBuilder(messageRepository, chatProperties);
     service =
         new AnonymousChatService(
             providerClientFactory,
@@ -55,9 +63,50 @@ class AnonymousChatServiceTest {
             promptMessageBuilder,
             billingModeResolver,
             entitlementService,
-            chatUsageRecorder,
             guestQuotaService,
-            chatMetrics);
+            chatStreamSubscriber);
+  }
+
+  @AfterEach
+  void tearDown() {
+    verify(quotaReservation, never()).rollback();
+  }
+
+  @Test
+  void streamMessage_bindsBrowserHistoryThroughSpringAiAdvisor() {
+    Entitlements entitlements =
+        new Entitlements(Plan.FREE, 2, 1024, 2048, 10, Set.of("*"), 20, 1, 0.0, 0.0);
+    when(entitlementService.get(null)).thenReturn(entitlements);
+    when(billingModeResolver.resolve(null, Provider.OPENROUTER, "free-model", BillingMode.MANAGED))
+        .thenReturn(new BillingModeResolver.ResolvedKey("server-key", BillingMode.MANAGED));
+    when(guestQuotaService.reserveDailyCall(servletRequest, "guest-1"))
+        .thenReturn(quotaReservation);
+    when(providerClientFactory.getClient(Provider.OPENROUTER, "server-key", BillingMode.MANAGED))
+        .thenReturn(new ProviderClientHandle(chatClient, null));
+    when(providerClientFactory.buildOptions(Provider.OPENROUTER, "free-model", "server-key"))
+        .thenReturn(ChatOptions.builder().model("free-model").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    AnonymousChatRequestDTO request =
+        new AnonymousChatRequestDTO(
+            "current request",
+            Provider.OPENROUTER,
+            "free-model",
+            List.of(
+                new AnonymousChatRequestDTO.HistoryMessage("USER", "previous request"),
+                new AnonymousChatRequestDTO.HistoryMessage("ASSISTANT", "previous response")),
+            List.of());
+
+    service.streamMessage(request, "guest-1", servletRequest);
+
+    ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+    verify(requestSpec).messages(messagesCaptor.capture());
+    List<Message> promptMessages = messagesCaptor.getValue();
+    assertThat(promptMessages).hasSize(2);
+    assertThat(((UserMessage) promptMessages.getLast()).getText()).isEqualTo("current request");
+    verify(requestSpec).advisors(any(Consumer.class));
+    verify(chatStreamSubscriber).subscribeStateless(any(ChatStreamSubscriber.StatelessStreamSubscription.class));
   }
 
   @Test

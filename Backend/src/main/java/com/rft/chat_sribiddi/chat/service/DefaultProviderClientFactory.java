@@ -13,7 +13,9 @@ import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.client.okhttp.OpenAIOkHttpClientAsync;
 import com.openai.core.Timeout;
 import com.rft.chat_sribiddi.auth.BillingMode;
+import com.rft.chat_sribiddi.chat.dto.RequestDTO.ChatRuntimeOptions;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
+import io.micrometer.observation.ObservationRegistry;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +42,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
   private final OpenAiProviderProperties openAiProperties;
   private final GoogleProviderProperties googleProperties;
   private final OpenRouterProviderProperties openRouterProperties;
+  private final ObservationRegistry observationRegistry;
   private final Cache<String, ProviderClientHandle> openAiCache;
   private final Cache<String, ProviderClientHandle> googleCache;
   private final Cache<String, ProviderClientHandle> claudeCache;
@@ -48,10 +51,13 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
   public DefaultProviderClientFactory(
       OpenAiProviderProperties openAiProperties,
       GoogleProviderProperties googleProperties,
-      OpenRouterProviderProperties openRouterProperties) {
+      OpenRouterProviderProperties openRouterProperties,
+      ObservationRegistry observationRegistry) {
     this.openAiProperties = openAiProperties;
     this.googleProperties = googleProperties;
     this.openRouterProperties = openRouterProperties;
+    this.observationRegistry =
+        observationRegistry == null ? ObservationRegistry.NOOP : observationRegistry;
     this.openAiCache = buildCache();
     this.googleCache = buildCache();
     this.claudeCache = buildCache();
@@ -92,11 +98,10 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
               cacheKey,
               _ -> {
                 ChatClient client =
-                    ChatClient.create(
+                    chatClient(
                         OpenAiChatModel.builder()
                             .openAiClient(buildOpenAiClient(apiKey))
-                            .openAiClientAsync(buildOpenAiAsyncClient(apiKey))
-                            .build());
+                            .openAiClientAsync(buildOpenAiAsyncClient(apiKey)));
                 return new ProviderClientHandle(client, null);
               });
       case GOOGLE ->
@@ -106,8 +111,11 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                 Client googleClient =
                     Client.builder().apiKey(apiKey).httpOptions(buildGoogleHttpOptions()).build();
                 GoogleGenAiChatModel model =
-                    GoogleGenAiChatModel.builder().genAiClient(googleClient).build();
-                ChatClient chatClient = ChatClient.create(model);
+                    GoogleGenAiChatModel.builder()
+                        .genAiClient(googleClient)
+                        .observationRegistry(observationRegistry)
+                        .build();
+                ChatClient chatClient = ChatClient.create(model, observationRegistry);
                 return new ProviderClientHandle(chatClient, null);
               });
       case CLAUDE ->
@@ -119,11 +127,11 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
                 AnthropicClientAsync anthropicClientAsync =
                     AnthropicSetup.setupAsyncClient(apiKey, null, null, null, null, null);
                 ChatClient chatClient =
-                    ChatClient.create(
+                    chatClient(
                         AnthropicChatModel.builder()
                             .anthropicClient(anthropicClient)
                             .anthropicClientAsync(anthropicClientAsync)
-                            .build());
+                            .observationRegistry(observationRegistry));
                 return new ProviderClientHandle(chatClient, null);
               });
       case OPENROUTER ->
@@ -131,11 +139,10 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
               cacheKey,
               _ -> {
                 ChatClient chatClient =
-                    ChatClient.create(
+                    chatClient(
                         OpenAiChatModel.builder()
                             .openAiClient(buildOpenRouterClient(apiKey))
-                            .openAiClientAsync(buildOpenRouterAsyncClient(apiKey))
-                            .build());
+                            .openAiClientAsync(buildOpenRouterAsyncClient(apiKey)));
                 return new ProviderClientHandle(chatClient, null);
               });
       case BRAVE_SEARCH ->
@@ -143,20 +150,129 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
     };
   }
 
+  private ChatClient chatClient(OpenAiChatModel.Builder builder) {
+    return ChatClient.create(
+        builder.observationRegistry(observationRegistry).build(), observationRegistry);
+  }
+
+  private ChatClient chatClient(AnthropicChatModel.Builder builder) {
+    return ChatClient.create(
+        builder.observationRegistry(observationRegistry).build(), observationRegistry);
+  }
+
   @Override
   public ChatOptions buildOptions(Provider provider, String modelId, String apiKey) {
+    return buildOptions(provider, modelId, apiKey, null);
+  }
+
+  @Override
+  public ChatOptions buildOptions(
+      Provider provider, String modelId, String apiKey, ChatRuntimeOptions runtimeOptions) {
     return switch (provider) {
-      case OPENAI -> OpenAiChatOptions.builder().model(modelId).build();
+      case OPENAI ->
+          applyRuntimeOptions(OpenAiChatOptions.builder().model(modelId), runtimeOptions).build();
       case GOOGLE ->
-          GoogleGenAiChatOptions.builder()
-              .model(modelId)
-              // Google client uses the apiKey bound to the Client instance; header not needed here.
-              .build();
-      case CLAUDE -> AnthropicChatOptions.builder().model(modelId).build();
-      case OPENROUTER -> OpenAiChatOptions.builder().model(modelId).build();
+          googleOptions(modelId, runtimeOptions);
+      case CLAUDE ->
+          anthropicOptions(modelId, runtimeOptions);
+      case OPENROUTER ->
+          applyRuntimeOptions(OpenAiChatOptions.builder().model(modelId), runtimeOptions).build();
       case BRAVE_SEARCH ->
           throw new UnsupportedOperationException("BRAVE_SEARCH is not a chat model provider");
     };
+  }
+
+  private <B extends ChatOptions.Builder<B>> B applyRuntimeOptions(
+      B builder, ChatRuntimeOptions runtimeOptions) {
+    if (runtimeOptions == null) {
+      return builder;
+    }
+    if (runtimeOptions.temperature() != null) {
+      builder.temperature(runtimeOptions.temperature());
+    }
+    if (runtimeOptions.topP() != null) {
+      builder.topP(runtimeOptions.topP());
+    }
+    if (runtimeOptions.topK() != null) {
+      builder.topK(runtimeOptions.topK());
+    }
+    if (runtimeOptions.maxTokens() != null) {
+      builder.maxTokens(runtimeOptions.maxTokens());
+    }
+    if (runtimeOptions.frequencyPenalty() != null) {
+      builder.frequencyPenalty(runtimeOptions.frequencyPenalty());
+    }
+    if (runtimeOptions.presencePenalty() != null) {
+      builder.presencePenalty(runtimeOptions.presencePenalty());
+    }
+    if (runtimeOptions.stopSequences() != null && !runtimeOptions.stopSequences().isEmpty()) {
+      builder.stopSequences(List.copyOf(runtimeOptions.stopSequences()));
+    }
+    return builder;
+  }
+
+  private GoogleGenAiChatOptions googleOptions(
+      String modelId, ChatRuntimeOptions runtimeOptions) {
+    GoogleGenAiChatOptions.Builder builder =
+        applyRuntimeOptions(GoogleGenAiChatOptions.builder().model(modelId), runtimeOptions);
+    applyGoogleGenAiRuntimeOptions(builder, runtimeOptions);
+    // Google client uses the apiKey bound to the Client instance; header not needed here.
+    return builder.build();
+  }
+
+  private void applyGoogleGenAiRuntimeOptions(
+      GoogleGenAiChatOptions.Builder builder, ChatRuntimeOptions runtimeOptions) {
+    if (runtimeOptions == null) {
+      return;
+    }
+    if (runtimeOptions.thinkingBudget() != null && runtimeOptions.thinkingLevel() != null) {
+      throw new IllegalArgumentException(
+          "thinkingBudget and thinkingLevel cannot be used together");
+    }
+    if (runtimeOptions.thinkingBudget() != null) {
+      builder.thinkingBudget(runtimeOptions.thinkingBudget());
+    }
+    if (runtimeOptions.thinkingLevel() != null) {
+      builder.thinkingLevel(runtimeOptions.thinkingLevel());
+    }
+    if (runtimeOptions.includeThoughts() != null) {
+      builder.includeThoughts(runtimeOptions.includeThoughts());
+    }
+    if (runtimeOptions.googleSearchRetrieval() != null) {
+      builder.googleSearchRetrieval(runtimeOptions.googleSearchRetrieval());
+    }
+    if (runtimeOptions.includeServerSideToolInvocations() != null) {
+      builder.includeServerSideToolInvocations(
+          runtimeOptions.includeServerSideToolInvocations());
+    }
+  }
+
+  private AnthropicChatOptions anthropicOptions(
+      String modelId, ChatRuntimeOptions runtimeOptions) {
+    AnthropicChatOptions.Builder builder =
+        applyRuntimeOptions(AnthropicChatOptions.builder().model(modelId), runtimeOptions);
+    applyAnthropicRuntimeOptions(builder, runtimeOptions);
+    return builder.build();
+  }
+
+  private void applyAnthropicRuntimeOptions(
+      AnthropicChatOptions.Builder builder, ChatRuntimeOptions runtimeOptions) {
+    if (runtimeOptions == null || runtimeOptions.thinkingBudget() == null) {
+      return;
+    }
+    if (Boolean.TRUE.equals(runtimeOptions.includeThoughts())) {
+      builder.thinkingEnabled(
+          runtimeOptions.thinkingBudget(),
+          com.anthropic.models.messages.ThinkingConfigEnabled.Display.SUMMARIZED);
+      return;
+    }
+    if (Boolean.FALSE.equals(runtimeOptions.includeThoughts())) {
+      builder.thinkingEnabled(
+          runtimeOptions.thinkingBudget(),
+          com.anthropic.models.messages.ThinkingConfigEnabled.Display.OMITTED);
+      return;
+    }
+    builder.thinkingEnabled(runtimeOptions.thinkingBudget());
   }
 
   HttpOptions buildGoogleHttpOptions() {

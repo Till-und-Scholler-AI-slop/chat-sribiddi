@@ -54,12 +54,6 @@ public class CalculatorTool implements ChatTool {
   }
 
   @Override
-  public String getDescription() {
-    return "Evaluate arithmetic expressions. Supports +, -, *, /, ^, parentheses, modulo (%), "
-        + "and decimal numbers. Use this tool when the user asks you to calculate something.";
-  }
-
-  @Override
   public ToolResult execute(String userId, Map<String, Object> parameters) {
     String expression =
         parameters != null && parameters.containsKey("expression")

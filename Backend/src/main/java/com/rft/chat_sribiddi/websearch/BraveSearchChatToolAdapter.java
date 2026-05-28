@@ -1,6 +1,7 @@
 package com.rft.chat_sribiddi.websearch;
 
 import com.rft.chat_sribiddi.tools.api.ChatTool;
+import com.rft.chat_sribiddi.tools.api.SpringAiToolMetadata;
 import com.rft.chat_sribiddi.tools.api.ToolResult;
 import java.util.Map;
 
@@ -30,8 +31,8 @@ public class BraveSearchChatToolAdapter implements ChatTool {
 
   @Override
   public String getDescription() {
-    return "Search the web for current information using Brave Search API. "
-        + "Requires a Brave Search API key in your keyring.";
+    return SpringAiToolMetadata.description(delegate)
+        .orElseGet(() -> ChatTool.super.getDescription());
   }
 
   @Override

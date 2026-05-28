@@ -6,11 +6,7 @@ import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedBraveSearchTool;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedCalculatorTool;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedCurrentDateTimeTool;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedPythonInterpreterTool;
-import com.rft.chat_sribiddi.chat.toolcall.LoggedUrlFetcherTool;
+import com.rft.chat_sribiddi.chat.toolcall.RecordingToolCallback;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.tools.CalculatorTool;
@@ -22,6 +18,8 @@ import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.websearch.BraveSearchTool;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.net.http.HttpClient;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -32,6 +30,8 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.support.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -78,6 +78,7 @@ public class PromptToolBinder {
       return;
     }
 
+    List<ToolCallback> toolCallbacks = new ArrayList<>();
     Map<String, Boolean> enabledByToolName = null;
     for (ChatTool tool : toolRegistry.getAll()) {
       if (!isToolAllowed(tool, userId, entitlements)) {
@@ -95,7 +96,10 @@ public class PromptToolBinder {
             tool.getName());
         continue;
       }
-      bindTool(chatId, userId, webSearchEnabled, collector, promptSpec, tool);
+      toolCallbacks.addAll(resolveToolCallbacks(userId, webSearchEnabled, collector, tool));
+    }
+    if (!toolCallbacks.isEmpty()) {
+      promptSpec.tools(toolSpec -> toolSpec.callbacks(toolCallbacks.toArray(ToolCallback[]::new)));
     }
   }
 
@@ -125,29 +129,46 @@ public class PromptToolBinder {
                     && tool.riskLevel().name().equalsIgnoreCase(consent.riskLevel()));
   }
 
-  private void bindTool(
-      UUID chatId,
+  private List<ToolCallback> resolveToolCallbacks(
       String userId,
       Boolean webSearchEnabled,
       ToolExecutionCollector collector,
-      ChatClient.ChatClientRequestSpec promptSpec,
       ChatTool tool) {
-    switch (tool.getName()) {
+    return switch (tool.getName()) {
       case "current-datetime" ->
-          promptSpec.tools(new LoggedCurrentDateTimeTool(currentDateTimeTool, collector));
+          toolCallbacks(currentDateTimeTool, collector);
       case "brave-search" -> {
         if (Boolean.TRUE.equals(webSearchEnabled)) {
-          resolveWebSearchTool(userId)
-              .map(t -> new LoggedBraveSearchTool(t, collector))
-              .ifPresent(promptSpec::tools);
+          yield resolveWebSearchTool(userId)
+              .map(t -> toolCallbacks(t, collector))
+              .orElseGet(List::of);
         }
+        yield List.of();
       }
-      case "calculator" -> promptSpec.tools(new LoggedCalculatorTool(calculatorTool, collector));
-      case "url-fetcher" -> promptSpec.tools(new LoggedUrlFetcherTool(urlFetcherTool, collector));
+      case "calculator" -> toolCallbacks(calculatorTool, collector);
+      case "url-fetcher" -> toolCallbacks(urlFetcherTool, collector);
       case "python-interpreter" ->
-          promptSpec.tools(new LoggedPythonInterpreterTool(pythonInterpreterTool, collector));
-      default -> promptSpec.tools(tool);
+          toolCallbacks(pythonInterpreterTool, collector);
+      default -> toolCallbacks(tool, collector);
+    };
+  }
+
+  private List<ToolCallback> toolCallbacks(Object toolObject, ToolExecutionCollector collector) {
+    ToolCallback[] callbacks = ToolCallbacks.from(toolObject);
+    if (callbacks.length == 0) {
+      log.warn("Tool object {} did not expose any Spring AI ToolCallback", toolObject.getClass());
+      return List.of();
     }
+    return Arrays.stream(callbacks)
+        .map(callback -> recordingCallback(toolObject, callback, collector))
+        .toList();
+  }
+
+  private ToolCallback recordingCallback(
+      Object toolObject, ToolCallback callback, ToolExecutionCollector collector) {
+    String recordedToolName =
+        toolObject.getClass().getSimpleName() + "." + callback.getToolDefinition().name();
+    return new RecordingToolCallback(callback, recordedToolName, collector);
   }
 
   private Optional<BraveSearchTool> resolveWebSearchTool(String userId) {

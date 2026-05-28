@@ -41,11 +41,6 @@ public class CurrentDateTimeTool implements ChatTool {
   }
 
   @Override
-  public String getDescription() {
-    return "Returns the current date and time in the server's time zone.";
-  }
-
-  @Override
   public ToolResult execute(String userId, Map<String, Object> parameters) {
     return ToolResult.success(getCurrentDateTime());
   }

@@ -1,5 +1,6 @@
 package com.rft.chat_sribiddi.chat.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rft.chat_sribiddi.auth.Plan;
@@ -37,6 +38,26 @@ class MediaValidationServiceTest {
                     entitlements(5, 1024, 2048)))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("not valid base64");
+  }
+
+  @Test
+  void validateAndConvertAttachments_returnsSpringAiMediaPayload() {
+    MediaValidationService service = new MediaValidationService(new ChatProperties());
+
+    var validated =
+        service.validateAndConvertAttachments(
+            List.of(validAttachment("hello")), entitlements(5, 1024, 2048));
+
+    assertThat(validated).hasSize(1);
+    assertThat(validated.getFirst().mimeType()).isEqualTo("image/png");
+    assertThat(validated.getFirst().sizeBytes()).isEqualTo(5);
+    assertThat(service.mediaPayload(validated))
+        .singleElement()
+        .satisfies(
+            media -> {
+              assertThat(media.getMimeType().toString()).isEqualTo("image/png");
+              assertThat(media.getDataAsByteArray()).containsExactly("hello".getBytes());
+            });
   }
 
   private static MediaAttachment validAttachment(String data) {

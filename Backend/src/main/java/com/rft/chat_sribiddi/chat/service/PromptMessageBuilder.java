@@ -2,18 +2,20 @@ package com.rft.chat_sribiddi.chat.service;
 
 import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
-import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.ai.content.Media;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.document.Document;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
@@ -30,14 +32,28 @@ public class PromptMessageBuilder {
 
   private static final String USER_INSTRUCTION_PREFIX =
       "System instructions for this conversation. Follow them when responding.\n\n";
-  private static final String DOCUMENT_CONTEXT_PREFIX =
-      "Use these retrieved document excerpts as context when they are relevant. If the excerpts do not contain the answer, say so instead of inventing details.\n\n";
 
   private final MessageRepository messageRepository;
   private final ChatProperties chatProperties;
-  private final MediaValidationService mediaValidationService;
 
   List<Message> build(PromptMessageRequest request) {
+    return buildMessages(request, true);
+  }
+
+  PromptMessageBatch buildBatch(PromptMessageRequest request) {
+    List<Message> advisorMessages = buildMessages(request, false);
+    if (PromptMessageBatch.canUseAdvisors(advisorMessages, request.targetUserMessageId())) {
+      return PromptMessageBatch.from(
+          advisorMessages, request.targetUserMessageId(), request.retrievedDocuments());
+    }
+    List<Message> combinedMessages =
+        hasDocumentContext(request.retrievedDocuments())
+            ? buildMessages(request, true)
+            : advisorMessages;
+    return PromptMessageBatch.combined(combinedMessages);
+  }
+
+  private List<Message> buildMessages(PromptMessageRequest request, boolean inlineDocumentContext) {
     List<MessageEntity> latestMessages =
         new ArrayList<>(
             messageRepository.findByChatIdOrderByCreatedAtDesc(
@@ -53,15 +69,22 @@ public class PromptMessageBuilder {
 
     List<MessageEntity> ordered = latestMessages.reversed();
     for (MessageEntity entity : ordered) {
-      if ((!request.mediaAttachments().isEmpty() || hasDocumentContext(request.documentContext()))
+      if ((!request.media().isEmpty()
+              || (inlineDocumentContext && hasDocumentContext(request.retrievedDocuments())))
           && request.targetUserMessageId() != null
           && entity.getRole() == Role.USER
           && request.targetUserMessageId().equals(entity.getId())) {
+        String text =
+            inlineDocumentContext
+                ? DocumentContextFormatter.withDocumentContext(
+                    entity.getMessage(), request.retrievedDocuments())
+                : entity.getMessage();
         messages.add(
             toUserMessage(
-                withDocumentContext(entity.getMessage(), request.documentContext()),
-                request.mediaAttachments(),
-                request.entitlements()));
+                text,
+                request.media(),
+                request.entitlements(),
+                entity.getId()));
         continue;
       }
       messages.add(toChatMessage(entity));
@@ -70,6 +93,16 @@ public class PromptMessageBuilder {
   }
 
   List<Message> buildStateless(StatelessPromptMessageRequest request) {
+    return buildStatelessMessages(request, true);
+  }
+
+  PromptMessageBatch buildStatelessBatch(StatelessPromptMessageRequest request) {
+    List<Message> advisorMessages = buildStatelessMessages(request, false);
+    return PromptMessageBatch.from(advisorMessages, null, request.retrievedDocuments());
+  }
+
+  private List<Message> buildStatelessMessages(
+      StatelessPromptMessageRequest request, boolean inlineDocumentContext) {
     List<Message> messages = new ArrayList<>();
     String instructionContent = instructionContent(request.customInstructions());
     if (supportsSystemInstruction(request.provider(), request.modelId())) {
@@ -95,12 +128,17 @@ public class PromptMessageBuilder {
       boolean isCurrent = i == limited.size() - 1;
       if (isCurrent
           && item.role() == Role.USER
-          && (!request.mediaAttachments().isEmpty()
-              || hasDocumentContext(request.documentContext()))) {
+          && (!request.media().isEmpty()
+              || (inlineDocumentContext && hasDocumentContext(request.retrievedDocuments())))) {
+        String text =
+            inlineDocumentContext
+                ? DocumentContextFormatter.withDocumentContext(
+                    item.content(), request.retrievedDocuments())
+                : item.content();
         messages.add(
             toUserMessage(
-                withDocumentContext(item.content(), request.documentContext()),
-                request.mediaAttachments(),
+                text,
+                request.media(),
                 request.entitlements()));
       } else {
         messages.add(toChatMessage(item.role(), item.content()));
@@ -137,7 +175,19 @@ public class PromptMessageBuilder {
   }
 
   private Message toChatMessage(MessageEntity entity) {
-    return toChatMessage(entity.getRole(), entity.getMessage());
+    return switch (entity.getRole()) {
+      case ASSISTANT ->
+          AssistantMessage.builder()
+              .content(entity.getMessage())
+              .properties(sourceMessageMetadata(entity.getId()))
+              .build();
+      case SYSTEM ->
+          SystemMessage.builder()
+              .text(entity.getMessage())
+              .metadata(sourceMessageMetadata(entity.getId()))
+              .build();
+      default -> toUserMessage(entity);
+    };
   }
 
   private Message toChatMessage(Role role, String text) {
@@ -149,48 +199,138 @@ public class PromptMessageBuilder {
   }
 
   private UserMessage toUserMessage(
-      MessageEntity entity, List<MediaAttachment> mediaAttachments, Entitlements entitlements) {
-    return toUserMessage(entity.getMessage(), mediaAttachments, entitlements);
+      MessageEntity entity, List<Media> media, Entitlements entitlements) {
+    return toUserMessage(entity.getMessage(), media, entitlements, entity.getId());
+  }
+
+  private UserMessage toUserMessage(MessageEntity entity) {
+    return toUserMessage(entity.getMessage(), List.of(), null, entity.getId());
   }
 
   private UserMessage toUserMessage(
-      String text, List<MediaAttachment> mediaAttachments, Entitlements entitlements) {
+      String text, List<Media> media, Entitlements entitlements) {
+    return toUserMessage(text, media, entitlements, null);
+  }
+
+  private UserMessage toUserMessage(
+      String text,
+      List<Media> media,
+      Entitlements entitlements,
+      Long sourceMessageId) {
     return UserMessage.builder()
         .text(text)
-        .media(mediaValidationService.toMediaPayload(mediaAttachments, entitlements))
+        .media(media == null ? List.of() : media)
+        .metadata(sourceMessageMetadata(sourceMessageId))
         .build();
   }
 
-  private String withDocumentContext(String text, String documentContext) {
-    if (!hasDocumentContext(documentContext)) {
-      return text;
-    }
-    return DOCUMENT_CONTEXT_PREFIX + documentContext.trim() + "\n\nUser request:\n" + text;
+  private Map<String, Object> sourceMessageMetadata(Long sourceMessageId) {
+    return sourceMessageId == null ? Map.of() : Map.of("sourceMessageId", sourceMessageId);
   }
 
-  private boolean hasDocumentContext(String documentContext) {
-    return documentContext != null && !documentContext.isBlank();
+  private boolean hasDocumentContext(List<Document> retrievedDocuments) {
+    return retrievedDocuments != null
+        && retrievedDocuments.stream()
+            .anyMatch(
+                document ->
+                    document != null
+                        && document.getText() != null
+                        && !document.getText().isBlank());
   }
 
   record PromptMessageRequest(
       UUID chatId,
-      List<MediaAttachment> mediaAttachments,
+      List<Media> media,
       Long targetUserMessageId,
       String customInstructions,
       RequestDTO.Provider provider,
       String modelId,
       Entitlements entitlements,
-      String documentContext) {}
+      List<Document> retrievedDocuments) {}
 
   record StatelessPromptMessageRequest(
       List<StatelessChatMessage> history,
       String currentContent,
-      List<MediaAttachment> mediaAttachments,
+      List<Media> media,
       String customInstructions,
       RequestDTO.Provider provider,
       String modelId,
       Entitlements entitlements,
-      String documentContext) {}
+      List<Document> retrievedDocuments) {}
 
   record StatelessChatMessage(Role role, String content) {}
+
+  record PromptMessageBatch(
+      List<Message> requestMessages,
+      List<Message> historyMessages,
+      List<Document> retrievedDocuments,
+      int totalMessageCount) {
+
+    private static PromptMessageBatch from(
+        List<Message> messages, Long targetUserMessageId, List<Document> retrievedDocuments) {
+      if (messages.size() <= 2) {
+        return new PromptMessageBatch(
+            List.copyOf(messages),
+            List.of(),
+            normalizedRetrievedDocuments(retrievedDocuments),
+            messages.size());
+      }
+      List<Message> requestMessages =
+          List.of(messages.getFirst(), messages.getLast());
+      List<Message> historyMessages =
+          List.copyOf(messages.subList(1, messages.size() - 1));
+      return new PromptMessageBatch(
+          requestMessages,
+          historyMessages,
+          normalizedRetrievedDocuments(retrievedDocuments),
+          messages.size());
+    }
+
+    private static PromptMessageBatch combined(List<Message> messages) {
+      return new PromptMessageBatch(List.copyOf(messages), List.of(), List.of(), messages.size());
+    }
+
+    private static boolean canUseAdvisors(List<Message> messages, Long targetUserMessageId) {
+      return targetUserMessageId == null
+          || (!messages.isEmpty() && isTargetUserMessageLast(messages, targetUserMessageId));
+    }
+
+    List<Message> combinedMessages() {
+      if (historyMessages.isEmpty()) {
+        return requestMessages;
+      }
+      List<Message> combined = new ArrayList<>(totalMessageCount);
+      combined.add(requestMessages.getFirst());
+      combined.addAll(historyMessages);
+      combined.add(requestMessages.getLast());
+      return combined;
+    }
+
+    boolean hasDocumentContext() {
+      return !retrievedDocuments.isEmpty();
+    }
+
+    private static List<Document> normalizedRetrievedDocuments(List<Document> retrievedDocuments) {
+      if (retrievedDocuments == null || retrievedDocuments.isEmpty()) {
+        return List.of();
+      }
+      return List.copyOf(
+          retrievedDocuments.stream()
+              .filter(
+                  document ->
+                      document != null
+                          && document.getText() != null
+                          && !document.getText().isBlank())
+              .toList());
+    }
+
+    private static boolean isTargetUserMessageLast(List<Message> messages, Long targetUserMessageId) {
+      Message last = messages.getLast();
+      if (!(last instanceof UserMessage userMessage)) {
+        return false;
+      }
+      Object sourceMessageId = userMessage.getMetadata().get("sourceMessageId");
+      return targetUserMessageId.equals(sourceMessageId);
+    }
+  }
 }

@@ -1,11 +1,13 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import java.io.IOException;
-import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.text.PDFTextStripper;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.reader.ExtractedTextFormatter;
+import org.springframework.ai.reader.TextReader;
+import org.springframework.ai.reader.pdf.PagePdfDocumentReader;
+import org.springframework.ai.reader.pdf.config.PdfDocumentReaderConfig;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -17,7 +19,7 @@ public class DocumentTextExtractor {
       return extractPdf(data);
     }
     if (isTextMimeType(normalized)) {
-      return List.of(new PageText(null, normalizeText(new String(data, java.nio.charset.StandardCharsets.UTF_8))));
+      return extractText(data);
     }
     throw new IllegalArgumentException("Unsupported document type: " + mimeType);
   }
@@ -28,24 +30,56 @@ public class DocumentTextExtractor {
   }
 
   private List<PageText> extractPdf(byte[] data) {
-    try (PDDocument document = Loader.loadPDF(data)) {
-      if (document.isEncrypted()) {
-        throw new IllegalArgumentException("Encrypted PDFs are not supported");
-      }
-      PDFTextStripper stripper = new PDFTextStripper();
-      List<PageText> pages = new ArrayList<>();
-      for (int page = 1; page <= document.getNumberOfPages(); page++) {
-        stripper.setStartPage(page);
-        stripper.setEndPage(page);
-        String text = normalizeText(stripper.getText(document));
-        if (!text.isBlank()) {
-          pages.add(new PageText(page, text));
-        }
-      }
-      return pages;
-    } catch (IOException e) {
+    try {
+      PdfDocumentReaderConfig config =
+          PdfDocumentReaderConfig.builder()
+              .withPagesPerDocument(1)
+              .withPageTopMargin(0)
+              .withPageBottomMargin(0)
+              .withPageExtractedTextFormatter(
+                  ExtractedTextFormatter.builder()
+                      .withNumberOfTopTextLinesToDelete(0)
+                      .build())
+              .build();
+      PagePdfDocumentReader reader =
+          new PagePdfDocumentReader(new ByteArrayResource(data), config);
+      return reader.read().stream()
+          .map(
+              document ->
+                  new PageText(
+                      pageMetadata(document, PagePdfDocumentReader.METADATA_START_PAGE_NUMBER),
+                      normalizePdfText(document.getText())))
+          .filter(page -> !page.text().isBlank())
+          .toList();
+    } catch (RuntimeException e) {
       throw new IllegalArgumentException("PDF could not be read", e);
     }
+  }
+
+  private static Integer pageMetadata(Document document, String key) {
+    Object value = document.getMetadata().get(key);
+    if (value instanceof Number number) {
+      return number.intValue();
+    }
+    if (value instanceof String string && !string.isBlank()) {
+      try {
+        return Integer.parseInt(string);
+      } catch (NumberFormatException ignored) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  private List<PageText> extractText(byte[] data) {
+    TextReader reader = new TextReader(new ByteArrayResource(data));
+    reader.setCharset(StandardCharsets.UTF_8);
+    return reader.get().stream()
+        .map(Document::getText)
+        .map(DocumentTextExtractor::normalizeText)
+        .filter(text -> !text.isBlank())
+        .map(text -> new PageText(null, text))
+        .toList();
   }
 
   private static boolean isTextMimeType(String mimeType) {
@@ -66,6 +100,10 @@ public class DocumentTextExtractor {
 
   private static String normalizeText(String text) {
     return text == null ? "" : text.replace("\r\n", "\n").replace('\r', '\n').trim();
+  }
+
+  private static String normalizePdfText(String text) {
+    return normalizeText(text).replaceAll("[ \\t\\x0B\\f]{2,}", " ");
   }
 
   public record PageText(Integer page, String text) {}
