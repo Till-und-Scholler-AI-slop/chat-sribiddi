@@ -542,9 +542,9 @@ const handleReload = async () => {
     data-testid="chat-page"
     :data-ready="chatReady ? 'true' : 'false'"
   >
-  <UDashboardPanel class="h-full min-h-0 flex flex-col">
+  <UDashboardPanel class="h-full min-h-0 flex flex-col" :ui="{ body: 'p-2 sm:p-6' }">
     <template #body>
-      <UContainer class="py-4 space-y-4 flex-1 min-h-0 overflow-hidden flex flex-col">
+      <UContainer class="px-2 sm:px-6 lg:px-8 py-4 space-y-4 flex-1 min-h-0 overflow-hidden flex flex-col">
         <UAlert
           v-if="showUpgradeBanner"
           color="primary"
@@ -592,7 +592,7 @@ const handleReload = async () => {
 
         <div v-else class="space-y-4 flex-1 min-h-0 flex flex-col">
           <div class="flex-1 min-h-0">
-            <UCard class="h-full" :ui="{ root: 'bg-transparent ring-0 divide-y-0', body: 'h-full overflow-hidden' }">
+            <UCard class="h-full" :ui="{ root: 'bg-transparent ring-0 divide-y-0', body: 'h-full overflow-hidden p-1 sm:p-6' }">
               <div ref="messagesContainer" class="h-full overflow-y-auto scrollbar-thin">
                 <UChatMessages
                   class="h-full"
@@ -724,7 +724,7 @@ const handleReload = async () => {
     <template #footer>
       <div class="relative">
 
-        <UContainer class="pb-4 sm:pb-6 space-y-2">
+        <UContainer class="px-2 sm:px-6 lg:px-8 pb-2 sm:pb-6 space-y-2">
           <input
             ref="fileInput"
             type="file"

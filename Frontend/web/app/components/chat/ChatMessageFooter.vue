@@ -23,20 +23,20 @@ defineProps<Props>()
     v-if="usage || timestamp"
     class="flex items-center gap-2.5 mt-2.5 text-[11px] text-gray-400 dark:text-gray-500 flex-wrap"
   >
-    <span v-if="usage?.promptTokens != null" class="inline-flex items-center gap-1">
+    <span v-if="usage?.promptTokens != null" class="hidden sm:inline-flex items-center gap-1">
       <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
       {{ formatTokenCount(usage.promptTokens) }}
     </span>
-    <span v-if="usage?.generationTokens != null" class="inline-flex items-center gap-1">
+    <span v-if="usage?.generationTokens != null" class="hidden sm:inline-flex items-center gap-1">
       <UIcon name="i-heroicons-arrow-down-tray" class="size-3" />
       {{ formatTokenCount(usage.generationTokens) }}
     </span>
-    <span v-if="usage?.totalTokens != null" class="inline-flex items-center gap-1">
+    <span v-if="usage?.totalTokens != null" class="hidden sm:inline-flex items-center gap-1">
       {{ formatTokenCount(usage.totalTokens) }} {{ t('chat.tokenSuffix') }}
     </span>
     <span
       v-if="cost"
-      class="inline-flex items-center gap-1 text-emerald-600/80 dark:text-emerald-400/60"
+      class="hidden sm:inline-flex items-center gap-1 text-emerald-600/80 dark:text-emerald-400/60"
     >
       {{ formatCost(cost.totalCost) }}
     </span>

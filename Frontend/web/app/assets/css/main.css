@@ -789,4 +789,9 @@ body {
   .msg-actions {
     display: none;
   }
+
+  /* Allow user messages to use more width on mobile */
+  [data-side="right"] .max-w-\[75\%\] {
+    max-width: 90% !important;
+  }
 }
