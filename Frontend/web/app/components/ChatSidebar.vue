@@ -356,7 +356,7 @@ const planBadgeLabel = computed<string>(() => {
 
             <div v-else class="group flex items-center gap-1 p-1">
               <button
-                class="flex-1 rounded-md text-left px-2 py-2 flex items-center gap-2 min-w-0"
+                class="flex-1 rounded-md text-left px-2 py-2.5 sm:py-2 flex items-center gap-2 min-w-0 btn-interactive"
                 @click="handleSelect(conversation.session.chatId)"
               >
                 <span v-if="!collapsed" class="truncate text-sm">
@@ -364,7 +364,7 @@ const planBadgeLabel = computed<string>(() => {
                 </span>
               </button>
 
-              <div v-if="!collapsed" class="flex items-center gap-1 pr-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div v-if="!collapsed" class="flex items-center gap-1 pr-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                 <UButton
                   size="xs"
                   variant="ghost"

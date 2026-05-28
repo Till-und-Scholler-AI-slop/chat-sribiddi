@@ -1,8 +1,9 @@
 <script setup lang="ts">
 const route = useRoute()
+const { t } = useI18n()
+const isMobile = useIsMobile()
 
 const isCollapsed = ref(false)
-const isMobile = ref(false)
 const sidebarOpen = ref(false)
 
 function toggleSidebar() {
@@ -19,19 +20,11 @@ function closeSidebar() {
   }
 }
 
-onMounted(() => {
-  const mediaQuery = window.matchMedia('(max-width: 768px)')
-  isMobile.value = mediaQuery.matches
-  
-  const handler = (e: MediaQueryListEvent) => {
-    isMobile.value = e.matches
-    if (!e.matches) {
-      sidebarOpen.value = false
-    }
+watch(isMobile, (mobile) => {
+  if (!mobile) {
+    sidebarOpen.value = false
+    isCollapsed.value = false
   }
-  
-  mediaQuery.addEventListener('change', handler)
-  onUnmounted(() => mediaQuery.removeEventListener('change', handler))
 })
 
 watch(() => route.path, () => {
@@ -39,10 +32,22 @@ watch(() => route.path, () => {
     sidebarOpen.value = false
   }
 })
+
+const mobileHeaderTitle = computed(() => {
+  const path = route.path
+  if (path.startsWith('/chat')) return t('sidebar.chatsTitle')
+  if (path.startsWith('/settings')) return t('settings.title')
+  if (path.startsWith('/models')) return t('sidebar.models')
+  if (path.startsWith('/compare')) return t('sidebar.compare')
+  if (path.startsWith('/usage')) return t('sidebar.usage')
+  if (path.startsWith('/billing')) return t('billing.title')
+  if (path.startsWith('/pricing')) return t('billing.pricing')
+  return ''
+})
 </script>
 
 <template>
-  <div class="h-dvh w-dvw overflow-hidden bg-chat-gradient">
+  <div class="h-dvh w-dvw overflow-hidden bg-chat-gradient" style="padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right)">
     <div 
       class="grid h-full min-h-0 transition-[grid-template-columns] duration-200 ease-out" 
       :class="[
@@ -53,7 +58,9 @@ watch(() => route.path, () => {
       <div
         v-if="isMobile && sidebarOpen"
         class="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity"
+        style="top: env(safe-area-inset-top); bottom: env(safe-area-inset-bottom)"
         @click="closeSidebar"
+        @touchmove.prevent
       />
 
       <!-- Sidebar -->
@@ -63,6 +70,7 @@ watch(() => route.path, () => {
           isMobile ? 'fixed inset-y-0 left-0 z-50 w-[280px]' : '',
           isMobile && !sidebarOpen ? '-translate-x-full' : 'translate-x-0'
         ]"
+        :style="isMobile ? 'padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom)' : ''"
       >
         <ChatSidebar :collapsed="isMobile ? false : isCollapsed" @toggle="toggleSidebar" @close="closeSidebar" />
       </aside>
@@ -73,6 +81,7 @@ watch(() => route.path, () => {
         <div
           v-if="isMobile"
           class="sticky top-0 z-30 flex items-center gap-3 px-3 py-2 glass-surface border-b border-gray-200/60 dark:border-white/[0.06]"
+          style="padding-top: max(0.5rem, env(safe-area-inset-top))"
         >
           <UButton
             variant="ghost"
@@ -81,6 +90,9 @@ watch(() => route.path, () => {
             class="btn-interactive"
             @click="toggleSidebar"
           />
+          <span class="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+            {{ mobileHeaderTitle }}
+          </span>
         </div>
         <slot />
       </main>

@@ -62,4 +62,21 @@ defineEmits<{ toggle: [] }>()
   color: var(--ink-2);
   border-top: 1px solid var(--hair-2);
 }
+
+@media (max-width: 768px) {
+  .reasoning-block {
+    margin-bottom: 0.5rem;
+    border-radius: 0.625rem;
+  }
+
+  .reasoning-trigger {
+    padding: 0.375rem 0.625rem;
+    font-size: 0.6875rem;
+  }
+
+  .reasoning-body {
+    padding: 0.5rem 0.625rem 0.5rem;
+    font-size: 0.75rem;
+  }
+}
 </style>

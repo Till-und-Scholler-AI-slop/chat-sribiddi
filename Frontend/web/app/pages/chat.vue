@@ -4,6 +4,7 @@ import { isModelLocked } from '~/composables/useChatApi'
 import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/chat-helpers'
 
 const { t } = useI18n()
+const isMobile = useIsMobile()
 const tt = useTranslatedError()
 
 definePageMeta({
@@ -832,7 +833,7 @@ const handleReload = async () => {
                   :color="webSearchEnabled ? 'primary' : 'neutral'"
                   :variant="webSearchEnabled ? 'soft' : 'outline'"
                   size="md"
-                  label="Web"
+                  :label="isMobile ? '' : 'Web'"
                   :aria-pressed="webSearchEnabled"
                   :aria-label="webSearchEnabled ? t('chat.webSearchDisable') : t('chat.webSearchEnable')"
                   class="btn-interactive web-toggle"
