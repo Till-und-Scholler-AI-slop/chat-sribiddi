@@ -456,8 +456,8 @@ async function handleSubmit() {
       try {
         const uploaded = await uploadDocument(conversation.session.chatId, document.file)
         uploadedDocuments.push({
-          mimeType: uploaded.mimeType || document.mimeType,
-          name: uploaded.filename || document.name
+          mimeType: uploaded?.mimeType || document.mimeType,
+          name: uploaded?.filename || document.name
         })
       } catch (err) {
         toast.add({

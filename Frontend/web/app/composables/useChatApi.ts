@@ -375,7 +375,11 @@ export function useChatApi() {
     if (response.status === 204) {
       return null as T
     }
-    return (await response.json()) as T
+    const raw = await response.text()
+    if (!raw.trim()) {
+      return null as T
+    }
+    return JSON.parse(raw) as T
   }
 
   const createChat = async (input: CreateChatInput = {}) => {
@@ -409,7 +413,7 @@ export function useChatApi() {
   const uploadDocument = async (chatId: string, file: File) => {
     const formData = new FormData()
     formData.append('file', file)
-    return requestForm<ChatDocument>(`/chats/${chatId}/documents`, formData, { method: 'POST' })
+    return requestForm<ChatDocument | null>(`/chats/${chatId}/documents`, formData, { method: 'POST' })
   }
 
   const fetchDocuments = async (chatId: string) => {

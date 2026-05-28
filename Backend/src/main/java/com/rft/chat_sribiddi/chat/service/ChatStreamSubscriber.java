@@ -206,9 +206,30 @@ public class ChatStreamSubscriber {
       AtomicReference<Usage> lastUsage,
       ChatMetrics.StreamSample streamSample) {
     AtomicReference<Long> savedMessageId = new AtomicReference<>();
+    boolean streamCompletedSuccessfully = false;
     ProviderClientHandle clientHandle = subscription.clientHandle();
     try (clientHandle) {
       String assistantResponse = fullText.toString();
+      if (assistantResponse.isBlank()) {
+        subscription.quotaReservation().rollback();
+        subscription.emitter().send(
+            SseEmitter.event()
+                .name(EVENT_ERROR)
+                .data(
+                    new StreamEventDTO(
+                        EVENT_ERROR,
+                        "The provider returned an empty response. Please try again or switch models.",
+                        null, null, null, null, null, null,
+                        subscription.provider().name(),
+                        subscription.modelId(),
+                        null,
+                        "EMPTY_RESPONSE",
+                        0L,
+                        true),
+                    MediaType.APPLICATION_JSON));
+        subscription.emitter().complete();
+        return;
+      }
       TokenUsage tokenUsage = chatUsageRecorder.tokenUsage(lastUsage.get());
 
       MessageEntity assistantMessage = new MessageEntity();
@@ -261,6 +282,7 @@ public class ChatStreamSubscriber {
                       null),
                   MediaType.APPLICATION_JSON));
       subscription.quotaReservation().commit();
+      streamCompletedSuccessfully = true;
       subscription.emitter().complete();
     } catch (IOException e) {
       log.warn("Failed to send SSE done event", e);
@@ -277,7 +299,7 @@ public class ChatStreamSubscriber {
               savedMessageId.get(),
               subscription.billingMode(),
               subscription.plan(),
-              true));
+              streamCompletedSuccessfully));
       chatMetrics.recordStreamEnd(streamSample);
     }
   }
