@@ -51,10 +51,10 @@ const providerSlug: Record<Provider, string> = {
 
 const providerFilters = computed(() => [
   { label: t('models.providerFilterAllShort'), value: 'ALL' as const },
-  { label: providerLabels.CLAUDE, value: 'CLAUDE' as const },
-  { label: providerLabels.OPENAI, value: 'OPENAI' as const },
-  { label: providerLabels.GOOGLE, value: 'GOOGLE' as const },
-  { label: providerLabels.OPENROUTER, value: 'OPENROUTER' as const }
+  { label: PROVIDER_LABELS.CLAUDE, value: 'CLAUDE' as const },
+  { label: PROVIDER_LABELS.OPENAI, value: 'OPENAI' as const },
+  { label: PROVIDER_LABELS.GOOGLE, value: 'GOOGLE' as const },
+  { label: PROVIDER_LABELS.OPENROUTER, value: 'OPENROUTER' as const }
 ])
 
 const normalizedSearchQuery = computed(() => searchQuery.value.trim().toLowerCase())
