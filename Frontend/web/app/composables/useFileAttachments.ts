@@ -1,8 +1,8 @@
-import type { DocumentAttachment, MediaAttachment } from '~/composables/useChatApi'
+import type { ChatDocument, DocumentAttachment, MediaAttachment } from '~/composables/useChatApi'
 
 type FileAttachmentOptions = {
   fileReadFailedMessage: (name: string) => string
-  onUploadFailed: (reason: unknown) => void
+  onUploadFailed: (reason: unknown, documentName?: string) => void
 }
 
 export function useFileAttachments(options: FileAttachmentOptions) {
@@ -148,6 +148,24 @@ export function useFileAttachments(options: FileAttachmentOptions) {
     removeAttachment,
     removeDocumentAttachment,
     processFileList,
-    handleFiles
+    handleFiles,
+    async uploadDocuments(
+      chatId: string,
+      uploadDocument: (chatId: string, file: File) => Promise<ChatDocument | null>
+    ): Promise<Array<{ mimeType: string; name?: string }>> {
+      const result: Array<{ mimeType: string; name?: string }> = []
+      for (const document of documentAttachments.value) {
+        try {
+          const uploaded = await uploadDocument(chatId, document.file)
+          result.push({
+            mimeType: uploaded?.mimeType || document.mimeType,
+            name: uploaded?.filename || document.name
+          })
+        } catch (err) {
+          options.onUploadFailed(err, document.name)
+        }
+      }
+      return result
+    }
   }
 }

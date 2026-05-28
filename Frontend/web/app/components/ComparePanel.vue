@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { ComparePanelState } from '~/composables/useCompareStore'
-import type { ModelOption, Provider } from '~/composables/useChatApi'
-import { isModelLocked } from '~/composables/useChatApi'
-import { calculateMessageCost, formatCost, formatRatePerMillion } from '~/composables/chat-helpers'
+import type { ModelOption } from '~/composables/useChatApi'
+import { calculateMessageCost, formatCost } from '~/composables/chat-helpers'
+import { formatTokenCount, PROVIDER_LABELS } from '~/utils/format'
 
 const props = defineProps<{
   panel: ComparePanelState
@@ -19,13 +19,6 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-
-const providerLabels: Record<Provider, string> = {
-  OPENAI: 'OpenAI',
-  GOOGLE: 'Google',
-  CLAUDE: 'Claude',
-  OPENROUTER: 'OpenRouter'
-}
 
 const selectedModel = computed<ModelOption | null>({
   get: () => props.panel.model,
@@ -51,16 +44,6 @@ const statusColor = computed<'neutral' | 'primary' | 'error'>(() => {
 })
 
 const panelCost = computed(() => calculateMessageCost(props.panel.usage, props.panel.model))
-
-const formatTokenCount = (count: number | null | undefined): string => {
-  if (count == null) return '—'
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`
-  return count.toLocaleString()
-}
-
-const optionPriceLabel = (option: ModelOption): string | null =>
-  formatRatePerMillion(option.promptPrice)
 
 const pricingSummary = computed(() => {
   const model = props.panel.model
@@ -112,38 +95,13 @@ const canDiscard = computed(() =>
             <UIcon name="i-heroicons-cpu-chip" />
           </template>
           <template #option="{ option }">
-            <div
-              class="flex min-w-0 w-full items-center justify-between gap-2"
-              :class="{ 'opacity-60': isModelLocked(option) }"
-            >
-              <span class="truncate">{{ option.label }}</span>
-              <div class="flex shrink-0 items-center gap-1">
-                <span
-                  v-if="optionPriceLabel(option)"
-                  class="text-[10px] text-emerald-600 dark:text-emerald-400"
-                >
-                  {{ optionPriceLabel(option) }}
-                </span>
-                <UTooltip v-if="isModelLocked(option)" :text="t('models.premiumRequired')">
-                  <UIcon
-                    name="i-heroicons-lock-closed"
-                    class="size-3.5 text-gray-500 dark:text-gray-400"
-                    :aria-label="t('models.premiumRequired')"
-                  />
-                </UTooltip>
-                <UBadge
-                  :label="providerLabels[option.provider]"
-                  variant="soft"
-                  color="neutral"
-                />
-              </div>
-            </div>
+            <ModelSelectOption :option="option" />
           </template>
         </USelectMenu>
 
         <div class="flex min-w-0 items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <span v-if="panel.model" class="truncate">
-            {{ providerLabels[panel.model.provider] }} · {{ panel.model.label }}
+            {{ PROVIDER_LABELS[panel.model.provider] }} · {{ panel.model.label }}
           </span>
           <span v-if="pricingSummary" class="inline-flex shrink-0 items-center gap-1">
             <UIcon name="i-heroicons-banknotes" class="size-3 text-emerald-500" />

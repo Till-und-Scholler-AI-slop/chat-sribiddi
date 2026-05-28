@@ -4,6 +4,8 @@ import { isModelLocked, PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { calculateMessageCost, resolveStreamOutcome } from '~/composables/chat-helpers'
 import { useUserSettings } from '~/composables/useUserSettings'
 import { chooseDefaultModel, resolveModelOption } from '~/composables/useModelStore'
+import { isAbortError } from '~/utils/model-utils'
+import { fetchAllProviderModels } from '~/utils/model-fetch'
 
 export const COMPARE_MIN_PANELS = 2
 export const COMPARE_MAX_PANELS = 6
@@ -64,14 +66,6 @@ function titleFromPrompt(prompt: string) {
 
 function errorToString(error: unknown) {
   return error instanceof Error ? error.message : String(error)
-}
-
-function isAbortError(error: unknown) {
-  if (error instanceof DOMException && error.name === 'AbortError') return true
-  return typeof error === 'object'
-    && error !== null
-    && 'name' in error
-    && String((error as { name?: unknown }).name) === 'AbortError'
 }
 
 export function useCompareStore() {
@@ -152,19 +146,10 @@ export function useCompareStore() {
     modelsLoading.value = true
     modelsLoadPromise = (async () => {
     try {
-      const results = await Promise.allSettled(
-        PROVIDERS.map(provider => fetchModels(provider, settings.value.expertMode))
+      const { models: loaded, errors } = await fetchAllProviderModels(
+        fetchModels,
+        settings.value.expertMode
       )
-      const loaded: ModelOption[] = []
-      const errors: string[] = []
-
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          loaded.push(...result.value)
-        } else {
-          errors.push(errorToString(result.reason))
-        }
-      }
 
       models.value = loaded
       modelsError.value = loaded.length === 0 && errors.length > 0 ? errors[0] : null

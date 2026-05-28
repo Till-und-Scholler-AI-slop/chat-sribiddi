@@ -1,12 +1,7 @@
 import type { ToolCallLog } from '~/composables/useChatApi'
 import { useChatApi } from '~/composables/useChatApi'
 import { parsePersistedMessageId } from '~/composables/chat-helpers'
-
-const rekeyStateEntry = <T>(map: Record<string, T>, oldId: string, newId: string) => {
-  if (oldId === newId || !(oldId in map)) return
-  map[newId] = map[oldId]
-  Reflect.deleteProperty(map, oldId)
-}
+import { rekeyStateEntry } from '~/utils/model-utils'
 
 export function useToolCallStore() {
   const { fetchMessageToolCalls } = useChatApi()

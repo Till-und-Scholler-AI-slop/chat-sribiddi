@@ -1,7 +1,7 @@
 import type { ChatStatus, UIMessage } from 'ai'
-import type { ModelOption, SendMessageResponse, TokenUsage, ToolCallLog } from '~/composables/useChatApi'
+import type { SendMessageResponse, TokenUsage, ToolCallLog } from '~/composables/useChatApi'
 
-export const favoriteModelKey = (model: ModelOption) => `${model.provider}:${model.value}`
+export { favoriteModelKey } from '~/utils/model-utils'
 
 export const messageId = () =>
   globalThis.crypto?.randomUUID?.() ||

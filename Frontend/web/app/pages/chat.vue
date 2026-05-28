@@ -2,6 +2,7 @@
 import type { ModelOption } from '~/composables/useChatApi'
 import { isModelLocked } from '~/composables/useChatApi'
 import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/chat-helpers'
+import { formatTokenCount, formatMimeType } from '~/utils/format'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()
@@ -57,13 +58,15 @@ const {
   clearAttachments,
   removeAttachment,
   removeDocumentAttachment,
-  handleFiles
+  handleFiles,
+  uploadDocuments
 } = useFileAttachments({
   fileReadFailedMessage: name => t('chat.fileReadFailed', { name }),
-  onUploadFailed: reason => {
+  onUploadFailed: (reason, documentName) => {
+    const desc = tt(reason, 'chat.attachmentReadFallback')
     toast.add({
       title: t('chat.uploadFailedTitle'),
-      description: tt(reason, 'chat.attachmentReadFallback'),
+      description: documentName ? `${documentName}: ${desc}` : desc,
       color: 'error'
     })
   }
@@ -186,18 +189,6 @@ type FilePart = { type: 'file'; mediaType: string; filename?: string }
 const getFileParts = (parts?: ChatMessagePart[]): FilePart[] =>
   (parts || []).filter((p): p is FilePart => p.type === 'file' && typeof p.mediaType === 'string')
 
-const formatMimeType = (mimeType: string): string => {
-  const subType = mimeType.split('/').pop() || mimeType
-  return subType.toUpperCase()
-}
-
-const formatTokenCount = (count: number | null | undefined): string => {
-  if (count == null) return '—'
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`
-  return count.toLocaleString()
-}
-
 const getTokenUsage = (messageId: string) => tokenUsageMap.value[messageId] ?? null
 
 const getMessageCost = (messageId: string) =>
@@ -229,15 +220,6 @@ const fileIcon = (mimeType: string): string => {
   if (mimeType === 'application/pdf') return 'i-heroicons-document-text'
   return 'i-heroicons-paper-clip'
 }
-
-const providerLabel = (provider: ModelOption['provider']) =>
-  provider === 'OPENAI'
-    ? 'OpenAI'
-    : provider === 'GOOGLE'
-      ? 'Google'
-      : provider === 'CLAUDE'
-        ? 'Claude'
-        : 'OpenRouter'
 
 const isLastMessage = (message?: { id?: string }) => {
   const msgs = activeConversation.value?.messages
@@ -271,9 +253,6 @@ const modelPricingSummary = computed(() => {
   }
   return t('chat.pricingPerMillion', { prompt: p ?? c })
 })
-
-const optionPriceLabel = (option: ModelOption): string | null =>
-  formatRatePerMillion(option.promptPrice)
 
 const pendingAttachmentCount = computed(() => attachments.value.length + documentAttachments.value.length)
 
@@ -447,24 +426,9 @@ async function handleSubmit() {
   const savedInput = input.value
   const savedMedia = [...attachments.value]
   const savedDocuments = [...documentAttachments.value]
-  const uploadedDocuments: Array<{ mimeType: string; name?: string }> = []
 
   try {
-    for (const document of savedDocuments) {
-      try {
-        const uploaded = await uploadDocument(conversation.session.chatId, document.file)
-        uploadedDocuments.push({
-          mimeType: uploaded?.mimeType || document.mimeType,
-          name: uploaded?.filename || document.name
-        })
-      } catch (err) {
-        toast.add({
-          title: t('chat.uploadFailedTitle'),
-          description: `${document.name}: ${tt(err, 'chat.attachmentReadFallback')}`,
-          color: 'error'
-        })
-      }
-    }
+    const uploadedDocuments = await uploadDocuments(conversation.session.chatId, uploadDocument)
 
     const hasAnyAttachment = savedMedia.length > 0 || uploadedDocuments.length > 0
     if (!savedInput.trim() && !hasAnyAttachment) {
@@ -555,23 +519,10 @@ const handleReload = async () => {
   <UDashboardPanel class="h-full min-h-0 flex flex-col" :ui="{ body: 'p-2 sm:p-6' }">
     <template #body>
       <UContainer class="px-2 sm:px-6 lg:px-8 py-4 space-y-4 flex-1 min-h-0 overflow-hidden flex flex-col">
-        <UAlert
-          v-if="showUpgradeBanner"
-          color="primary"
-          variant="subtle"
-          icon="i-heroicons-sparkles"
-          :title="t('billing.upgradeBanner.title')"
-          :description="t('billing.upgradeBanner.description')"
-          :close="{ 'aria-label': t('billing.upgradeBanner.dismiss') }"
-          :actions="[
-            {
-              label: t('billing.upgradeBanner.cta'),
-              color: 'primary',
-              variant: 'solid',
-              onClick: goToPricing
-            }
-          ]"
-          @close="dismissUpgradeBanner"
+        <ChatUpgradeBanner
+          :show="showUpgradeBanner"
+          @dismiss="dismissUpgradeBanner"
+          @upgrade="goToPricing"
         />
         <UAlert
           v-if="translatedModelsError"
@@ -823,33 +774,7 @@ const handleReload = async () => {
                   <UIcon name="i-heroicons-cpu-chip" />
                 </template>
                 <template #option="{ option }">
-                  <div
-                    class="flex items-center justify-between gap-2 w-full"
-                    :class="{ 'opacity-60': isModelLocked(option) }"
-                  >
-                    <span class="truncate">{{ option.label }}</span>
-                    <div class="flex items-center gap-1 flex-shrink-0">
-                      <span
-                        v-if="optionPriceLabel(option)"
-                        class="text-[10px] text-emerald-600 dark:text-emerald-400"
-                      >
-                        {{ optionPriceLabel(option) }}
-                      </span>
-                      <UIcon
-                        v-if="isFavorite(option)"
-                        name="i-heroicons-star-solid"
-                        class="size-3 text-yellow-400"
-                      />
-                      <UTooltip v-if="isModelLocked(option)" :text="t('models.premiumRequired')">
-                        <UIcon
-                          name="i-heroicons-lock-closed"
-                          class="size-3.5 text-gray-500 dark:text-gray-400"
-                          :aria-label="t('models.premiumRequired')"
-                        />
-                      </UTooltip>
-                      <UBadge :label="providerLabel(option.provider)" variant="soft" color="neutral" />
-                    </div>
-                  </div>
+                  <ModelSelectOption :option="option" :favorite="isFavorite(option)" />
                 </template>
               </USelectMenu>
               <UTooltip

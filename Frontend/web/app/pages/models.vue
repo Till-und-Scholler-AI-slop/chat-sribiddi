@@ -2,6 +2,7 @@
 import type { ModelOption, Provider } from '~/composables/useChatApi'
 import { isModelLocked } from '~/composables/useChatApi'
 import { formatRatePerMillion } from '~/composables/chat-helpers'
+import { PROVIDER_LABELS } from '~/utils/format'
 
 const { t } = useI18n()
 const tt = useTranslatedError()
@@ -33,14 +34,6 @@ const searchQuery = ref('')
 const expertModeLoading = ref(false)
 const isAuthenticated = computed(() => authStatus.value === 'authenticated')
 
-const providerLabels: Record<Provider, string> = {
-  OPENAI: 'OpenAI',
-  GOOGLE: 'Google',
-  CLAUDE: 'Claude',
-  OPENROUTER: 'OpenRouter'
-}
-
-// First letter shown inside the provider avatar
 const providerInitial: Record<Provider, string> = {
   OPENAI: 'O',
   GOOGLE: 'G',
@@ -58,10 +51,10 @@ const providerSlug: Record<Provider, string> = {
 
 const providerFilters = computed(() => [
   { label: t('models.providerFilterAllShort'), value: 'ALL' as const },
-  { label: providerLabels.CLAUDE, value: 'CLAUDE' as const },
-  { label: providerLabels.OPENAI, value: 'OPENAI' as const },
-  { label: providerLabels.GOOGLE, value: 'GOOGLE' as const },
-  { label: providerLabels.OPENROUTER, value: 'OPENROUTER' as const }
+  { label: PROVIDER_LABELS.CLAUDE, value: 'CLAUDE' as const },
+  { label: PROVIDER_LABELS.OPENAI, value: 'OPENAI' as const },
+  { label: PROVIDER_LABELS.GOOGLE, value: 'GOOGLE' as const },
+  { label: PROVIDER_LABELS.OPENROUTER, value: 'OPENROUTER' as const }
 ])
 
 const normalizedSearchQuery = computed(() => searchQuery.value.trim().toLowerCase())
@@ -71,7 +64,7 @@ const searchableValues = (model: ModelOption) => [
   model.value,
   model.canonicalSlug,
   model.description,
-  providerLabels[model.provider],
+  PROVIDER_LABELS[model.provider],
   providerSlug[model.provider],
   model.modality,
   model.contextLength,
@@ -158,7 +151,7 @@ const useModel = async (model: ModelOption) => {
     setModelForChat(conversation.session.chatId, model)
     toast.add({
       title: t('models.useModelToastTitle', { label: model.label }),
-      description: t('models.useModelToastDescription', { provider: providerLabels[model.provider] }),
+      description: t('models.useModelToastDescription', { provider: PROVIDER_LABELS[model.provider] }),
       color: 'primary'
     })
     await router.push('/chat')

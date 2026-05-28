@@ -1,27 +1,23 @@
 const MEDIA_QUERY = '(max-width: 768px)'
 
-let globalQuery: MediaQueryList | null = null
+let sharedIsMobile: ReturnType<typeof ref<boolean>> | null = null
+let listenerAttached = false
 
 export function useIsMobile() {
   if (import.meta.server) return ref(false)
 
-  if (!globalQuery) {
-    globalQuery = window.matchMedia(MEDIA_QUERY)
+  if (!sharedIsMobile) {
+    const mq = window.matchMedia(MEDIA_QUERY)
+    sharedIsMobile = ref(mq.matches)
   }
 
-  const isMobile = ref(globalQuery.matches)
-
-  function onChange(event: MediaQueryListEvent) {
-    isMobile.value = event.matches
+  if (!listenerAttached) {
+    const mq = window.matchMedia(MEDIA_QUERY)
+    mq.addEventListener('change', (e: MediaQueryListEvent) => {
+      if (sharedIsMobile) sharedIsMobile.value = e.matches
+    })
+    listenerAttached = true
   }
 
-  onMounted(() => {
-    globalQuery!.addEventListener('change', onChange)
-  })
-
-  onUnmounted(() => {
-    globalQuery!.removeEventListener('change', onChange)
-  })
-
-  return isMobile
+  return sharedIsMobile
 }

@@ -1,25 +1,15 @@
 import { isTerminalStreamEvent, normalizeSsePayload, parseSseEvents } from '~/composables/chat-stream'
 import type { StreamEvent } from '~/composables/chat-stream'
+import type { PROVIDERS} from '~/utils/model-utils';
+import { modelEndpointPath, normalizeAvailability, normalizeRequiredPlan } from '~/utils/model-utils'
 
-export const PROVIDERS = ['OPENAI', 'GOOGLE', 'CLAUDE', 'OPENROUTER'] as const
+export { isModelLocked, normalizeAvailability, normalizeRequiredPlan, modelEndpointPath } from '~/utils/model-utils'
+export { type AvailabilityFlag, MODEL_ENDPOINTS, PROVIDERS } from '~/utils/model-utils'
 
+ 
 export type Provider = (typeof PROVIDERS)[number]
 
-export const MODEL_ENDPOINTS: Record<Provider, string> = {
-  OPENAI: '/models/openai',
-  GOOGLE: '/models/google',
-  CLAUDE: '/models/claude',
-  OPENROUTER: '/models/openrouter'
-}
-
 export const REQUEST_USER_ID_HEADER = 'X-Chat-User-Id'
-
-/**
- * Plan-awareness flag returned by {@code GET /models/*}. Mirrors the Java enum
- * {@code com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag}. Consumers should treat
- * unknown values as {@code 'ALWAYS'} for forward compatibility.
- */
-export type AvailabilityFlag = 'ALWAYS' | 'BYOK_ONLY' | 'UPGRADE_REQUIRED'
 
 export type ModelOption = {
   label: string
@@ -173,45 +163,6 @@ export class AuthCheckError extends Error {
 
 export function normalizeBaseUrl(value: string) {
   return value.endsWith('/') ? value.slice(0, -1) : value
-}
-
-export function modelEndpointPath(provider: Provider) {
-  return MODEL_ENDPOINTS[provider]
-}
-
-/**
- * Normalises the {@link AvailabilityFlag} value returned by the backend.
- * Unknown or missing values are treated as {@code 'ALWAYS'} for forward
- * compatibility (see {@link AvailabilityFlag}).
- */
-export function normalizeAvailability(value: unknown): AvailabilityFlag {
-  if (typeof value === 'string') {
-    const upper = value.toUpperCase()
-    if (upper === 'ALWAYS' || upper === 'BYOK_ONLY' || upper === 'UPGRADE_REQUIRED') {
-      return upper
-    }
-  }
-  return 'ALWAYS'
-}
-
-/** Normalises the backend {@code requiredPlan} field to the allowed plan values. */
-export function normalizeRequiredPlan(value: unknown): 'PREMIUM' | 'MAX' | null {
-  if (typeof value === 'string') {
-    const upper = value.toUpperCase()
-    if (upper === 'PREMIUM' || upper === 'MAX') {
-      return upper
-    }
-  }
-  return null
-}
-
-/**
- * Returns true when the given model is plan-locked for the current user —
- * i.e. the backend flagged it as {@code UPGRADE_REQUIRED}. UI consumers should
- * show a lock icon and route clicks to {@code /pricing}.
- */
-export function isModelLocked(model: Pick<ModelOption, 'availability'>): boolean {
-  return model.availability === 'UPGRADE_REQUIRED'
 }
 
 export function withRequestUserId(
