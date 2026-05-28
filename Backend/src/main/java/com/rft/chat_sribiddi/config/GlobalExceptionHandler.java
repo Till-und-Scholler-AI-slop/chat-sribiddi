@@ -23,6 +23,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -155,6 +158,9 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(Exception.class)
   public ResponseEntity<Map<String, String>> handleUnexpected(Exception ex) {
+    // On SSE/async streams, client disconnects can cause secondary write failures (e.g. Map with text/event-stream).
+    // Log at debug to avoid noise; the primary stream error was already handled in ChatStreamSubscriber.
+    log.debug("Unexpected error (possibly async/SSE disconnect): {}", ex.getMessage());
     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
         .body(Map.of("message", "An unexpected error occurred. Please try again later."));
   }

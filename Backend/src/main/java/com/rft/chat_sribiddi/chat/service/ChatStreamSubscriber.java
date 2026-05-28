@@ -119,8 +119,9 @@ public class ChatStreamSubscriber {
       }
 
       ChatResponseExtractor.usage(chunk).ifPresent(lastUsage::set);
-    } catch (IOException e) {
-      log.warn("Failed to send SSE event", e);
+    } catch (IOException | IllegalStateException e) {
+      // Client disconnected (broken pipe) or emitter already completed — normal during long streams (e.g. PDF RAG)
+      log.debug("SSE send failed (client gone): {}", e.toString());
     } catch (Exception e) {
       log.warn("Unexpected error processing stream chunk", e);
       sendUnexpectedChunkError(subscription);
@@ -145,10 +146,13 @@ public class ChatStreamSubscriber {
                       null,
                       true),
                   MediaType.APPLICATION_JSON));
-    } catch (IOException io) {
-      log.warn("Failed to send SSE unexpected-chunk error event", io);
+    } catch (IOException | IllegalStateException ex) {
+      // Emitter already closed (client disconnect) — ignore
+      log.debug("Failed to send unexpected-chunk error event (client gone)");
     } finally {
-      subscription.emitter().complete();
+      try {
+        subscription.emitter().complete();
+      } catch (Exception ignored) {}
       subscription.clientHandle().close();
     }
   }
@@ -181,8 +185,9 @@ public class ChatStreamSubscriber {
                       streamErrorDetails.receivedBytes(),
                       true),
                   MediaType.APPLICATION_JSON));
-    } catch (IOException e) {
-      log.warn("Failed to send SSE error event", e);
+    } catch (IOException | IllegalStateException e) {
+      // Client already gone (broken pipe / emitter completed) — normal for disconnects during long PDF streams
+      log.debug("Failed to send SSE error event (client disconnected)");
     } finally {
       subscription.quotaReservation().rollback();
       chatUsageRecorder.recordUsage(
@@ -196,7 +201,9 @@ public class ChatStreamSubscriber {
               subscription.plan(),
               false));
       chatMetrics.recordStreamEnd(streamSample);
-      subscription.emitter().complete();
+      try {
+        subscription.emitter().complete();
+      } catch (Exception ignored) {}
     }
   }
 
@@ -212,22 +219,26 @@ public class ChatStreamSubscriber {
       String assistantResponse = fullText.toString();
       if (assistantResponse.isBlank()) {
         subscription.quotaReservation().rollback();
-        subscription.emitter().send(
-            SseEmitter.event()
-                .name(EVENT_ERROR)
-                .data(
-                    new StreamEventDTO(
-                        EVENT_ERROR,
-                        "The provider returned an empty response. Please try again or switch models.",
-                        null, null, null, null, null, null,
-                        subscription.provider().name(),
-                        subscription.modelId(),
-                        null,
-                        "EMPTY_RESPONSE",
-                        0L,
-                        true),
-                    MediaType.APPLICATION_JSON));
-        subscription.emitter().complete();
+        try {
+          subscription.emitter().send(
+              SseEmitter.event()
+                  .name(EVENT_ERROR)
+                  .data(
+                      new StreamEventDTO(
+                          EVENT_ERROR,
+                          "The provider returned an empty response. Please try again or switch models.",
+                          null, null, null, null, null, null,
+                          subscription.provider().name(),
+                          subscription.modelId(),
+                          null,
+                          "EMPTY_RESPONSE",
+                          0L,
+                          true),
+                      MediaType.APPLICATION_JSON));
+        } catch (IOException | IllegalStateException ignored) {}
+        try {
+          subscription.emitter().complete();
+        } catch (Exception ignored) {}
         return;
       }
       TokenUsage tokenUsage = chatUsageRecorder.tokenUsage(lastUsage.get());
@@ -459,8 +470,8 @@ public class ChatStreamSubscriber {
       }
 
       ChatResponseExtractor.usage(chunk).ifPresent(lastUsage::set);
-    } catch (IOException e) {
-      log.warn("Failed to send stateless SSE event", e);
+    } catch (IOException | IllegalStateException e) {
+      log.debug("Stateless SSE send failed (client gone): {}", e.toString());
     } catch (Exception e) {
       log.warn("Unexpected error processing stateless stream chunk", e);
       sendStatelessUnexpectedChunkError(subscription);
@@ -480,10 +491,10 @@ public class ChatStreamSubscriber {
                       null, null, null, null, null, null,
                       null, null, null, "STREAM_CHUNK_ERROR", null, true),
                   MediaType.APPLICATION_JSON));
-    } catch (IOException io) {
-      log.warn("Failed to send stateless SSE unexpected-chunk error event", io);
+    } catch (IOException | IllegalStateException ex) {
+      log.debug("Failed to send stateless unexpected-chunk error (client gone)");
     } finally {
-      subscription.emitter().complete();
+      try { subscription.emitter().complete(); } catch (Exception ignored) {}
       subscription.clientHandle().close();
     }
   }
@@ -528,13 +539,13 @@ public class ChatStreamSubscriber {
                       details.receivedBytes(),
                       true),
                   MediaType.APPLICATION_JSON));
-    } catch (IOException e) {
-      log.warn("Failed to send stateless SSE error event", e);
+    } catch (IOException | IllegalStateException e) {
+      log.debug("Failed to send stateless SSE error event (client disconnected)");
     } finally {
       subscription.quotaReservation().rollback();
       chatUsageRecorder.recordRequestMetric(subscription.provider(), subscription.modelId(), Plan.FREE, false);
       chatMetrics.recordStreamEnd(streamSample);
-      subscription.emitter().complete();
+      try { subscription.emitter().complete(); } catch (Exception ignored) {}
     }
   }
 
@@ -567,9 +578,9 @@ public class ChatStreamSubscriber {
                       null),
                   MediaType.APPLICATION_JSON));
       subscription.emitter().complete();
-    } catch (IOException e) {
-      log.warn("Failed to send stateless SSE done event", e);
-      subscription.emitter().complete();
+    } catch (IOException | IllegalStateException e) {
+      log.debug("Failed to send stateless SSE done event (client gone)");
+      try { subscription.emitter().complete(); } catch (Exception ignored) {}
     } finally {
       chatUsageRecorder.recordRequestMetric(subscription.provider(), subscription.modelId(), Plan.FREE, true);
       chatMetrics.recordStreamEnd(streamSample);
