@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rft.chat_sribiddi.auth.BillingMode;
+import com.rft.chat_sribiddi.chat.dto.RequestDTO.ChatRuntimeOptions;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.sun.net.httpserver.HttpServer;
+import io.micrometer.observation.ObservationRegistry;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetAddress;
@@ -16,7 +18,10 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
+import org.springframework.ai.google.genai.common.GoogleGenAiThinkingLevel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 
 class DefaultProviderClientFactoryTest {
@@ -28,7 +33,10 @@ class DefaultProviderClientFactoryTest {
     OpenAiProviderProperties props = new OpenAiProviderProperties();
     factory =
         new DefaultProviderClientFactory(
-            props, new GoogleProviderProperties(), new OpenRouterProviderProperties());
+            props,
+            new GoogleProviderProperties(),
+            new OpenRouterProviderProperties(),
+            ObservationRegistry.NOOP);
   }
 
   @Test
@@ -69,6 +77,145 @@ class DefaultProviderClientFactoryTest {
   }
 
   @Test
+  void buildOptions_appliesPortableSpringAiRuntimeOptions() {
+    ChatRuntimeOptions runtimeOptions =
+        new ChatRuntimeOptions(0.2, 0.8, 40, 500, -0.1, 0.3, List.of("END"));
+
+    var options = factory.buildOptions(Provider.OPENAI, "gpt-5.2", "sk-key", runtimeOptions);
+
+    assertThat(options).isInstanceOf(OpenAiChatOptions.class);
+    assertThat(options.getModel()).isEqualTo("gpt-5.2");
+    assertThat(options.getTemperature()).isEqualTo(0.2);
+    assertThat(options.getTopP()).isEqualTo(0.8);
+    assertThat(options.getTopK()).isNull();
+    assertThat(options.getMaxTokens()).isEqualTo(500);
+    assertThat(options.getFrequencyPenalty()).isEqualTo(-0.1);
+    assertThat(options.getPresencePenalty()).isEqualTo(0.3);
+    assertThat(options.getStopSequences()).containsExactly("END");
+  }
+
+  @Test
+  void buildOptions_appliesTopKForGoogleRuntimeOptions() {
+    ChatRuntimeOptions runtimeOptions =
+        new ChatRuntimeOptions(0.2, 0.8, 40, 500, null, null, List.of());
+
+    var options =
+        factory.buildOptions(Provider.GOOGLE, "gemini-2.5-flash", "goog-key", runtimeOptions);
+
+    assertThat(options.getModel()).isEqualTo("gemini-2.5-flash");
+    assertThat(options.getTemperature()).isEqualTo(0.2);
+    assertThat(options.getTopP()).isEqualTo(0.8);
+    assertThat(options.getTopK()).isEqualTo(40);
+    assertThat(options.getMaxTokens()).isEqualTo(500);
+  }
+
+  @Test
+  void buildOptions_appliesGoogleGenAiSpecificSpringAiRuntimeOptions() {
+    ChatRuntimeOptions runtimeOptions =
+        new ChatRuntimeOptions(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            8192,
+            null,
+            true,
+            true,
+            true);
+
+    var options =
+        factory.buildOptions(Provider.GOOGLE, "gemini-2.5-flash", "goog-key", runtimeOptions);
+
+    assertThat(options).isInstanceOf(GoogleGenAiChatOptions.class);
+    GoogleGenAiChatOptions googleOptions = (GoogleGenAiChatOptions) options;
+    assertThat(googleOptions.getThinkingBudget()).isEqualTo(8192);
+    assertThat(googleOptions.getIncludeThoughts()).isTrue();
+    assertThat(googleOptions.getGoogleSearchRetrieval()).isTrue();
+    assertThat(googleOptions.getIncludeServerSideToolInvocations()).isTrue();
+  }
+
+  @Test
+  void buildOptions_appliesGoogleGenAiThinkingLevel() {
+    ChatRuntimeOptions runtimeOptions =
+        new ChatRuntimeOptions(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            null,
+            GoogleGenAiThinkingLevel.HIGH,
+            true,
+            null,
+            null);
+
+    var options =
+        factory.buildOptions(Provider.GOOGLE, "gemini-2.5-flash", "goog-key", runtimeOptions);
+
+    GoogleGenAiChatOptions googleOptions = (GoogleGenAiChatOptions) options;
+    assertThat(googleOptions.getThinkingLevel()).isEqualTo(GoogleGenAiThinkingLevel.HIGH);
+    assertThat(googleOptions.getIncludeThoughts()).isTrue();
+  }
+
+  @Test
+  void buildOptions_rejectsConflictingGoogleThinkingControls() {
+    ChatRuntimeOptions runtimeOptions =
+        new ChatRuntimeOptions(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            8192,
+            GoogleGenAiThinkingLevel.HIGH,
+            null,
+            null,
+            null);
+
+    assertThatThrownBy(
+            () ->
+                factory.buildOptions(
+                    Provider.GOOGLE, "gemini-2.5-flash", "goog-key", runtimeOptions))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("thinkingBudget and thinkingLevel");
+  }
+
+  @Test
+  void buildOptions_appliesAnthropicThinkingBudget() {
+    ChatRuntimeOptions runtimeOptions =
+        new ChatRuntimeOptions(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            4096,
+            null,
+            true,
+            null,
+            null);
+
+    var options =
+        factory.buildOptions(Provider.CLAUDE, "claude-sonnet-4-5", "claude-key", runtimeOptions);
+
+    assertThat(options).isInstanceOf(AnthropicChatOptions.class);
+    AnthropicChatOptions anthropicOptions = (AnthropicChatOptions) options;
+    assertThat(anthropicOptions.getThinking()).isNotNull();
+    assertThat(anthropicOptions.getThinking().asEnabled().budgetTokens()).isEqualTo(4096);
+    assertThat(anthropicOptions.getThinking().asEnabled().display())
+        .contains(com.anthropic.models.messages.ThinkingConfigEnabled.Display.SUMMARIZED);
+  }
+
+  @Test
   void getClient_openRouterStreaming_usesConfiguredAsyncClientHeaders() throws Exception {
     OpenRouterProviderProperties openRouter = new OpenRouterProviderProperties();
     openRouter.setAppName("chat-sribiddi-test");
@@ -77,7 +224,10 @@ class DefaultProviderClientFactoryTest {
       openRouter.setBaseUrl(server.baseUrl() + "/api/v1");
       DefaultProviderClientFactory customFactory =
           new DefaultProviderClientFactory(
-              new OpenAiProviderProperties(), new GoogleProviderProperties(), openRouter);
+              new OpenAiProviderProperties(),
+              new GoogleProviderProperties(),
+              openRouter,
+              ObservationRegistry.NOOP);
 
       ProviderClientHandle handle =
           customFactory.getClient(Provider.OPENROUTER, "or-key", BillingMode.BYOK);
@@ -111,7 +261,10 @@ class DefaultProviderClientFactoryTest {
     googleProperties.setTimeout(Duration.ofSeconds(123));
     DefaultProviderClientFactory customFactory =
         new DefaultProviderClientFactory(
-            openAiProperties, googleProperties, new OpenRouterProviderProperties());
+            openAiProperties,
+            googleProperties,
+            new OpenRouterProviderProperties(),
+            ObservationRegistry.NOOP);
 
     var options = customFactory.buildGoogleHttpOptions();
 
@@ -158,7 +311,10 @@ class DefaultProviderClientFactoryTest {
     openRouter.setReferrer("https://example.invalid/chat");
     DefaultProviderClientFactory custom =
         new DefaultProviderClientFactory(
-            new OpenAiProviderProperties(), new GoogleProviderProperties(), openRouter);
+            new OpenAiProviderProperties(),
+            new GoogleProviderProperties(),
+            openRouter,
+            ObservationRegistry.NOOP);
 
     var headers = custom.buildOpenRouterAttributionHeaders();
 
@@ -173,7 +329,10 @@ class DefaultProviderClientFactoryTest {
     openRouter.setReferrer("   ");
     DefaultProviderClientFactory custom =
         new DefaultProviderClientFactory(
-            new OpenAiProviderProperties(), new GoogleProviderProperties(), openRouter);
+            new OpenAiProviderProperties(),
+            new GoogleProviderProperties(),
+            openRouter,
+            ObservationRegistry.NOOP);
 
     var headers = custom.buildOpenRouterAttributionHeaders();
 

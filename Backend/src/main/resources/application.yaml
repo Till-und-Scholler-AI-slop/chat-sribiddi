@@ -77,6 +77,8 @@ spring:
     chat:
       client:
         enabled: false
+        tool-calling:
+          stream-tool-call-responses: true
     openai:
       api-key: ${OPENAI_API_KEY:}
 

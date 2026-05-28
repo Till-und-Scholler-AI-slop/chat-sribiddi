@@ -14,6 +14,7 @@ import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.PromptMessageRequest;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.document.Document;
 import org.springframework.data.domain.Pageable;
 
 @ExtendWith(MockitoExtension.class)
@@ -39,9 +41,7 @@ class PromptMessageBuilderTest {
   @BeforeEach
   void setUp() {
     chatProperties = new ChatProperties();
-    builder =
-        new PromptMessageBuilder(
-            messageRepository, chatProperties, new MediaValidationService(chatProperties));
+    builder = new PromptMessageBuilder(messageRepository, chatProperties);
     chatId = UUID.randomUUID();
   }
 
@@ -92,6 +92,169 @@ class PromptMessageBuilderTest {
   }
 
   @Test
+  void buildBatch_splitsHistoryForSpringAiAdvisorWhenTargetUserMessageIsLatest() {
+    MessageEntity currentUser = message(3L, Role.USER, "current request");
+    MessageEntity previousAssistant = message(2L, Role.ASSISTANT, "previous response");
+    MessageEntity previousUser = message(1L, Role.USER, "previous request");
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(eq(chatId), any()))
+        .thenReturn(List.of(currentUser, previousAssistant, previousUser));
+
+    PromptMessageBuilder.PromptMessageBatch batch =
+        builder.buildBatch(
+            new PromptMessageRequest(
+                chatId,
+                List.of(),
+                3L,
+                null,
+                RequestDTO.Provider.OPENAI,
+                "gpt-5.2",
+                entitlements(20),
+                null));
+
+    assertThat(batch.requestMessages()).hasSize(2);
+    assertThat(batch.historyMessages()).hasSize(2);
+    assertThat(batch.retrievedDocuments()).isEmpty();
+    assertThat(((UserMessage) batch.requestMessages().getLast()).getText())
+        .isEqualTo("current request");
+    assertThat(((UserMessage) batch.historyMessages().getFirst()).getText())
+        .isEqualTo("previous request");
+    assertThat(((AssistantMessage) batch.historyMessages().getLast()).getText())
+        .isEqualTo("previous response");
+  }
+
+  @Test
+  void buildBatch_keepsCombinedPromptWhenTargetUserMessageIsNotLatest() {
+    MessageEntity concurrentNewerUser = message(4L, Role.USER, "newer request");
+    MessageEntity currentUser = message(3L, Role.USER, "current request");
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(eq(chatId), any()))
+        .thenReturn(List.of(concurrentNewerUser, currentUser));
+
+    PromptMessageBuilder.PromptMessageBatch batch =
+        builder.buildBatch(
+            new PromptMessageRequest(
+                chatId,
+                List.of(),
+                3L,
+                null,
+                RequestDTO.Provider.OPENAI,
+                "gpt-5.2",
+                entitlements(20),
+                null));
+
+    assertThat(batch.historyMessages()).isEmpty();
+    assertThat(batch.requestMessages()).hasSize(3);
+    assertThat(((UserMessage) batch.requestMessages().get(1)).getText()).isEqualTo("current request");
+    assertThat(((UserMessage) batch.requestMessages().get(2)).getText()).isEqualTo("newer request");
+  }
+
+  @Test
+  void buildBatch_keepsDocumentContextForSpringAiAdvisorWhenTargetUserMessageIsLatest() {
+    MessageEntity currentUser = message(3L, Role.USER, "current request");
+    MessageEntity previousAssistant = message(2L, Role.ASSISTANT, "previous response");
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(eq(chatId), any()))
+        .thenReturn(List.of(currentUser, previousAssistant));
+
+    PromptMessageBuilder.PromptMessageBatch batch =
+        builder.buildBatch(
+            new PromptMessageRequest(
+                chatId,
+                List.of(),
+                3L,
+                null,
+                RequestDTO.Provider.OPENAI,
+                "gpt-5.2",
+                entitlements(20),
+                documents("Important extracted text.")));
+
+    assertThat(batch.hasDocumentContext()).isTrue();
+    assertThat(batch.retrievedDocuments()).extracting(Document::getText)
+        .containsExactly("Important extracted text.");
+    assertThat(((UserMessage) batch.requestMessages().getLast()).getText())
+        .isEqualTo("current request");
+    assertThat(batch.combinedMessages())
+        .extracting(message -> message instanceof UserMessage user ? user.getText() : message.getText())
+        .doesNotContain("retrieved document excerpts");
+  }
+
+  @Test
+  void buildBatch_inlinesDocumentContextWhenTargetUserMessageIsNotLatest() {
+    MessageEntity concurrentNewerUser = message(4L, Role.USER, "newer request");
+    MessageEntity currentUser = message(3L, Role.USER, "current request");
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(eq(chatId), any()))
+        .thenReturn(List.of(concurrentNewerUser, currentUser));
+
+    PromptMessageBuilder.PromptMessageBatch batch =
+        builder.buildBatch(
+            new PromptMessageRequest(
+                chatId,
+                List.of(),
+                3L,
+                null,
+                RequestDTO.Provider.OPENAI,
+                "gpt-5.2",
+                entitlements(20),
+                documents("Important extracted text.")));
+
+    assertThat(batch.historyMessages()).isEmpty();
+    assertThat(batch.hasDocumentContext()).isFalse();
+    assertThat(batch.requestMessages()).hasSize(3);
+    assertThat(((UserMessage) batch.requestMessages().get(1)).getText())
+        .contains("retrieved document excerpts")
+        .contains("Important extracted text")
+        .contains("current request");
+    assertThat(((UserMessage) batch.requestMessages().get(2)).getText()).isEqualTo("newer request");
+  }
+
+  @Test
+  void buildStatelessBatch_splitsBrowserHistoryForSpringAiAdvisor() {
+    PromptMessageBuilder.PromptMessageBatch batch =
+        builder.buildStatelessBatch(
+            new PromptMessageBuilder.StatelessPromptMessageRequest(
+                List.of(
+                    new PromptMessageBuilder.StatelessChatMessage(Role.USER, "previous request"),
+                    new PromptMessageBuilder.StatelessChatMessage(
+                        Role.ASSISTANT, "previous response")),
+                "current request",
+                List.of(),
+                null,
+                RequestDTO.Provider.OPENROUTER,
+                "openrouter/free",
+                entitlements(20),
+                null));
+
+    assertThat(batch.requestMessages()).hasSize(2);
+    assertThat(batch.historyMessages()).hasSize(2);
+    assertThat(((UserMessage) batch.requestMessages().getLast()).getText())
+        .isEqualTo("current request");
+    assertThat(((UserMessage) batch.historyMessages().getFirst()).getText())
+        .isEqualTo("previous request");
+    assertThat(((AssistantMessage) batch.historyMessages().getLast()).getText())
+        .isEqualTo("previous response");
+  }
+
+  @Test
+  void buildStatelessBatch_keepsDocumentContextForSpringAiAdvisor() {
+    PromptMessageBuilder.PromptMessageBatch batch =
+        builder.buildStatelessBatch(
+            new PromptMessageBuilder.StatelessPromptMessageRequest(
+                List.of(),
+                "current request",
+                List.of(),
+                null,
+                RequestDTO.Provider.OPENROUTER,
+                "openrouter/free",
+                entitlements(20),
+                documents("Important extracted text.")));
+
+    assertThat(batch.hasDocumentContext()).isTrue();
+    assertThat(((UserMessage) batch.requestMessages().getLast()).getText())
+        .isEqualTo("current request");
+    assertThat(batch.combinedMessages())
+        .extracting(message -> message instanceof UserMessage user ? user.getText() : message.getText())
+        .doesNotContain("retrieved document excerpts");
+  }
+
+  @Test
   void build_usesUserInstructionMessageForGoogleGemmaModels() {
     when(messageRepository.findByChatIdOrderByCreatedAtDesc(eq(chatId), any()))
         .thenReturn(List.of());
@@ -134,7 +297,7 @@ class PromptMessageBuilderTest {
                 RequestDTO.Provider.OPENAI,
                 "gpt-5.2",
                 entitlements(20),
-                "[document 1, chunk 1]\nImportant extracted text."));
+                documents("Important extracted text.")));
 
     assertThat(messages.get(1)).isInstanceOf(UserMessage.class);
     assertThat(((UserMessage) messages.get(1)).getText())
@@ -163,6 +326,17 @@ class PromptMessageBuilderTest {
     entity.setRole(role);
     entity.setMessage(text);
     return entity;
+  }
+
+  private static List<Document> documents(String text) {
+    return List.of(
+        new Document(
+            text,
+            Map.of(
+                "document_id", 1L,
+                "chunk_index", 0,
+                "page_start", 2,
+                "page_end", 3)));
   }
 
   private static Entitlements entitlements(int contextMessageLimit) {

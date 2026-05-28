@@ -34,7 +34,6 @@ import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
 import com.rft.chat_sribiddi.tools.UrlFetcherTool;
 import com.rft.chat_sribiddi.tools.api.ToolRiskLevel;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
-import java.lang.reflect.Method;
 import java.net.http.HttpClient;
 import java.time.Instant;
 import java.util.Base64;
@@ -45,10 +44,12 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
@@ -59,6 +60,7 @@ import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 
@@ -114,7 +116,7 @@ class ChatServiceTest {
             new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(),
             entitlementService);
     PromptMessageBuilder promptMessageBuilder =
-        new PromptMessageBuilder(messageRepository, chatProperties, mediaValidationService);
+        new PromptMessageBuilder(messageRepository, chatProperties);
     ChatUsageRecorder chatUsageRecorder =
         new ChatUsageRecorder(entitlementService, usageEventService, chatMetrics);
     ToolCallLogRecorder toolCallLogRecorder = new ToolCallLogRecorder(toolCallLogRepository);
@@ -262,18 +264,61 @@ class ChatServiceTest {
     when(requestSpec.messages(anyList())).thenReturn(requestSpec);
     when(requestSpec.call()).thenReturn(callResponseSpec);
 
-    ChatResponse response = new ChatResponse(List.of(new Generation(new AssistantMessage("pong"))));
-    when(callResponseSpec.chatResponse()).thenReturn(response);
+    ChatResponse response = new ChatResponse(List.of(new Generation(new AssistantMessage("ignored"))));
+    when(callResponseSpec.responseEntity(String.class))
+        .thenReturn(new org.springframework.ai.chat.client.ResponseEntity<>(response, "pong"));
 
     SendMessageResponseDTO result = chatService.sendMessage(chatId, userId, request);
 
     assertThat(result.message()).isEqualTo("pong");
+    verify(callResponseSpec).responseEntity(String.class);
+    verify(callResponseSpec, never()).chatResponse();
 
     ArgumentCaptor<MessageEntity> savedMessages = ArgumentCaptor.forClass(MessageEntity.class);
     verify(messageRepository, times(2)).save(savedMessages.capture());
     assertThat(savedMessages.getAllValues())
         .extracting(MessageEntity::getRole)
         .containsExactly(Role.USER, Role.ASSISTANT);
+  }
+
+  @Test
+  void sendMessage_passesRuntimeOptionsToProviderFactory() {
+    RequestDTO.ChatRuntimeOptions runtimeOptions =
+        new RequestDTO.ChatRuntimeOptions(0.3, 0.9, null, 400, null, null, List.of("STOP"));
+    RequestDTO request =
+        new RequestDTO(
+            "hi",
+            RequestDTO.Provider.OPENAI,
+            "gpt-5.2",
+            null,
+            null,
+            null,
+            runtimeOptions,
+            null);
+
+    ChatEntity chat = new ChatEntity();
+    chat.setChatId(chatId);
+    chat.setUserId(userId);
+    when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
+    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
+        .thenReturn(Optional.of("stored-key"));
+    when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key", BillingMode.BYOK))
+        .thenReturn(new ProviderClientHandle(chatClient, null));
+    when(providerClientFactory.buildOptions(
+            RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key", runtimeOptions))
+        .thenReturn(org.springframework.ai.chat.prompt.ChatOptions.builder().model("gpt-5.2").build());
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.options(any())).thenReturn(requestSpec);
+    when(requestSpec.messages(anyList())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponseSpec);
+    when(callResponseSpec.chatResponse())
+        .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("pong")))));
+
+    chatService.sendMessage(chatId, userId, request);
+
+    verify(providerClientFactory)
+        .buildOptions(RequestDTO.Provider.OPENAI, "gpt-5.2", "stored-key", runtimeOptions);
   }
 
   @Test
@@ -452,22 +497,31 @@ class ChatServiceTest {
     // Provide current-datetime in registry so wireTools() wires it
     when(toolRegistry.getAll()).thenReturn(List.of(new com.rft.chat_sribiddi.tools.CurrentDateTimeTool()));
 
-    AtomicReference<Object> dateTimeToolRef = new AtomicReference<>();
+    AtomicReference<ToolCallback> dateTimeToolRef = new AtomicReference<>();
     doAnswer(
             invocation -> {
-              Object[] args = invocation.getArguments();
-              if (args.length > 0 && args[0] != null) {
-                dateTimeToolRef.set(args[0]);
-              }
-              return null;
+              Consumer<ChatClient.ToolSpec> consumer = invocation.getArgument(0);
+              ChatClient.ToolSpec toolSpec = mock(ChatClient.ToolSpec.class);
+              when(toolSpec.callbacks((ToolCallback[]) any(ToolCallback[].class)))
+                  .thenAnswer(
+                      callbacksInvocation -> {
+                        Object[] callbacks = callbacksInvocation.getArguments();
+                        if (callbacks.length > 0) {
+                          dateTimeToolRef.set((ToolCallback) callbacks[0]);
+                        }
+                        return toolSpec;
+                      });
+              consumer.accept(toolSpec);
+              return requestSpec;
             })
         .when(requestSpec)
-        .tools(any());
+        .tools(ArgumentMatchers.<Consumer<ChatClient.ToolSpec>>any());
 
     when(callResponseSpec.chatResponse())
         .thenAnswer(
             invocation -> {
-              invokeNoArgTool(dateTimeToolRef.get(), "getCurrentDateTime");
+              assertThat(dateTimeToolRef.get()).isNotNull();
+              dateTimeToolRef.get().call("{}");
               return new ChatResponse(List.of(new Generation(new AssistantMessage("Current time noted."))));
             });
 
@@ -511,7 +565,7 @@ class ChatServiceTest {
 
     chatService.sendMessage(chatId, userId, request);
 
-    verify(requestSpec, never()).tools(any());
+    verify(requestSpec, never()).tools(ArgumentMatchers.<Consumer<ChatClient.ToolSpec>>any());
   }
 
   @Test
@@ -541,7 +595,7 @@ class ChatServiceTest {
 
     chatService.sendMessage(chatId, userId, request);
 
-    verify(requestSpec, never()).tools(any());
+    verify(requestSpec, never()).tools(ArgumentMatchers.<Consumer<ChatClient.ToolSpec>>any());
   }
 
   @Test
@@ -579,7 +633,7 @@ class ChatServiceTest {
 
     chatService.sendMessage(chatId, userId, request);
 
-    verify(requestSpec).tools(any());
+    verify(requestSpec).tools(ArgumentMatchers.<Consumer<ChatClient.ToolSpec>>any());
   }
 
   @Test
@@ -729,6 +783,7 @@ class ChatServiceTest {
     assertThat(firstUser.getMedia()).hasSize(1);
     assertThat(secondUser.getText()).isEqualTo("other request text");
     assertThat(secondUser.getMedia()).isEmpty();
+    verify(requestSpec, never()).advisors(ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any());
   }
 
   @Test
@@ -1252,6 +1307,21 @@ class ChatServiceTest {
   }
 
   @Test
+  void extractProviderErrorMessage_unwrapsSpringAiRetryExceptionProviderCause() {
+    String body = "{\"error\":{\"message\":\"Provider rejected the model\"}}";
+    var providerCause =
+        new org.springframework.web.reactive.function.client.WebClientResponseException(
+            400, "Bad Request", null, body.getBytes(), null);
+    var ex =
+        new org.springframework.ai.retry.NonTransientAiException(
+            "Spring AI wrapper", providerCause);
+
+    String result = StreamErrorHandler.extractProviderMessage(ex);
+
+    assertThat(result).isEqualTo("Provider rejected the model");
+  }
+
+  @Test
   void classifyStreamError_detectsTimeoutWithoutHttpStatus() {
     String result =
         StreamErrorHandler.classify(
@@ -1265,6 +1335,20 @@ class ChatServiceTest {
     String result = StreamErrorHandler.classify(new RuntimeException("any"), 429);
 
     assertThat(result).isEqualTo("RATE_LIMIT");
+  }
+
+  @Test
+  void classifyStreamError_mapsSpringAiRetryExceptions() {
+    assertThat(
+            StreamErrorHandler.classify(
+                new org.springframework.ai.retry.TransientAiException("temporary provider issue"),
+                null))
+        .isEqualTo("SERVER_ERROR");
+    assertThat(
+            StreamErrorHandler.classify(
+                new org.springframework.ai.retry.NonTransientAiException("invalid request"),
+                null))
+        .isEqualTo("PROVIDER_ERROR");
   }
 
   @Test
@@ -1377,12 +1461,6 @@ class ChatServiceTest {
         "could not execute statement",
         new RuntimeException(
             "ERROR: insert or update on table \"messages\" violates foreign key constraint \"messages_chat_id_fkey\""));
-  }
-
-  private static void invokeNoArgTool(Object tool, String methodName) throws Exception {
-    assertThat(tool).isNotNull();
-    Method method = tool.getClass().getMethod(methodName);
-    method.invoke(tool);
   }
 
   @Test

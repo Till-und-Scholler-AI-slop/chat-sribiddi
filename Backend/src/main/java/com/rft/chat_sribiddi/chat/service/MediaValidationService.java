@@ -23,6 +23,12 @@ public class MediaValidationService {
 
   public List<MediaAttachment> validateAttachments(
       List<MediaAttachment> mediaAttachments, Entitlements entitlements) {
+    validateAndConvertAttachments(mediaAttachments, entitlements);
+    return mediaAttachments == null ? List.of() : mediaAttachments;
+  }
+
+  public List<ValidatedMediaAttachment> validateAndConvertAttachments(
+      List<MediaAttachment> mediaAttachments, Entitlements entitlements) {
     if (mediaAttachments == null || mediaAttachments.isEmpty()) {
       return List.of();
     }
@@ -35,19 +41,22 @@ public class MediaValidationService {
 
     long totalBytes = 0L;
     long maxTotalBytes = maxTotalBytes(entitlements);
+    List<ValidatedMediaAttachment> validated = new ArrayList<>(mediaAttachments.size());
     for (int i = 0; i < mediaAttachments.size(); i++) {
       MediaAttachment attachment = mediaAttachments.get(i);
       if (attachment == null) {
         throw new IllegalArgumentException("media[%d] must not be null".formatted(i));
       }
-      totalBytes += validateAttachmentPayload(i, attachment, entitlements);
+      ValidatedMediaAttachment converted = validateAttachmentPayload(i, attachment, entitlements);
+      totalBytes += converted.sizeBytes();
       if (totalBytes > maxTotalBytes) {
         throw new IllegalArgumentException(
             "combined media size exceeds %d bytes".formatted(maxTotalBytes));
       }
+      validated.add(converted);
     }
 
-    return mediaAttachments;
+    return List.copyOf(validated);
   }
 
   public List<Media> toMediaPayload(List<MediaAttachment> mediaAttachments) {
@@ -56,49 +65,17 @@ public class MediaValidationService {
 
   public List<Media> toMediaPayload(
       List<MediaAttachment> mediaAttachments, Entitlements entitlements) {
-    long totalBytes = 0;
-    List<Media> media = new ArrayList<>(mediaAttachments.size());
-
-    for (int i = 0; i < mediaAttachments.size(); i++) {
-      MediaAttachment attachment = mediaAttachments.get(i);
-      String normalized = normalizeEncodedData(attachment.data());
-      long estimatedDecodedBytes = estimateDecodedBytes(normalized);
-
-      long maxAttachmentBytes = maxAttachmentBytes(entitlements);
-      if (estimatedDecodedBytes > maxAttachmentBytes) {
-        throw new IllegalArgumentException(
-            "media[%d] exceeds %d bytes"
-                .formatted(i, maxAttachmentBytes));
-      }
-
-      totalBytes += estimatedDecodedBytes;
-      long maxTotalBytes = maxTotalBytes(entitlements);
-      if (totalBytes > maxTotalBytes) {
-        throw new IllegalArgumentException(
-            "combined media size exceeds %d bytes".formatted(maxTotalBytes));
-      }
-
-      byte[] content;
-      try {
-        content = Base64.getDecoder().decode(normalized);
-      } catch (IllegalArgumentException e) {
-        throw new IllegalArgumentException("media[%d].data is not valid base64".formatted(i), e);
-      }
-
-      if (content.length > maxAttachmentBytes) {
-        throw new IllegalArgumentException(
-            "media[%d] exceeds %d bytes".formatted(i, maxAttachmentBytes));
-      }
-
-      media.add(
-          new Media(
-              MimeTypeUtils.parseMimeType(attachment.mimeType()), new ByteArrayResource(content)));
-    }
-
-    return media;
+    return mediaPayload(validateAndConvertAttachments(mediaAttachments, entitlements));
   }
 
-  private long validateAttachmentPayload(
+  public List<Media> mediaPayload(List<ValidatedMediaAttachment> mediaAttachments) {
+    if (mediaAttachments == null || mediaAttachments.isEmpty()) {
+      return List.of();
+    }
+    return mediaAttachments.stream().map(ValidatedMediaAttachment::media).toList();
+  }
+
+  private ValidatedMediaAttachment validateAttachmentPayload(
       int index, MediaAttachment attachment, Entitlements entitlements) {
     String normalized = normalizeEncodedData(attachment.data());
     long estimatedDecodedBytes = estimateDecodedBytes(normalized);
@@ -120,12 +97,18 @@ public class MediaValidationService {
           "media[%d] exceeds %d bytes".formatted(index, maxAttachmentBytes));
     }
 
+    org.springframework.util.MimeType mimeType;
     try {
-      MimeTypeUtils.parseMimeType(attachment.mimeType());
+      mimeType = MimeTypeUtils.parseMimeType(attachment.mimeType());
     } catch (IllegalArgumentException e) {
       throw new IllegalArgumentException("media[%d].mimeType is not valid".formatted(index), e);
     }
-    return content.length;
+    Media media =
+        Media.builder()
+            .mimeType(mimeType)
+            .data(new ByteArrayResource(content))
+            .build();
+    return new ValidatedMediaAttachment(attachment.mimeType(), media, content.length);
   }
 
   private int maxAttachments(Entitlements entitlements) {
@@ -171,4 +154,6 @@ public class MediaValidationService {
     }
     return ((long) length * 3 / 4) - padding;
   }
+
+  public record ValidatedMediaAttachment(String mimeType, Media media, long sizeBytes) {}
 }

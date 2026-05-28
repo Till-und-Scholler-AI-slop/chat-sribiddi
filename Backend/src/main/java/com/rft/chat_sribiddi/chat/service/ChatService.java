@@ -5,7 +5,6 @@ import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.chat.dto.MessageResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.ImportChatsRequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
-import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
 import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.ToolCallLogResponseDTO;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
@@ -18,8 +17,10 @@ import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
 import com.rft.chat_sribiddi.chat.service.ChatStreamSubscriber.ChatStreamSubscription;
 import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.PromptMessageRequest;
+import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.PromptMessageBatch;
 import com.rft.chat_sribiddi.chat.service.ChatUsageRecorder.ChatUsage;
 import com.rft.chat_sribiddi.chat.service.ChatUsageRecorder.TokenUsage;
+import com.rft.chat_sribiddi.chat.service.MediaValidationService.ValidatedMediaAttachment;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
 import com.rft.chat_sribiddi.billing.BillingModeResolver;
 import com.rft.chat_sribiddi.billing.EntitlementService;
@@ -37,12 +38,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.messages.AbstractMessage;
-import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.metadata.Usage;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.metadata.ChatResponseMetadata;
-import org.springframework.ai.chat.model.Generation;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -236,53 +233,41 @@ public class ChatService {
     MessagePreparation prep =
         prepareUserMessage(chatId, chat, userId, requestDTO, resolvedCall.entitlements());
     if (log.isTraceEnabled()) {
-      log.trace("Prompt messages: {}", prep.promptMessages());
+      log.trace("Prompt messages: {}", prep.promptBatch().combinedMessages());
     }
 
     Plan plan = chatUsageRecorder.resolvePlan(userId);
 
-    ChatResponse chatResponse;
-    ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
+    ChatResponseExtractor.ChatCallResult completion;
+    ToolExecutionCollector toolExecutionCollector;
     boolean providerCallSucceeded = false;
     try (ManagedQuotaReservation reservation = resolvedCall.quotaReservation()) {
-    try (ProviderClientHandle clientHolder =
-        providerClientFactory.getClient(
-            requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.billingMode())) {
-      var options =
-          providerClientFactory.buildOptions(
-              requestDTO.provider(), requestDTO.modelId(), resolvedCall.apiKey());
-      var client = clientHolder.client();
-      var promptSpec = client.prompt().options(options.mutate()).messages(prep.promptMessages());
-      promptToolBinder.bindTools(
-          chatId,
-          userId,
-          requestDTO.provider(),
-          requestDTO.modelId(),
-          requestDTO.webSearchEnabled(),
-          requestDTO.toolConsents(),
-          toolExecutionCollector,
-          promptSpec);
-      chatResponse = promptSpec.call().chatResponse();
-      providerCallSucceeded = true;
-      reservation.commit();
-    } catch (RuntimeException | Error error) {
-      chatUsageRecorder.recordRequestMetric(requestDTO.provider(), requestDTO.modelId(), plan, false);
-      throw error;
-    }
+      try (ProviderClientHandle clientHolder =
+          providerClientFactory.getClient(
+              requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.billingMode())) {
+        PreparedPrompt preparedPrompt =
+            preparePromptSpec(
+                chatId, userId, requestDTO, prep.promptBatch(), resolvedCall.apiKey(), clientHolder);
+        toolExecutionCollector = preparedPrompt.toolExecutionCollector();
+        completion = ChatResponseExtractor.call(preparedPrompt.promptSpec());
+        providerCallSucceeded = true;
+        reservation.commit();
+      } catch (RuntimeException | Error error) {
+        chatUsageRecorder.recordRequestMetric(
+            requestDTO.provider(), requestDTO.modelId(), plan, false);
+        throw error;
+      }
     }
 
     if (log.isTraceEnabled()) {
-      log.trace("Chat response: {}", chatResponse);
+      log.trace("Chat response: {}", completion.response());
     }
 
-    String assistantResponse =
-        Optional.ofNullable(chatResponse)
-            .map(ChatResponse::getResult)
-            .map(Generation::getOutput)
-            .map(AbstractMessage::getText)
-            .orElse("");
+    String assistantResponse = Optional.ofNullable(completion.content()).orElse("");
 
-    TokenUsage tokenUsage = chatUsageRecorder.tokenUsage(extractUsage(chatResponse).orElse(null));
+    TokenUsage tokenUsage =
+        chatUsageRecorder.tokenUsage(
+            ChatResponseExtractor.usage(completion.response()).orElse(null));
 
     MessageEntity assistantMessage = new MessageEntity();
     assistantMessage.setChatId(chatId);
@@ -290,7 +275,7 @@ public class ChatService {
     assistantMessage.setRole(Role.ASSISTANT);
     assistantMessage.setContext(
         promptMessageBuilder.assistantContext(
-            prep.promptMessages().size(), requestDTO.provider(), requestDTO.modelId()));
+            prep.promptBatch().totalMessageCount(), requestDTO.provider(), requestDTO.modelId()));
     assistantMessage.setCreatedAt(Instant.now());
     assistantMessage.setPromptTokens(tokenUsage.promptTokens());
     assistantMessage.setGenerationTokens(tokenUsage.generationTokens());
@@ -339,7 +324,7 @@ public class ChatService {
       return createAndSubscribeStream(
           userId,
           requestDTO,
-          prep.promptMessages(),
+          prep.promptBatch(),
           chatId,
           prep.updatedTitle(),
           resolvedCall,
@@ -377,8 +362,9 @@ public class ChatService {
     // never leaves the database in a half-edited state.
     ResolvedCall resolvedCall = resolveCall(userId, requestDTO);
     Plan plan = chatUsageRecorder.resolvePlan(userId);
-    List<MediaAttachment> validatedMedia =
-        mediaValidationService.validateAttachments(requestDTO.media(), resolvedCall.entitlements());
+    List<ValidatedMediaAttachment> validatedMedia =
+        mediaValidationService.validateAndConvertAttachments(
+            requestDTO.media(), resolvedCall.entitlements());
     String userContext = buildMediaContext(validatedMedia);
 
     userMessage.setMessage(requestDTO.content());
@@ -389,22 +375,22 @@ public class ChatService {
 
     String customInstructions =
         userSettingsService.getCustomInstructions(userId).orElse(null);
-    List<Message> promptMessages =
-        promptMessageBuilder.build(
+    PromptMessageBatch promptBatch =
+        promptMessageBuilder.buildBatch(
             new PromptMessageRequest(
                 chatId,
-                validatedMedia,
+                mediaValidationService.mediaPayload(validatedMedia),
                 messageId,
                 customInstructions,
                 requestDTO.provider(),
                 requestDTO.modelId(),
                 resolvedCall.entitlements(),
-                documentRetrievalService.retrieveContext(chatId, userId, requestDTO.content())));
+                documentRetrievalService.retrieveDocuments(chatId, userId, requestDTO.content())));
 
     streamConcurrencyGate.acquire(userId);
     try {
       return createAndSubscribeStream(
-          userId, requestDTO, promptMessages, chatId, null, resolvedCall, plan);
+          userId, requestDTO, promptBatch, chatId, null, resolvedCall, plan);
     } catch (RuntimeException | Error error) {
       streamConcurrencyGate.release(userId);
       throw error;
@@ -413,14 +399,17 @@ public class ChatService {
 
   private record MessagePreparation(
       String updatedTitle,
-      List<Message> promptMessages) {}
+      PromptMessageBatch promptBatch) {}
 
-  private String buildMediaContext(List<MediaAttachment> validatedMedia) {
+  private record PreparedPrompt(
+      ChatClient.ChatClientRequestSpec promptSpec, ToolExecutionCollector toolExecutionCollector) {}
+
+  private String buildMediaContext(List<ValidatedMediaAttachment> validatedMedia) {
     return validatedMedia.isEmpty()
         ? null
         : ATTACHMENTS_PREFIX
             + validatedMedia.stream()
-                .map(RequestDTO.MediaAttachment::mimeType)
+                .map(ValidatedMediaAttachment::mimeType)
                 .collect(Collectors.joining(","));
   }
 
@@ -430,55 +419,43 @@ public class ChatService {
       String userId,
       RequestDTO requestDTO,
       Entitlements entitlements) {
-    List<MediaAttachment> validatedMedia =
-        mediaValidationService.validateAttachments(requestDTO.media(), entitlements);
+    List<ValidatedMediaAttachment> validatedMedia =
+        mediaValidationService.validateAndConvertAttachments(requestDTO.media(), entitlements);
     String userContext = buildMediaContext(validatedMedia);
     MessageEntity persistedUserMessage = persistMessage(chatId, requestDTO.content(), userContext);
     String updatedTitle = autoTitleChatIfNeeded(chat, requestDTO.content());
     String customInstructions = userSettingsService.getCustomInstructions(userId).orElse(null);
-    List<Message> promptMessages =
-        promptMessageBuilder.build(
+    PromptMessageBatch promptBatch =
+        promptMessageBuilder.buildBatch(
             new PromptMessageRequest(
                 chatId,
-                validatedMedia,
+                mediaValidationService.mediaPayload(validatedMedia),
                 persistedUserMessage.getId(),
                 customInstructions,
                 requestDTO.provider(),
                 requestDTO.modelId(),
                 entitlements,
-                documentRetrievalService.retrieveContext(chatId, userId, requestDTO.content())));
-    return new MessagePreparation(updatedTitle, promptMessages);
+                documentRetrievalService.retrieveDocuments(chatId, userId, requestDTO.content())));
+    return new MessagePreparation(updatedTitle, promptBatch);
   }
 
   private SseEmitter createAndSubscribeStream(
-      String userId, RequestDTO requestDTO, List<Message> promptMessages,
+      String userId, RequestDTO requestDTO, PromptMessageBatch promptBatch,
       UUID chatId, String updatedTitle, ResolvedCall resolvedCall, Plan plan) {
     SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
     ProviderClientHandle clientHolder =
         providerClientFactory.getClient(
             requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.billingMode());
     try {
-      var options =
-          providerClientFactory.buildOptions(
-              requestDTO.provider(), requestDTO.modelId(), resolvedCall.apiKey());
-      var client = clientHolder.client();
-      var promptSpec = client.prompt().options(options.mutate()).messages(promptMessages);
-      ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
-      promptToolBinder.bindTools(
-          chatId,
-          userId,
-          requestDTO.provider(),
-          requestDTO.modelId(),
-          requestDTO.webSearchEnabled(),
-          requestDTO.toolConsents(),
-          toolExecutionCollector,
-          promptSpec);
+      PreparedPrompt preparedPrompt =
+          preparePromptSpec(
+              chatId, userId, requestDTO, promptBatch, resolvedCall.apiKey(), clientHolder);
       String assistantContext =
           promptMessageBuilder.assistantContext(
-              promptMessages.size(), requestDTO.provider(), requestDTO.modelId());
+              promptBatch.totalMessageCount(), requestDTO.provider(), requestDTO.modelId());
       chatStreamSubscriber.subscribe(
           new ChatStreamSubscription(
-              promptSpec,
+              preparedPrompt.promptSpec(),
               emitter,
               clientHolder,
               userId,
@@ -489,7 +466,7 @@ public class ChatService {
               chatId,
               assistantContext,
               updatedTitle,
-              toolExecutionCollector,
+              preparedPrompt.toolExecutionCollector(),
               resolvedCall.quotaReservation()));
     } catch (RuntimeException | Error error) {
       clientHolder.close();
@@ -501,11 +478,37 @@ public class ChatService {
     return emitter;
   }
 
-  private Optional<Usage> extractUsage(ChatResponse response) {
-    if (response == null) return Optional.empty();
-    ChatResponseMetadata metadata = response.getMetadata();
-    if (metadata == null) return Optional.empty();
-    return Optional.ofNullable(metadata.getUsage());
+  private org.springframework.ai.chat.prompt.ChatOptions buildOptions(
+      RequestDTO requestDTO, String apiKey) {
+    if (requestDTO.options() == null) {
+      return providerClientFactory.buildOptions(requestDTO.provider(), requestDTO.modelId(), apiKey);
+    }
+    return providerClientFactory.buildOptions(
+        requestDTO.provider(), requestDTO.modelId(), apiKey, requestDTO.options());
+  }
+
+  private PreparedPrompt preparePromptSpec(
+      UUID chatId,
+      String userId,
+      RequestDTO requestDTO,
+      PromptMessageBatch promptBatch,
+      String apiKey,
+      ProviderClientHandle clientHolder) {
+    var options = buildOptions(requestDTO, apiKey);
+    var promptSpec =
+        clientHolder.client().prompt().options(options.mutate()).messages(promptBatch.requestMessages());
+    PromptAdvisors.bind(promptSpec, promptBatch);
+    ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
+    promptToolBinder.bindTools(
+        chatId,
+        userId,
+        requestDTO.provider(),
+        requestDTO.modelId(),
+        requestDTO.webSearchEnabled(),
+        requestDTO.toolConsents(),
+        toolExecutionCollector,
+        promptSpec);
+    return new PreparedPrompt(promptSpec, toolExecutionCollector);
   }
 
   private ResolvedCall resolveCall(String userId, RequestDTO requestDTO) {

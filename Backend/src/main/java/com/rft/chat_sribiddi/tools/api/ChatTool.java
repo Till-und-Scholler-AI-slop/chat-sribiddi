@@ -15,7 +15,9 @@ public interface ChatTool {
   String getDisplayName();
 
   /** Description for the AI model explaining when to use this tool. */
-  String getDescription();
+  default String getDescription() {
+    return SpringAiToolMetadata.description(this).orElseGet(this::getDisplayName);
+  }
 
   /** Whether this tool requires per-user configuration (e.g. API key). */
   default boolean requiresUserConfig() {

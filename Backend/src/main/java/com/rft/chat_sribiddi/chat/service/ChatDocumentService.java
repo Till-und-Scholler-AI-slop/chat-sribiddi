@@ -14,6 +14,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.ai.document.Document;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,7 +57,7 @@ public class ChatDocumentService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document could not be read", e);
     }
 
-    List<DocumentChunker.DocumentChunk> chunks = chunker.chunk(textExtractor.extract(mimeType, data));
+    List<Document> chunks = chunker.chunkDocuments(textExtractor.extract(mimeType, data));
     if (chunks.isEmpty()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document contains no extractable text");
     }
@@ -103,14 +104,19 @@ public class ChatDocumentService {
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat not found"));
   }
 
-  private static DocumentChunkEntity toEntity(Long documentId, DocumentChunker.DocumentChunk chunk) {
+  private static DocumentChunkEntity toEntity(Long documentId, Document chunk) {
     DocumentChunkEntity entity = new DocumentChunkEntity();
     entity.setDocumentId(documentId);
-    entity.setChunkIndex(chunk.index());
-    entity.setPageStart(chunk.pageStart());
-    entity.setPageEnd(chunk.pageEnd());
-    entity.setText(chunk.text());
-    entity.setTokenEstimate(chunk.tokenEstimate());
+    entity.setChunkIndex(
+        DocumentChunker.integerMetadata(chunk, DocumentChunker.CHUNK_INDEX_METADATA, 0));
+    entity.setPageStart(
+        DocumentChunker.integerMetadata(chunk, DocumentChunker.PAGE_START_METADATA, null));
+    entity.setPageEnd(
+        DocumentChunker.integerMetadata(chunk, DocumentChunker.PAGE_END_METADATA, null));
+    entity.setText(chunk.getText());
+    entity.setTokenEstimate(
+        DocumentChunker.integerMetadata(
+            chunk, DocumentChunker.TOKEN_ESTIMATE_METADATA, DocumentChunker.estimateTokens(chunk.getText())));
     return entity;
   }
 

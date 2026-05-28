@@ -8,6 +8,8 @@ import com.rft.chat_sribiddi.chat.service.StreamErrorHandler;
 import java.net.http.HttpTimeoutException;
 import java.util.HashMap;
 import java.util.Map;
+import org.springframework.ai.retry.NonTransientAiException;
+import org.springframework.ai.retry.TransientAiException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -118,6 +120,16 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
   }
 
+  @ExceptionHandler(TransientAiException.class)
+  public ResponseEntity<Map<String, String>> handleTransientAi(TransientAiException ex) {
+    return handleSpringAiProviderException(ex, HttpStatus.BAD_GATEWAY);
+  }
+
+  @ExceptionHandler(NonTransientAiException.class)
+  public ResponseEntity<Map<String, String>> handleNonTransientAi(NonTransientAiException ex) {
+    return handleSpringAiProviderException(ex, HttpStatus.BAD_REQUEST);
+  }
+
   /**
    * Preserves provider HTTP 429 so the frontend can distinguish rate limits,
    * while keeping other provider-side 4xx responses normalized to HTTP 400.
@@ -127,6 +139,18 @@ public class GlobalExceptionHandler {
       return HttpStatus.TOO_MANY_REQUESTS;
     }
     return statusCode.is4xxClientError() ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY;
+  }
+
+  private ResponseEntity<Map<String, String>> handleSpringAiProviderException(
+      Throwable ex, HttpStatus fallbackStatus) {
+    StreamErrorHandler.StreamErrorDetails details =
+        StreamErrorHandler.describe(null, null, 0, ex);
+    HttpStatus status =
+        details.statusCode() == null
+            ? fallbackStatus
+            : mapProviderStatus(HttpStatusCode.valueOf(details.statusCode()));
+    return ResponseEntity.status(status)
+        .body(Map.of("message", StreamErrorHandler.extractProviderMessage(ex)));
   }
 
   @ExceptionHandler(Exception.class)

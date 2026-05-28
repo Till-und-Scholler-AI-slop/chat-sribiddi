@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * successful provider call, or {@link #rollback()} (or try-with-resources) when the call fails
  * or is cancelled before completion.
  */
-public final class ManagedQuotaReservation implements AutoCloseable {
+public final class ManagedQuotaReservation implements AutoCloseable, QuotaReservation {
 
   private final DailyQuotaCounterRepository repository;
   private final long internalUserId;

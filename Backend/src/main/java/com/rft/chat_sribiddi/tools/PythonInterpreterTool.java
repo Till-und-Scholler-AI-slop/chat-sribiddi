@@ -65,13 +65,6 @@ public class PythonInterpreterTool implements ChatTool {
   }
 
   @Override
-  public String getDescription() {
-    return "Execute Python code and return stdout/stderr output. "
-        + "Useful for calculations, data processing, string manipulation, etc. "
-        + "Runs inside an ephemeral Docker sandbox.";
-  }
-
-  @Override
   public ToolRiskLevel riskLevel() {
     return ToolRiskLevel.HIGH;
   }

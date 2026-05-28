@@ -216,7 +216,7 @@ https://germinai.de/login/oauth2/code/google
 Production startup must be validated through CI/deploy, not only focused unit
 tests. The following issues have previously broken the VPS:
 
-- Spring AI 2.0.0-M6 uses the official OpenAI Java SDK for OpenAI-compatible
+- Spring AI 2.0.0-M7 uses the official OpenAI Java SDK for OpenAI-compatible
   chat requests. For OpenRouter, configure `OPENROUTER_BASE_URL` with the API
   root such as `https://openrouter.ai/api/v1`; there is no separate
   `OPENROUTER_COMPLETIONS_PATH` override.

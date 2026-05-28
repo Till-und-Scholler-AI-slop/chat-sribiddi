@@ -2,53 +2,96 @@ package com.rft.chat_sribiddi.chat.service;
 
 import com.rft.chat_sribiddi.chat.service.DocumentTextExtractor.PageText;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.stereotype.Component;
 
 @Component
 public class DocumentChunker {
 
   private static final int TARGET_TOKENS = 1_200;
-  private static final int OVERLAP_TOKENS = 120;
   private static final int CHARS_PER_TOKEN = 4;
-  private static final int TARGET_CHARS = TARGET_TOKENS * CHARS_PER_TOKEN;
-  private static final int OVERLAP_CHARS = OVERLAP_TOKENS * CHARS_PER_TOKEN;
+  private static final String PAGE_METADATA = "page";
+  static final String CHUNK_INDEX_METADATA = "chunk_index";
+  static final String PAGE_START_METADATA = "page_start";
+  static final String PAGE_END_METADATA = "page_end";
+  static final String TOKEN_ESTIMATE_METADATA = "token_estimate";
+
+  private final TokenTextSplitter splitter =
+      TokenTextSplitter.builder()
+          .withChunkSize(TARGET_TOKENS)
+          .withMinChunkSizeChars(350)
+          .withMinChunkLengthToEmbed(5)
+          .withMaxNumChunks(10_000)
+          .withKeepSeparator(true)
+          .withPunctuationMarks(List.of('.', '?', '!', '\n', ';', ':'))
+          .build();
 
   public List<DocumentChunk> chunk(List<PageText> pages) {
-    List<DocumentChunk> chunks = new ArrayList<>();
-    StringBuilder current = new StringBuilder();
-    Integer pageStart = null;
-    Integer pageEnd = null;
+    return chunkDocuments(pages).stream().map(DocumentChunker::toChunk).toList();
+  }
 
-    for (PageText page : pages) {
-      if (page.text() == null || page.text().isBlank()) {
-        continue;
-      }
-      if (pageStart == null) {
-        pageStart = page.page();
-      }
-      pageEnd = page.page();
-      if (!current.isEmpty()) {
-        current.append("\n\n");
-      }
-      current.append(page.text());
-
-      while (current.length() >= TARGET_CHARS) {
-        String text = current.substring(0, TARGET_CHARS).trim();
-        if (!text.isBlank()) {
-          chunks.add(new DocumentChunk(chunks.size(), pageStart, pageEnd, text, estimateTokens(text)));
-        }
-        int keepFrom = Math.max(0, TARGET_CHARS - OVERLAP_CHARS);
-        current.delete(0, keepFrom);
-        pageStart = pageEnd;
-      }
+  public List<Document> chunkDocuments(List<PageText> pages) {
+    List<Document> documents =
+        pages.stream()
+            .filter(page -> page != null && page.text() != null && !page.text().isBlank())
+            .map(DocumentChunker::toDocument)
+            .toList();
+    if (documents.isEmpty()) {
+      return List.of();
     }
 
-    String trailing = current.toString().trim();
-    if (!trailing.isBlank()) {
-      chunks.add(new DocumentChunk(chunks.size(), pageStart, pageEnd, trailing, estimateTokens(trailing)));
+    List<Document> chunks = new ArrayList<>();
+    for (Document document : splitter.apply(documents)) {
+      String text = document.getText() == null ? "" : document.getText().trim();
+      if (!text.isBlank()) {
+        Integer page = page(document);
+        chunks.add(toChunkDocument(chunks.size(), page, text));
+      }
     }
     return chunks;
+  }
+
+  private static Document toDocument(PageText page) {
+    Map<String, Object> metadata =
+        page.page() == null ? Map.of() : Map.of(PAGE_METADATA, page.page());
+    return new Document(page.text(), metadata);
+  }
+
+  private static Document toChunkDocument(int index, Integer page, String text) {
+    Map<String, Object> metadata = new LinkedHashMap<>();
+    metadata.put(CHUNK_INDEX_METADATA, index);
+    if (page != null) {
+      metadata.put(PAGE_START_METADATA, page);
+      metadata.put(PAGE_END_METADATA, page);
+    }
+    metadata.put(TOKEN_ESTIMATE_METADATA, estimateTokens(text));
+    return new Document(text, metadata);
+  }
+
+  private static DocumentChunk toChunk(Document document) {
+    return new DocumentChunk(
+        integerMetadata(document, CHUNK_INDEX_METADATA, 0),
+        integerMetadata(document, PAGE_START_METADATA, null),
+        integerMetadata(document, PAGE_END_METADATA, null),
+        document.getText(),
+        integerMetadata(document, TOKEN_ESTIMATE_METADATA, estimateTokens(document.getText())));
+  }
+
+  private static Integer page(Document document) {
+    Object page = document.getMetadata().get(PAGE_METADATA);
+    if (page instanceof Integer integer) {
+      return integer;
+    }
+    return null;
+  }
+
+  static Integer integerMetadata(Document document, String key, Integer fallback) {
+    Object value = document.getMetadata().get(key);
+    return value instanceof Number number ? number.intValue() : fallback;
   }
 
   static int estimateTokens(String text) {

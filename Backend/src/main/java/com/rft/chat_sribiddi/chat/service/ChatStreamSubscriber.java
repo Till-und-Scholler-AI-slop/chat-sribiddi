@@ -3,6 +3,7 @@ package com.rft.chat_sribiddi.chat.service;
 import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.billing.ManagedQuotaReservation;
+import com.rft.chat_sribiddi.billing.QuotaReservation;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.dto.StreamEventDTO;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
@@ -15,18 +16,14 @@ import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
 import com.rft.chat_sribiddi.observability.ChatMetrics;
 import java.io.IOException;
 import java.time.Instant;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.AbstractMessage;
-import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.Generation;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -94,16 +91,11 @@ public class ChatStreamSubscriber {
       ChatStreamSubscription subscription) {
     SseEmitter emitter = subscription.emitter();
     try {
-      String text =
-          Optional.ofNullable(chunk)
-              .map(ChatResponse::getResult)
-              .map(Generation::getOutput)
-              .map(AbstractMessage::getText)
-              .orElse(null);
+      String text = ChatResponseExtractor.text(chunk);
 
       if (text != null && !text.isEmpty()) {
         fullText.append(text);
-        streamedTextUtf8Bytes.addAndGet(utf8Length(text));
+        streamedTextUtf8Bytes.addAndGet(ChatResponseExtractor.utf8Length(text));
         emitter.send(
             SseEmitter.event()
                 .name("text")
@@ -114,7 +106,7 @@ public class ChatStreamSubscriber {
                     MediaType.APPLICATION_JSON));
       }
 
-      String reasoning = extractReasoningContent(chunk);
+      String reasoning = ChatResponseExtractor.reasoningContent(chunk);
       if (reasoning != null && !reasoning.isEmpty()) {
         emitter.send(
             SseEmitter.event()
@@ -126,7 +118,7 @@ public class ChatStreamSubscriber {
                     MediaType.APPLICATION_JSON));
       }
 
-      extractUsage(chunk).ifPresent(lastUsage::set);
+      ChatResponseExtractor.usage(chunk).ifPresent(lastUsage::set);
     } catch (IOException e) {
       log.warn("Failed to send SSE event", e);
     } catch (Exception e) {
@@ -159,13 +151,6 @@ public class ChatStreamSubscriber {
       subscription.emitter().complete();
       subscription.clientHandle().close();
     }
-  }
-
-  private Optional<Usage> extractUsage(ChatResponse response) {
-    if (response == null) return Optional.empty();
-    ChatResponseMetadata metadata = response.getMetadata();
-    if (metadata == null) return Optional.empty();
-    return Optional.ofNullable(metadata.getUsage());
   }
 
   private void handleStreamError(
@@ -375,38 +360,198 @@ public class ChatStreamSubscriber {
     }
   }
 
-  private static long utf8Length(CharSequence value) {
-    long byteLength = 0;
-    for (int i = 0; i < value.length(); i++) {
-      char current = value.charAt(i);
-      if (current <= 0x7F) {
-        byteLength++;
-      } else if (current <= 0x7FF) {
-        byteLength += 2;
-      } else if (Character.isHighSurrogate(current)) {
-        if (i + 1 < value.length() && Character.isLowSurrogate(value.charAt(i + 1))) {
-          byteLength += 4;
-          i++;
-        } else {
-          byteLength += 3;
-        }
-      } else {
-        byteLength += 3;
-      }
+  void subscribeStateless(StatelessStreamSubscription subscription) {
+    StringBuilder fullText = new StringBuilder();
+    AtomicLong streamedTextUtf8Bytes = new AtomicLong();
+    AtomicReference<Usage> lastUsage = new AtomicReference<>();
+    ChatMetrics.StreamSample streamSample =
+        chatMetrics.startStream(subscription.provider(), subscription.modelId());
+
+    try {
+      subscription
+          .promptSpec()
+          .stream()
+          .chatResponse()
+          .subscribe(
+              chunk ->
+                  handleStatelessStreamChunk(
+                      chunk, fullText, streamedTextUtf8Bytes, lastUsage, subscription),
+              error ->
+                  handleStatelessStreamError(
+                      subscription, error, streamedTextUtf8Bytes.get(), lastUsage, streamSample),
+              () -> handleStatelessStreamCompletion(subscription, lastUsage, streamSample));
+    } catch (RuntimeException | Error error) {
+      subscription.quotaReservation().rollback();
+      chatMetrics.recordStreamEnd(streamSample);
+      throw error;
     }
-    return byteLength;
+
+    subscription.emitter().onTimeout(
+        () -> {
+          subscription.quotaReservation().rollback();
+          chatMetrics.recordStreamEnd(streamSample);
+          subscription.clientHandle().close();
+        });
+    subscription.emitter().onError(
+        _ -> {
+          subscription.quotaReservation().rollback();
+          chatMetrics.recordStreamEnd(streamSample);
+          subscription.clientHandle().close();
+        });
+    subscription.emitter().onCompletion(() -> chatMetrics.recordStreamEnd(streamSample));
   }
 
-  private String extractReasoningContent(ChatResponse chunk) {
-    return Optional.ofNullable(chunk)
-        .map(ChatResponse::getResult)
-        .map(Generation::getOutput)
-        .map(AbstractMessage::getMetadata)
-        .map(metadata -> metadata.get("reasoningContent"))
-        .filter(String.class::isInstance)
-        .map(String.class::cast)
-        .filter(s -> !s.isEmpty())
-        .orElse(null);
+  private void handleStatelessStreamChunk(
+      ChatResponse chunk,
+      StringBuilder fullText,
+      AtomicLong streamedTextUtf8Bytes,
+      AtomicReference<Usage> lastUsage,
+      StatelessStreamSubscription subscription) {
+    SseEmitter emitter = subscription.emitter();
+    try {
+      String text = ChatResponseExtractor.text(chunk);
+
+      if (text != null && !text.isEmpty()) {
+        fullText.append(text);
+        streamedTextUtf8Bytes.addAndGet(ChatResponseExtractor.utf8Length(text));
+        emitter.send(
+            SseEmitter.event()
+                .name("text")
+                .data(
+                    new StreamEventDTO(
+                        "text", text, null, null, null, null, null, null,
+                        null, null, null, null, null, null),
+                    MediaType.APPLICATION_JSON));
+      }
+
+      String reasoning = ChatResponseExtractor.reasoningContent(chunk);
+      if (reasoning != null && !reasoning.isEmpty()) {
+        emitter.send(
+            SseEmitter.event()
+                .name("reasoning")
+                .data(
+                    new StreamEventDTO(
+                        "reasoning", reasoning, null, null, null, null, null, null,
+                        null, null, null, null, null, null),
+                    MediaType.APPLICATION_JSON));
+      }
+
+      ChatResponseExtractor.usage(chunk).ifPresent(lastUsage::set);
+    } catch (IOException e) {
+      log.warn("Failed to send stateless SSE event", e);
+    } catch (Exception e) {
+      log.warn("Unexpected error processing stateless stream chunk", e);
+      sendStatelessUnexpectedChunkError(subscription);
+    }
+  }
+
+  private void sendStatelessUnexpectedChunkError(StatelessStreamSubscription subscription) {
+    subscription.quotaReservation().rollback();
+    try {
+      subscription.emitter().send(
+          SseEmitter.event()
+              .name(EVENT_ERROR)
+              .data(
+                  new StreamEventDTO(
+                      EVENT_ERROR,
+                      "An unexpected error occurred while processing the response stream.",
+                      null, null, null, null, null, null,
+                      null, null, null, "STREAM_CHUNK_ERROR", null, true),
+                  MediaType.APPLICATION_JSON));
+    } catch (IOException io) {
+      log.warn("Failed to send stateless SSE unexpected-chunk error event", io);
+    } finally {
+      subscription.emitter().complete();
+      subscription.clientHandle().close();
+    }
+  }
+
+  private void handleStatelessStreamError(
+      StatelessStreamSubscription subscription,
+      Throwable error,
+      long streamedTextUtf8Bytes,
+      AtomicReference<Usage> lastUsage,
+      ChatMetrics.StreamSample streamSample) {
+    StreamErrorHandler.StreamErrorDetails details =
+        StreamErrorHandler.describe(
+            subscription.provider(), subscription.modelId(), streamedTextUtf8Bytes, error);
+    log.warn(
+        "Stateless streaming error type={} provider={} model={} statusCode={} receivedBytes={} providerMessage={}",
+        details.errorType(),
+        details.provider().name(),
+        details.modelId(),
+        details.statusCode(),
+        details.receivedBytes(),
+        StreamErrorHandler.extractProviderMessage(error));
+    chatUsageRecorder.tokenUsage(lastUsage.get());
+    ProviderClientHandle clientHandle = subscription.clientHandle();
+    try (clientHandle) {
+      subscription.emitter().send(
+          SseEmitter.event()
+              .name(EVENT_ERROR)
+              .data(
+                  new StreamEventDTO(
+                      EVENT_ERROR,
+                      StreamErrorHandler.buildClientMessage(details),
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      details.provider().name(),
+                      details.modelId(),
+                      details.statusCode(),
+                      details.errorType(),
+                      details.receivedBytes(),
+                      true),
+                  MediaType.APPLICATION_JSON));
+    } catch (IOException e) {
+      log.warn("Failed to send stateless SSE error event", e);
+    } finally {
+      subscription.quotaReservation().rollback();
+      chatUsageRecorder.recordRequestMetric(subscription.provider(), subscription.modelId(), Plan.FREE, false);
+      chatMetrics.recordStreamEnd(streamSample);
+      subscription.emitter().complete();
+    }
+  }
+
+  private void handleStatelessStreamCompletion(
+      StatelessStreamSubscription subscription,
+      AtomicReference<Usage> lastUsage,
+      ChatMetrics.StreamSample streamSample) {
+    ProviderClientHandle clientHandle = subscription.clientHandle();
+    try (clientHandle) {
+      TokenUsage tokenUsage = chatUsageRecorder.tokenUsage(lastUsage.get());
+      subscription.quotaReservation().commit();
+      subscription.emitter().send(
+          SseEmitter.event()
+              .name("done")
+              .data(
+                  new StreamEventDTO(
+                      "done",
+                      null,
+                      tokenUsage.promptTokens(),
+                      tokenUsage.generationTokens(),
+                      tokenUsage.totalTokens(),
+                      null,
+                      null,
+                      false,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null),
+                  MediaType.APPLICATION_JSON));
+      subscription.emitter().complete();
+    } catch (IOException e) {
+      log.warn("Failed to send stateless SSE done event", e);
+      subscription.emitter().complete();
+    } finally {
+      chatUsageRecorder.recordRequestMetric(subscription.provider(), subscription.modelId(), Plan.FREE, true);
+      chatMetrics.recordStreamEnd(streamSample);
+    }
   }
 
   record ChatStreamSubscription(
@@ -423,4 +568,12 @@ public class ChatStreamSubscriber {
       String updatedTitle,
       ToolExecutionCollector toolExecutionCollector,
       ManagedQuotaReservation quotaReservation) {}
+
+  record StatelessStreamSubscription(
+      ChatClient.ChatClientRequestSpec promptSpec,
+      SseEmitter emitter,
+      ProviderClientHandle clientHandle,
+      Provider provider,
+      String modelId,
+      QuotaReservation quotaReservation) {}
 }

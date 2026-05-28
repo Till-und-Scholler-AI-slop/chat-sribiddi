@@ -8,6 +8,8 @@ import com.openai.models.ErrorObject;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.retry.NonTransientAiException;
+import org.springframework.ai.retry.TransientAiException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
@@ -31,17 +33,48 @@ public final class StreamErrorHandler {
   }
 
   public static String extractProviderMessage(Throwable error) {
-    if (error instanceof WebClientResponseException webEx) {
-      return formatProviderError(webEx.getResponseBodyAsString(), webEx.getStatusCode().value());
+    String springAiMessage = null;
+    Throwable current = error;
+    int depth = 0;
+    while (current != null && depth < 10) {
+      switch (current) {
+        case WebClientResponseException webEx -> {
+          return formatProviderError(
+              webEx.getResponseBodyAsString(), webEx.getStatusCode().value());
+        }
+        case RestClientResponseException restEx -> {
+          return formatProviderError(
+              restEx.getResponseBodyAsString(), restEx.getStatusCode().value());
+        }
+        case OpenAIServiceException openAiEx -> {
+          return formatProviderError(openAiEx);
+        }
+        case AnthropicServiceException anthropicEx -> {
+          return formatProviderError(anthropicEx);
+        }
+        case TransientAiException aiEx -> {
+          if (springAiMessage == null
+              && aiEx.getMessage() != null
+              && !aiEx.getMessage().isBlank()) {
+            springAiMessage = aiEx.getMessage();
+          }
+        }
+        case NonTransientAiException aiEx -> {
+          if (springAiMessage == null
+              && aiEx.getMessage() != null
+              && !aiEx.getMessage().isBlank()) {
+            springAiMessage = aiEx.getMessage();
+          }
+        }
+        default -> {
+          // Continue walking through Spring AI wrapper exceptions to the provider root cause.
+        }
+      }
+      current = current.getCause();
+      depth++;
     }
-    if (error instanceof RestClientResponseException restEx) {
-      return formatProviderError(restEx.getResponseBodyAsString(), restEx.getStatusCode().value());
-    }
-    if (error instanceof OpenAIServiceException openAiEx) {
-      return formatProviderError(openAiEx);
-    }
-    if (error instanceof AnthropicServiceException anthropicEx) {
-      return formatProviderError(anthropicEx);
+    if (springAiMessage != null) {
+      return springAiMessage;
     }
     return "An error occurred while streaming the response.";
   }
@@ -95,6 +128,12 @@ public final class StreamErrorHandler {
     }
     if (isParseError(error)) {
       return "PARSE_ERROR";
+    }
+    if (hasCause(error, TransientAiException.class)) {
+      return "SERVER_ERROR";
+    }
+    if (hasCause(error, NonTransientAiException.class)) {
+      return "PROVIDER_ERROR";
     }
     return "UNKNOWN";
   }
@@ -196,6 +235,19 @@ public final class StreamErrorHandler {
         if (lowered.contains("parse") || lowered.contains("json")) {
           return true;
         }
+      }
+      current = current.getCause();
+      depth++;
+    }
+    return false;
+  }
+
+  private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
+    Throwable current = error;
+    int depth = 0;
+    while (current != null && depth < 10) {
+      if (type.isInstance(current)) {
+        return true;
       }
       current = current.getCause();
       depth++;
