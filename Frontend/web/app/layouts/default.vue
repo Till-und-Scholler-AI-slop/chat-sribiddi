@@ -72,7 +72,7 @@ watch(() => route.path, () => {
         <!-- Mobile Header Bar -->
         <div
           v-if="isMobile"
-          class="sticky top-0 z-30 flex items-center gap-3 px-4 py-3 glass-surface border-b border-gray-200/60 dark:border-white/[0.06]"
+          class="sticky top-0 z-30 flex items-center gap-3 px-3 py-2 glass-surface border-b border-gray-200/60 dark:border-white/[0.06]"
         >
           <UButton
             variant="ghost"
