@@ -443,16 +443,13 @@ async function handleSubmit() {
     return
   }
 
-  const text = input.value.trim() || t('chat.analyzeAttachment')
-  const media = [...attachments.value]
-  const documents = [...documentAttachments.value]
-  const uploadedDocuments: Array<{ mimeType: string; name?: string }> = []
   const savedInput = input.value
-  input.value = ''
-  clearAttachments()
+  const savedMedia = [...attachments.value]
+  const savedDocuments = [...documentAttachments.value]
+  const uploadedDocuments: Array<{ mimeType: string; name?: string }> = []
 
   try {
-    for (const document of documents) {
+    for (const document of savedDocuments) {
       try {
         const uploaded = await uploadDocument(conversation.session.chatId, document.file)
         uploadedDocuments.push({
@@ -467,16 +464,28 @@ async function handleSubmit() {
         })
       }
     }
-    const hasAnyAttachment = media.length > 0 || uploadedDocuments.length > 0
+
+    const hasAnyAttachment = savedMedia.length > 0 || uploadedDocuments.length > 0
     if (!savedInput.trim() && !hasAnyAttachment) {
+      // Nothing left to send after upload failures — keep the pending attachments visible
       return
     }
-    await sendPrompt(conversation.session.chatId, text, model, {
-      media,
+
+    const effectiveText = savedInput.trim() || t('chat.analyzeAttachment')
+
+    // Clear pending UI only when we are actually sending
+    input.value = ''
+    clearAttachments()
+
+    await sendPrompt(conversation.session.chatId, effectiveText, model, {
+      media: savedMedia,
       documents: uploadedDocuments
     })
   } catch (err) {
     input.value = savedInput
+    // Restore any attachments that were cleared before the failure
+    attachments.value = [...savedMedia]
+    documentAttachments.value = [...savedDocuments]
     toast.add({
       title: t('chat.messageFailedTitle'),
       description: tt(err),
