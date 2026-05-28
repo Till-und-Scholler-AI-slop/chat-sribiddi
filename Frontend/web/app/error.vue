@@ -23,7 +23,7 @@ function goToChat() {
 
 <template>
   <UApp>
-    <main class="min-h-dvh bg-chat-gradient flex items-center justify-center px-4 py-10">
+    <main class="min-h-dvh bg-chat-gradient flex items-center justify-center px-4 py-10" style="padding-top: max(2.5rem, env(safe-area-inset-top)); padding-bottom: max(2.5rem, env(safe-area-inset-bottom))">
       <section class="w-full max-w-md rounded-lg border border-gray-200 bg-white/95 p-6 shadow-sm dark:border-white/10 dark:bg-gray-950/95">
         <p class="text-sm font-medium text-primary">{{ statusCode }}</p>
         <h1 class="mt-2 text-2xl font-semibold text-gray-950 dark:text-white">

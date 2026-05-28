@@ -755,6 +755,7 @@ const handleReload = async () => {
             v-if="chatReady"
             v-model="input"
             :error="promptError"
+            autocapitalize="none"
             @submit="handleSubmit"
           >
             <template #header>
