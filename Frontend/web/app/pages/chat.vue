@@ -706,7 +706,7 @@ const handleReload = async () => {
     <template #footer>
       <div class="relative">
 
-        <UContainer class="px-2 sm:px-6 lg:px-8 pb-2 sm:pb-6 space-y-2">
+        <UContainer class="px-2 sm:px-6 lg:px-8 pb-1 sm:pb-6 space-y-1 sm:space-y-2">
           <input
             ref="fileInput"
             type="file"
@@ -757,7 +757,7 @@ const handleReload = async () => {
             @submit="handleSubmit"
           >
             <template #header>
-              <div class="flex flex-wrap items-center gap-2">
+              <div class="flex items-center gap-1.5 sm:gap-2">
               <UTooltip :text="t('chat.addAttachments')">
                 <UButton
                   icon="i-heroicons-paper-clip"
@@ -782,7 +782,7 @@ const handleReload = async () => {
               <USelectMenu
                 v-model="selectedModel"
                 :items="sortedModels"
-                class="w-full sm:w-56"
+                class="flex-1 min-w-0 sm:w-56"
                 :loading="modelsLoading"
                 label-key="label"
                 by="value"
