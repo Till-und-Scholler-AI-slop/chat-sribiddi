@@ -446,16 +446,34 @@ async function handleSubmit() {
   const text = input.value.trim() || t('chat.analyzeAttachment')
   const media = [...attachments.value]
   const documents = [...documentAttachments.value]
+  const uploadedDocuments: Array<{ mimeType: string; name?: string }> = []
   const savedInput = input.value
   input.value = ''
   clearAttachments()
 
   try {
     for (const document of documents) {
-      await uploadDocument(conversation.session.chatId, document.file)
+      try {
+        const uploaded = await uploadDocument(conversation.session.chatId, document.file)
+        uploadedDocuments.push({
+          mimeType: uploaded.mimeType || document.mimeType,
+          name: uploaded.filename || document.name
+        })
+      } catch (err) {
+        toast.add({
+          title: t('chat.uploadFailedTitle'),
+          description: `${document.name}: ${tt(err, 'chat.attachmentReadFallback')}`,
+          color: 'error'
+        })
+      }
+    }
+    const hasAnyAttachment = media.length > 0 || uploadedDocuments.length > 0
+    if (!savedInput.trim() && !hasAnyAttachment) {
+      return
     }
     await sendPrompt(conversation.session.chatId, text, model, {
-      media
+      media,
+      documents: uploadedDocuments
     })
   } catch (err) {
     input.value = savedInput

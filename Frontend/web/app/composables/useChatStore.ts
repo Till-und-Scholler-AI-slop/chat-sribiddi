@@ -542,6 +542,7 @@ export function useChatStore() {
     options?: {
       appendUserMessage?: boolean
       media?: MediaAttachment[]
+      documents?: Array<{ mimeType: string; name?: string }>
     }
   ): Promise<UIMessage | null> => {
     const conversation = conversations.value.find(c => c.session.chatId === chatId)
@@ -591,6 +592,11 @@ export function useChatStore() {
       if (options?.media?.length) {
         for (const att of options.media) {
           parts.push({ type: 'file', mediaType: att.mimeType, filename: att.name, url: '' })
+        }
+      }
+      if (options?.documents?.length) {
+        for (const doc of options.documents) {
+          parts.push({ type: 'file', mediaType: doc.mimeType, filename: doc.name, url: '' })
         }
       }
       const userMessage: UIMessage = {
