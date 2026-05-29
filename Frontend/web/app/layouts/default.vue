@@ -47,7 +47,7 @@ const mobileHeaderTitle = computed(() => {
 </script>
 
 <template>
-  <div class="h-dvh w-dvw overflow-hidden bg-chat-gradient" style="padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right)">
+  <div class="h-dvh w-dvw overflow-hidden bg-chat-gradient">
     <div 
       class="grid h-full min-h-0 transition-[grid-template-columns] duration-200 ease-out" 
       :class="[
