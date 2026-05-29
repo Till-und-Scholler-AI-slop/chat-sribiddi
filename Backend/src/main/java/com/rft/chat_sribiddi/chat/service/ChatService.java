@@ -18,6 +18,7 @@ import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
 import com.rft.chat_sribiddi.chat.service.ChatStreamSubscriber.ChatStreamSubscription;
 import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.PromptMessageRequest;
 import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.PromptMessageBatch;
+import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.DocumentRetrievalContext;
 import com.rft.chat_sribiddi.chat.service.ChatUsageRecorder.ChatUsage;
 import com.rft.chat_sribiddi.chat.service.ChatUsageRecorder.TokenUsage;
 import com.rft.chat_sribiddi.chat.service.MediaValidationService.ValidatedMediaAttachment;
@@ -379,13 +380,14 @@ public class ChatService {
         promptMessageBuilder.buildBatch(
             new PromptMessageRequest(
                 chatId,
+                requestDTO.content(),
                 mediaValidationService.mediaPayload(validatedMedia),
                 messageId,
                 customInstructions,
                 requestDTO.provider(),
                 requestDTO.modelId(),
                 resolvedCall.entitlements(),
-                documentRetrievalService.retrieveDocuments(chatId, userId, requestDTO.content())));
+                new DocumentRetrievalContext(chatId, userId)));
 
     streamConcurrencyGate.acquire(userId);
     try {
@@ -429,13 +431,14 @@ public class ChatService {
         promptMessageBuilder.buildBatch(
             new PromptMessageRequest(
                 chatId,
+                requestDTO.content(),
                 mediaValidationService.mediaPayload(validatedMedia),
                 persistedUserMessage.getId(),
                 customInstructions,
                 requestDTO.provider(),
                 requestDTO.modelId(),
                 entitlements,
-                documentRetrievalService.retrieveDocuments(chatId, userId, requestDTO.content())));
+                new DocumentRetrievalContext(chatId, userId)));
     return new MessagePreparation(updatedTitle, promptBatch);
   }
 
@@ -497,7 +500,7 @@ public class ChatService {
     var options = buildOptions(requestDTO, apiKey);
     var promptSpec =
         clientHolder.client().prompt().options(options.mutate()).messages(promptBatch.requestMessages());
-    PromptAdvisors.bind(promptSpec, promptBatch);
+    PromptAdvisors.bind(promptSpec, promptBatch, documentRetrievalService);
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
     promptToolBinder.bindTools(
         chatId,

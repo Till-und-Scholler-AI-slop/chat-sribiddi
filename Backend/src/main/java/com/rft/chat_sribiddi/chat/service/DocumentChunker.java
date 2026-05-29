@@ -1,20 +1,19 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import com.rft.chat_sribiddi.chat.service.DocumentTextExtractor.PageText;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.document.DocumentTransformer;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.stereotype.Component;
 
 @Component
-public class DocumentChunker {
+public class DocumentChunker implements DocumentTransformer {
 
   private static final int TARGET_TOKENS = 1_200;
   private static final int CHARS_PER_TOKEN = 4;
-  private static final String PAGE_METADATA = "page";
   static final String CHUNK_INDEX_METADATA = "chunk_index";
   static final String PAGE_START_METADATA = "page_start";
   static final String PAGE_END_METADATA = "page_end";
@@ -30,22 +29,26 @@ public class DocumentChunker {
           .withPunctuationMarks(List.of('.', '?', '!', '\n', ';', ':'))
           .build();
 
-  public List<DocumentChunk> chunk(List<PageText> pages) {
-    return chunkDocuments(pages).stream().map(DocumentChunker::toChunk).toList();
+  public List<DocumentChunk> chunk(List<Document> documents) {
+    return apply(documents).stream().map(DocumentChunker::toChunk).toList();
   }
 
-  public List<Document> chunkDocuments(List<PageText> pages) {
-    List<Document> documents =
-        pages.stream()
-            .filter(page -> page != null && page.text() != null && !page.text().isBlank())
-            .map(DocumentChunker::toDocument)
-            .toList();
-    if (documents.isEmpty()) {
+  @Override
+  public List<Document> apply(List<Document> documents) {
+    if (documents == null || documents.isEmpty()) {
       return List.of();
     }
 
     List<Document> chunks = new ArrayList<>();
-    for (Document document : splitter.apply(documents)) {
+    List<Document> sourceDocuments =
+        documents.stream()
+            .filter(
+                document ->
+                    document != null
+                        && document.getText() != null
+                        && !document.getText().isBlank())
+            .toList();
+    for (Document document : splitter.apply(sourceDocuments)) {
       String text = document.getText() == null ? "" : document.getText().trim();
       if (!text.isBlank()) {
         Integer page = page(document);
@@ -53,12 +56,6 @@ public class DocumentChunker {
       }
     }
     return chunks;
-  }
-
-  private static Document toDocument(PageText page) {
-    Map<String, Object> metadata =
-        page.page() == null ? Map.of() : Map.of(PAGE_METADATA, page.page());
-    return new Document(page.text(), metadata);
   }
 
   private static Document toChunkDocument(int index, Integer page, String text) {
@@ -82,11 +79,7 @@ public class DocumentChunker {
   }
 
   private static Integer page(Document document) {
-    Object page = document.getMetadata().get(PAGE_METADATA);
-    if (page instanceof Integer integer) {
-      return integer;
-    }
-    return null;
+    return DocumentTextExtractor.pageMetadata(document);
   }
 
   static Integer integerMetadata(Document document, String key, Integer fallback) {

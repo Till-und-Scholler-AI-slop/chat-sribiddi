@@ -7,6 +7,7 @@ import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.chat.toolcall.RecordingToolCallback;
+import com.rft.chat_sribiddi.chat.toolcall.ToolConsentContext;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.tools.CalculatorTool;
@@ -38,6 +39,8 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class PromptToolBinder {
+
+  static final String TOOL_CONSENT_CONTEXT_KEY = ToolConsentContext.KEY;
 
   private final ChatProperties chatProperties;
   private final ChatToolRepository chatToolRepository;
@@ -99,7 +102,16 @@ public class PromptToolBinder {
       toolCallbacks.addAll(resolveToolCallbacks(userId, webSearchEnabled, collector, tool));
     }
     if (!toolCallbacks.isEmpty()) {
-      promptSpec.tools(toolSpec -> toolSpec.callbacks(toolCallbacks.toArray(ToolCallback[]::new)));
+      Map<String, Object> toolContext = toolContext(toolConsents);
+      promptSpec.tools(
+          toolSpec -> {
+            toolSpec.callbacks(toolCallbacks.toArray(ToolCallback[]::new));
+            // Always attach the consent context, even when it is empty. Spring AI 2.0.0-M8's
+            // MethodToolCallback rejects any tool that declares a ToolContext parameter (e.g.
+            // UrlFetcherTool#fetchUrl) when the supplied ToolContext has an empty context map,
+            // so a non-empty outer context map is required for those tools to run at all.
+            toolSpec.context(TOOL_CONSENT_CONTEXT_KEY, toolContext);
+          });
     }
   }
 
@@ -265,5 +277,20 @@ public class PromptToolBinder {
       case "calculator", "current-datetime", "brave-search" -> true;
       default -> false;
     };
+  }
+
+  private Map<String, Object> toolContext(List<RequestDTO.ToolConsent> toolConsents) {
+    if (toolConsents == null || toolConsents.isEmpty()) {
+      return Map.of();
+    }
+    return toolConsents.stream()
+        .filter(Objects::nonNull)
+        .filter(consent -> consent.toolName() != null && !consent.toolName().isBlank())
+        .filter(consent -> consent.args() != null && !consent.args().isEmpty())
+        .collect(
+            Collectors.toMap(
+                consent -> consent.toolName().trim(),
+                RequestDTO.ToolConsent::args,
+                (first, second) -> second));
   }
 }

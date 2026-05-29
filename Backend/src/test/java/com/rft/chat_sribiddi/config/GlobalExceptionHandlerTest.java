@@ -111,4 +111,24 @@ class GlobalExceptionHandlerTest {
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     assertThat(response.getBody()).containsEntry("message", "Invalid AI request");
   }
+
+  @Test
+  void handleToolExecution_mapsSpringAiToolFailureToBadGateway() {
+    var ex =
+        new org.springframework.ai.tool.execution.ToolExecutionException(
+            org.springframework.ai.tool.definition.ToolDefinition.builder()
+                .name("url_fetcher")
+                .description("Fetch a URL")
+                .inputSchema("{}")
+                .build(),
+            new IllegalArgumentException("host was not approved"));
+
+    var response = handler.handleToolExecution(ex);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+    assertThat(response.getBody())
+        .containsEntry(
+            "message",
+            "Tool 'url_fetcher' failed while processing the request: host was not approved");
+  }
 }

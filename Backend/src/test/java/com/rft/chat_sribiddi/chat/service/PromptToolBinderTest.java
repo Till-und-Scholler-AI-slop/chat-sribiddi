@@ -111,6 +111,68 @@ class PromptToolBinderTest {
   }
 
   @Test
+  void bindTools_passesConsentArgsThroughSpringAiToolContext() {
+    ChatTool customTool = new CustomAnnotatedTool();
+    when(toolRegistry.getAll()).thenReturn(List.of(customTool));
+    when(entitlementService.get("user-123")).thenReturn(entitlements("*"));
+    when(chatToolRepository.findByChatId(chatId)).thenReturn(List.of(enabledTool("custom-tool")));
+
+    binder.bindTools(
+        chatId,
+        "user-123",
+        RequestDTO.Provider.OPENAI,
+        "gpt-5.2",
+        false,
+        List.of(
+            new RequestDTO.ToolConsent(
+                "custom-tool", "LOW", Map.of("approvedHost", "example.com"))),
+        new ToolExecutionCollector(),
+        promptSpec);
+
+    ArgumentCaptor<Consumer<ChatClient.ToolSpec>> toolsCaptor =
+        ArgumentCaptor.forClass(Consumer.class);
+    verify(promptSpec).tools(toolsCaptor.capture());
+
+    CapturedToolSpec captured = captureToolSpec(toolsCaptor.getValue());
+    assertThat(captured.callbacks())
+        .singleElement()
+        .satisfies(callback -> assertThat(callback.getToolDefinition().name()).isEqualTo("run"));
+    assertThat(captured.context())
+        .containsEntry(
+            PromptToolBinder.TOOL_CONSENT_CONTEXT_KEY,
+            Map.of("custom-tool", Map.of("approvedHost", "example.com")));
+  }
+
+  @Test
+  void bindTools_attachesEmptyConsentContextWhenNoConsentArgsProvided() {
+    ChatTool customTool = new CustomAnnotatedTool();
+    when(toolRegistry.getAll()).thenReturn(List.of(customTool));
+    when(entitlementService.get("user-123")).thenReturn(entitlements("*"));
+    when(chatToolRepository.findByChatId(chatId)).thenReturn(List.of(enabledTool("custom-tool")));
+
+    binder.bindTools(
+        chatId,
+        "user-123",
+        RequestDTO.Provider.OPENAI,
+        "gpt-5.2",
+        false,
+        List.of(),
+        new ToolExecutionCollector(),
+        promptSpec);
+
+    ArgumentCaptor<Consumer<ChatClient.ToolSpec>> toolsCaptor =
+        ArgumentCaptor.forClass(Consumer.class);
+    verify(promptSpec).tools(toolsCaptor.capture());
+
+    // Spring AI 2.0.0-M8's MethodToolCallback rejects a tool that declares a ToolContext
+    // parameter (e.g. UrlFetcherTool#fetchUrl) when the ToolContext map is empty, so the consent
+    // context must always be attached — even with an empty inner map — for the tool to run.
+    CapturedToolSpec captured = captureToolSpec(toolsCaptor.getValue());
+    assertThat(captured.context())
+        .containsEntry(PromptToolBinder.TOOL_CONSENT_CONTEXT_KEY, Map.of());
+  }
+
+  @Test
   void bindTools_skipsToolsDeniedByEntitlements() {
     ChatTool customTool = mock(ChatTool.class);
     when(customTool.getName()).thenReturn("custom-tool");
@@ -239,8 +301,13 @@ class PromptToolBinderTest {
   }
 
   private static ToolCallback[] captureCallbacks(Consumer<ChatClient.ToolSpec> consumer) {
+    return captureToolSpec(consumer).callbacks();
+  }
+
+  private static CapturedToolSpec captureToolSpec(Consumer<ChatClient.ToolSpec> consumer) {
     ChatClient.ToolSpec toolSpec = mock(ChatClient.ToolSpec.class);
     AtomicReference<ToolCallback[]> callbacksRef = new AtomicReference<>();
+    Map<String, Object> context = new java.util.LinkedHashMap<>();
     when(toolSpec.callbacks((ToolCallback[]) any(ToolCallback[].class)))
         .thenAnswer(
             invocation -> {
@@ -252,9 +319,18 @@ class PromptToolBinderTest {
               callbacksRef.set(callbacks);
               return toolSpec;
             });
+    lenient()
+        .when(toolSpec.context(anyString(), any()))
+        .thenAnswer(
+            invocation -> {
+              context.put(invocation.getArgument(0), invocation.getArgument(1));
+              return toolSpec;
+            });
     consumer.accept(toolSpec);
-    return callbacksRef.get();
+    return new CapturedToolSpec(callbacksRef.get(), Map.copyOf(context));
   }
+
+  private record CapturedToolSpec(ToolCallback[] callbacks, Map<String, Object> context) {}
 
   private static ChatToolEntity enabledTool(String toolName) {
     ChatToolEntity entity = new ChatToolEntity();

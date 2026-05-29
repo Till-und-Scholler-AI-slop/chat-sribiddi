@@ -170,16 +170,25 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
       Provider provider, String modelId, String apiKey, ChatRuntimeOptions runtimeOptions) {
     return switch (provider) {
       case OPENAI ->
-          applyRuntimeOptions(OpenAiChatOptions.builder().model(modelId), runtimeOptions).build();
+          openAiCompatibleOptions(modelId, runtimeOptions);
       case GOOGLE ->
           googleOptions(modelId, runtimeOptions);
       case CLAUDE ->
           anthropicOptions(modelId, runtimeOptions);
       case OPENROUTER ->
-          applyRuntimeOptions(OpenAiChatOptions.builder().model(modelId), runtimeOptions).build();
+          openAiCompatibleOptions(modelId, runtimeOptions);
       case BRAVE_SEARCH ->
           throw new UnsupportedOperationException("BRAVE_SEARCH is not a chat model provider");
     };
+  }
+
+  private OpenAiChatOptions openAiCompatibleOptions(
+      String modelId, ChatRuntimeOptions runtimeOptions) {
+    OpenAiChatOptions.Builder builder =
+        applyRuntimeOptions(
+            OpenAiChatOptions.builder().model(modelId).streamUsage(true), runtimeOptions);
+    applyOpenAiRuntimeOptions(builder, runtimeOptions);
+    return builder.build();
   }
 
   private <B extends ChatOptions.Builder<B>> B applyRuntimeOptions(
@@ -244,6 +253,27 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
     if (runtimeOptions.includeServerSideToolInvocations() != null) {
       builder.includeServerSideToolInvocations(
           runtimeOptions.includeServerSideToolInvocations());
+    }
+    if (runtimeOptions.includeExtendedUsageMetadata() != null) {
+      builder.includeExtendedUsageMetadata(runtimeOptions.includeExtendedUsageMetadata());
+    }
+  }
+
+  private void applyOpenAiRuntimeOptions(
+      OpenAiChatOptions.Builder builder, ChatRuntimeOptions runtimeOptions) {
+    if (runtimeOptions == null) {
+      return;
+    }
+    if (runtimeOptions.openAiReasoningEffort() != null
+        && !runtimeOptions.openAiReasoningEffort().isBlank()) {
+      builder.reasoningEffort(runtimeOptions.openAiReasoningEffort().trim());
+    }
+    if (runtimeOptions.openAiVerbosity() != null && !runtimeOptions.openAiVerbosity().isBlank()) {
+      builder.verbosity(runtimeOptions.openAiVerbosity().trim());
+    }
+    if (runtimeOptions.openAiServiceTier() != null
+        && !runtimeOptions.openAiServiceTier().isBlank()) {
+      builder.serviceTier(runtimeOptions.openAiServiceTier().trim());
     }
   }
 

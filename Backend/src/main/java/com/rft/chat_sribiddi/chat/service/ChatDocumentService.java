@@ -57,7 +57,7 @@ public class ChatDocumentService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document could not be read", e);
     }
 
-    List<Document> chunks = chunker.chunkDocuments(textExtractor.extract(mimeType, data));
+    List<Document> chunks = chunker.apply(textExtractor.extract(mimeType, data));
     if (chunks.isEmpty()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document contains no extractable text");
     }

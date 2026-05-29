@@ -6,18 +6,8 @@ import org.springframework.ai.document.Document;
 final class DocumentContextFormatter {
 
   private static final int MAX_CONTEXT_CHARS = 12_000;
-  private static final String DOCUMENT_CONTEXT_PREFIX =
-      "Use these retrieved document excerpts as context when they are relevant. If the excerpts do not contain the answer, say so instead of inventing details.\n\n";
 
   private DocumentContextFormatter() {}
-
-  static String withDocumentContext(String text, List<Document> documents) {
-    String context = formatDocuments(documents);
-    if (context == null) {
-      return text;
-    }
-    return DOCUMENT_CONTEXT_PREFIX + context + "\n\nUser request:\n" + text;
-  }
 
   static String formatDocuments(List<Document> documents) {
     if (documents == null || documents.isEmpty()) {

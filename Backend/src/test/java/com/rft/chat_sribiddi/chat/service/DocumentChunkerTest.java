@@ -2,9 +2,11 @@ package com.rft.chat_sribiddi.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.rft.chat_sribiddi.chat.service.DocumentTextExtractor.PageText;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.document.DocumentTransformer;
 
 class DocumentChunkerTest {
 
@@ -12,7 +14,7 @@ class DocumentChunkerTest {
 
   @Test
   void chunk_returnsSingleChunkForSmallDocument() {
-    var chunks = chunker.chunk(List.of(new PageText(1, "Short document text.")));
+    var chunks = chunker.chunk(List.of(pageDocument(1, "Short document text.")));
 
     assertThat(chunks).hasSize(1);
     assertThat(chunks.getFirst().pageStart()).isEqualTo(1);
@@ -23,7 +25,7 @@ class DocumentChunkerTest {
 
   @Test
   void chunk_skipsBlankPages() {
-    var chunks = chunker.chunk(List.of(new PageText(1, "   "), new PageText(2, "Useful text")));
+    var chunks = chunker.chunk(List.of(pageDocument(1, "   "), pageDocument(2, "Useful text")));
 
     assertThat(chunks).hasSize(1);
     assertThat(chunks.getFirst().pageStart()).isEqualTo(2);
@@ -35,7 +37,7 @@ class DocumentChunkerTest {
   void chunk_usesSpringAiTokenSplitterForLargePages() {
     String largeText = "This is a sentence about Spring AI document splitting. ".repeat(2_000);
 
-    var chunks = chunker.chunk(List.of(new PageText(3, largeText)));
+    var chunks = chunker.chunk(List.of(pageDocument(3, largeText)));
 
     assertThat(chunks).hasSizeGreaterThan(1);
     assertThat(chunks)
@@ -51,8 +53,8 @@ class DocumentChunkerTest {
   }
 
   @Test
-  void chunkDocuments_keepsChunkMetadataOnSpringAiDocuments() {
-    var chunks = chunker.chunkDocuments(List.of(new PageText(4, "Document text.")));
+  void apply_keepsChunkMetadataOnSpringAiDocuments() {
+    var chunks = chunker.apply(List.of(pageDocument(4, "Document text.")));
 
     assertThat(chunks).hasSize(1);
     assertThat(chunks.getFirst().getText()).isEqualTo("Document text.");
@@ -62,5 +64,22 @@ class DocumentChunkerTest {
         .containsEntry(DocumentChunker.PAGE_END_METADATA, 4);
     assertThat(chunks.getFirst().getMetadata().get(DocumentChunker.TOKEN_ESTIMATE_METADATA))
         .isInstanceOf(Integer.class);
+  }
+
+  @Test
+  void chunker_isSpringAiDocumentTransformer() {
+    assertThat(chunker).isInstanceOf(DocumentTransformer.class);
+
+    var chunks = chunker.apply(List.of(pageDocument(7, "Transformer input")));
+
+    assertThat(chunks).hasSize(1);
+    assertThat(chunks.getFirst().getText()).isEqualTo("Transformer input");
+    assertThat(chunks.getFirst().getMetadata())
+        .containsEntry(DocumentChunker.PAGE_START_METADATA, 7)
+        .containsEntry(DocumentChunker.PAGE_END_METADATA, 7);
+  }
+
+  private static Document pageDocument(int page, String text) {
+    return new Document(text, Map.of(DocumentTextExtractor.PAGE_METADATA, page));
   }
 }

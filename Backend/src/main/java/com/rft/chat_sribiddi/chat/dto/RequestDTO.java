@@ -90,7 +90,79 @@ public record RequestDTO(
       GoogleGenAiThinkingLevel thinkingLevel,
       Boolean includeThoughts,
       Boolean googleSearchRetrieval,
-      Boolean includeServerSideToolInvocations) {
+      Boolean includeServerSideToolInvocations,
+      Boolean includeExtendedUsageMetadata,
+      @Size(max = 64, message = "openAiReasoningEffort is too long")
+          String openAiReasoningEffort,
+      @Size(max = 64, message = "openAiVerbosity is too long")
+          String openAiVerbosity,
+      @Size(max = 64, message = "openAiServiceTier is too long")
+          String openAiServiceTier) {
+
+    public ChatRuntimeOptions(
+        Double temperature,
+        Double topP,
+        Integer topK,
+        Integer maxTokens,
+        Double frequencyPenalty,
+        Double presencePenalty,
+        List<String> stopSequences,
+        Integer thinkingBudget,
+        GoogleGenAiThinkingLevel thinkingLevel,
+        Boolean includeThoughts,
+        Boolean googleSearchRetrieval,
+        Boolean includeServerSideToolInvocations,
+        Boolean includeExtendedUsageMetadata) {
+      this(
+          temperature,
+          topP,
+          topK,
+          maxTokens,
+          frequencyPenalty,
+          presencePenalty,
+          stopSequences,
+          thinkingBudget,
+          thinkingLevel,
+          includeThoughts,
+          googleSearchRetrieval,
+          includeServerSideToolInvocations,
+          includeExtendedUsageMetadata,
+          null,
+          null,
+          null);
+    }
+
+    public ChatRuntimeOptions(
+        Double temperature,
+        Double topP,
+        Integer topK,
+        Integer maxTokens,
+        Double frequencyPenalty,
+        Double presencePenalty,
+        List<String> stopSequences,
+        Integer thinkingBudget,
+        GoogleGenAiThinkingLevel thinkingLevel,
+        Boolean includeThoughts,
+        Boolean googleSearchRetrieval,
+        Boolean includeServerSideToolInvocations) {
+      this(
+          temperature,
+          topP,
+          topK,
+          maxTokens,
+          frequencyPenalty,
+          presencePenalty,
+          stopSequences,
+          thinkingBudget,
+          thinkingLevel,
+          includeThoughts,
+          googleSearchRetrieval,
+          includeServerSideToolInvocations,
+          null,
+          null,
+          null,
+          null);
+    }
 
     public ChatRuntimeOptions(
         Double temperature,
@@ -108,6 +180,10 @@ public record RequestDTO(
           frequencyPenalty,
           presencePenalty,
           stopSequences,
+          null,
+          null,
+          null,
+          null,
           null,
           null,
           null,

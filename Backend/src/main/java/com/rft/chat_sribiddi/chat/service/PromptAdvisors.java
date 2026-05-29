@@ -14,16 +14,32 @@ final class PromptAdvisors {
 
   private PromptAdvisors() {}
 
-  static void bind(ChatClient.ChatClientRequestSpec promptSpec, PromptMessageBatch promptBatch) {
-    if (!promptBatch.historyMessages().isEmpty()) {
+  static void bind(
+      ChatClient.ChatClientRequestSpec promptSpec,
+      PromptMessageBatch promptBatch,
+      DocumentRetrievalService documentRetrievalService) {
+    if (promptBatch.chatMemory() != null && promptBatch.conversationId() != null) {
+      promptSpec.advisors(
+          advisorSpec ->
+              advisorSpec
+                  .param(ChatMemory.CONVERSATION_ID, promptBatch.conversationId())
+                  .advisors(MessageChatMemoryAdvisor.builder(promptBatch.chatMemory()).build()));
+    } else if (!promptBatch.historyMessages().isEmpty()) {
       promptSpec.advisors(
           advisorSpec ->
               advisorSpec
                   .param(ChatMemory.CONVERSATION_ID, CONVERSATION_ID)
                   .advisors(MessageChatMemoryAdvisor.builder(chatMemory(promptBatch)).build()));
     }
-    if (promptBatch.hasDocumentContext()) {
-      promptSpec.advisors(new DocumentContextAdvisor(promptBatch.retrievedDocuments()));
+    if (promptBatch.hasDocumentContext() && documentRetrievalService != null) {
+      PromptMessageBuilder.DocumentRetrievalContext context =
+          promptBatch.documentRetrievalContext();
+      promptSpec.advisors(
+          advisorSpec ->
+              advisorSpec
+                  .param(DocumentRetrievalService.CHAT_ID_CONTEXT_KEY, context.chatId())
+                  .param(DocumentRetrievalService.USER_ID_CONTEXT_KEY, context.userId())
+                  .advisors(DocumentContextAdvisor.create(documentRetrievalService)));
     }
   }
 

@@ -127,7 +127,7 @@ public class AnonymousChatService {
     var options = buildOptions(request, apiKey);
     var promptSpec =
         clientHandle.client().prompt().options(options.mutate()).messages(promptBatch.requestMessages());
-    PromptAdvisors.bind(promptSpec, promptBatch);
+    PromptAdvisors.bind(promptSpec, promptBatch, null);
     return promptSpec;
   }
 

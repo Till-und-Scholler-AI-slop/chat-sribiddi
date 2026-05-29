@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.Map;
 import org.springframework.ai.retry.NonTransientAiException;
 import org.springframework.ai.retry.TransientAiException;
+import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -131,6 +132,12 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(NonTransientAiException.class)
   public ResponseEntity<Map<String, String>> handleNonTransientAi(NonTransientAiException ex) {
     return handleSpringAiProviderException(ex, HttpStatus.BAD_REQUEST);
+  }
+
+  @ExceptionHandler(ToolExecutionException.class)
+  public ResponseEntity<Map<String, String>> handleToolExecution(ToolExecutionException ex) {
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+        .body(Map.of("message", StreamErrorHandler.extractProviderMessage(ex)));
   }
 
   /**
