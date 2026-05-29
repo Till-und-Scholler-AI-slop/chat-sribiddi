@@ -1,4 +1,50 @@
-# Agent Guidelines
+# PROJECT KNOWLEDGE BASE
+
+**Generated:** 2026-05-29
+**Commit:** 9b6fa89
+**Branch:** main
+
+## OVERVIEW
+AI chat platform (germinai.de) — multi-model (OpenAI, Gemini, Claude, OpenRouter), tiered billing (Free/Premium/Max), web + mobile. Spring Boot 4 / Java 25 backend + Nuxt 4 / Vue 3 / TypeScript web frontend + Flutter mobile prototype. PostgreSQL, Redis, Caddy reverse proxy, Stripe payments.
+
+## STRUCTURE
+```
+chat-sribiddi/
+├── Backend/            # Spring Boot 4 / Java 25 / Spring AI 2.0.0-M8
+│   ├── src/main/java/…/chat/       # Core chat: controllers, services, DTOs, entities, streaming
+│   ├── src/main/java/…/billing/    # Stripe, quotas, entitlements, plan lifecycle
+│   ├── src/main/java/…/auth/       # OAuth2, security, user settings
+│   ├── src/main/java/…/keyring/    # Per-user API key encryption/storage
+│   ├── src/main/java/…/modelcatalog/ # AI model catalog (live + YAML fallback)
+│   ├── src/main/java/…/tools/      # Chat tools (calculator, URL fetcher, Python sandbox)
+│   ├── src/main/java/…/websearch/  # Brave Search integration
+│   ├── src/main/java/…/config/     # Cross-cutting: rate limiting, caching, exception handling
+│   └── src/main/resources/         # application.yaml, Flyway migrations
+├── Frontend/
+│   ├── web/            # Nuxt 4 / Vue 3 / TypeScript / Nuxt UI v4 / Tailwind v4
+│   │   ├── app/composables/  # State stores + API clients (no Pinia)
+│   │   ├── app/pages/        # File-based routing (12 pages, flat)
+│   │   ├── app/components/   # Lean: 11 components total
+│   │   └── i18n/locales/     # de.json (default), en.json
+│   └── mobile/         # Flutter/Dart UI prototype (no backend integration yet)
+├── infra/caddy/        # Caddy reverse proxy config
+├── monitoring/grafana/ # Grafana dashboards
+└── docs/               # Operations runbook, architecture decisions
+```
+
+## WHERE TO LOOK
+| Task | Location | Notes |
+|------|----------|-------|
+| Chat streaming flow | `Backend/…/chat/service/ChatService.java` → `ChatStreamSubscriber.java` | SSE via SseEmitter, dual auth/stateless paths |
+| Add AI provider | `Backend/…/chat/service/DefaultProviderClientFactory.java` | + add to `application.yaml` `ai.models.*` |
+| Add chat tool | `Backend/…/tools/` implement `ChatTool` | Register in `ToolAutoRegistration` |
+| Billing/plan logic | `Backend/…/billing/EntitlementService.java` | Plan gating, quotas, model price caps |
+| Frontend state | `Frontend/web/app/composables/useChatStore.ts` | 993-line god composable (no Pinia) |
+| Frontend API calls | `Frontend/web/app/composables/useChatApi.ts` | All HTTP + types in one file |
+| i18n strings | `Frontend/web/i18n/locales/{de,en}.json` | `de` is default/source locale |
+| DB schema changes | `Backend/src/main/resources/db/migration/V{n}__*.sql` | Flyway only, never ddl-auto |
+| Rate limiting | `Backend/…/config/RateLimitFilter.java` | Bucket4j/Redis or in-memory |
+| Deployment | `docs/operations.md` | VPS, Caddy, Docker Compose |
 
 ## Quick Start
 
@@ -15,7 +61,7 @@ npm run lint         # ESLint
 **Backend:**
 ```bash
 cd Backend
-./gradlew bootRun    # Run Spring Boot app
+./gradlew bootRun    # Run Spring Boot app (use --args='--spring.profiles.active=dev' locally)
 ./gradlew test       # Run tests
 ./gradlew build      # Build JAR
 ```
