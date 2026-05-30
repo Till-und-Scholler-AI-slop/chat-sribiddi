@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -61,6 +62,7 @@ public class BillingController {
   private final StripeWebhookProcessor stripeWebhookProcessor;
   private final Clock clock;
 
+  @Autowired
   public BillingController(
       StripeService stripeService,
       StripeProperties stripeProperties,
