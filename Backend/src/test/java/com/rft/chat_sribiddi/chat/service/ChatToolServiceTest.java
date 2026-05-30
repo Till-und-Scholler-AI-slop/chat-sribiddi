@@ -17,6 +17,7 @@ import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
+import com.rft.chat_sribiddi.tools.ToolProperties;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.util.List;
 import java.util.Optional;
@@ -53,7 +54,8 @@ class ChatToolServiceTest {
             toolRegistry,
             apiKeyService,
             entitlementService,
-            webSearchProperties);
+            webSearchProperties,
+            new ToolProperties());
     chatId = UUID.randomUUID();
     userId = "user-123";
 

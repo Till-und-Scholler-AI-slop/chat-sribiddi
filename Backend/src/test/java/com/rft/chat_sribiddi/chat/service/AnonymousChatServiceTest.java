@@ -61,6 +61,7 @@ class AnonymousChatServiceTest {
             chatProperties,
             mediaValidationService,
             promptMessageBuilder,
+            new DocumentContextFormatter(new RagProperties()),
             billingModeResolver,
             entitlementService,
             guestQuotaService,

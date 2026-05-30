@@ -3,13 +3,24 @@ package com.rft.chat_sribiddi.chat.service;
 import java.util.List;
 import org.springframework.ai.document.Document;
 
-final class DocumentContextFormatter {
+import java.util.function.Function;
+import org.springframework.stereotype.Component;
 
-  private static final int MAX_CONTEXT_CHARS = 12_000;
+@Component
+class DocumentContextFormatter implements Function<List<Document>, String> {
 
-  private DocumentContextFormatter() {}
+  private final RagProperties ragProperties;
 
-  static String formatDocuments(List<Document> documents) {
+  public DocumentContextFormatter(RagProperties ragProperties) {
+    this.ragProperties = ragProperties;
+  }
+
+  @Override
+  public String apply(List<Document> documents) {
+    return formatDocuments(documents);
+  }
+
+  String formatDocuments(List<Document> documents) {
     if (documents == null || documents.isEmpty()) {
       return null;
     }
@@ -25,15 +36,15 @@ final class DocumentContextFormatter {
           .append('\n')
           .append(document.getText().trim())
           .append('\n');
-      if (context.length() >= MAX_CONTEXT_CHARS) {
+      if (context.length() >= ragProperties.getMaxContextChars()) {
         break;
       }
     }
     if (context.toString().equals("Relevant document excerpts for this chat:\n")) {
       return null;
     }
-    if (context.length() > MAX_CONTEXT_CHARS) {
-      return context.substring(0, MAX_CONTEXT_CHARS);
+    if (context.length() > ragProperties.getMaxContextChars()) {
+      return context.substring(0, ragProperties.getMaxContextChars());
     }
     return context.toString();
   }

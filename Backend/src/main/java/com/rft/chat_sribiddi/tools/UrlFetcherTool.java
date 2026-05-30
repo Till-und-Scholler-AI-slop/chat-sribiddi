@@ -12,8 +12,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.tool.annotation.Tool;
@@ -24,22 +23,21 @@ import org.springframework.stereotype.Component;
  * URL fetcher tool that retrieves web page content, converts HTML to plain text,
  * and truncates to a maximum size. Includes SSRF protection.
  */
+@Slf4j
 @Component
 public class UrlFetcherTool implements ChatTool {
 
-  private static final Logger log = LoggerFactory.getLogger(UrlFetcherTool.class);
-
-  private static final int MAX_CONTENT_LENGTH = 50_000;
-  private static final Duration TIMEOUT = Duration.ofSeconds(10);
-
   private final HttpClient httpClient;
   private final String userAgent;
+  private final ToolProperties toolProperties;
 
   public UrlFetcherTool(
       HttpClient httpClient,
-      @Value("${app.tools.user-agent:ChatSribiddi/1.0 (Tool)}") String userAgent) {
+      @Value("${app.tools.user-agent:ChatSribiddi/1.0 (Tool)}") String userAgent,
+      ToolProperties toolProperties) {
     this.httpClient = httpClient;
     this.userAgent = userAgent;
+    this.toolProperties = toolProperties;
   }
 
   @Override
@@ -107,9 +105,9 @@ public class UrlFetcherTool implements ChatTool {
               .uri(uri)
               .header("User-Agent", userAgent)
               .header("Accept", "text/html,text/plain,application/json")
-              .timeout(TIMEOUT)
-              .GET()
-              .build();
+          .timeout(toolProperties.getUrlFetcherTimeout())
+          .GET()
+          .build();
 
       HttpResponse<String> response =
           httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -126,8 +124,8 @@ public class UrlFetcherTool implements ChatTool {
       String body = response.body();
       String text = htmlToText(body);
 
-      if (text.length() > MAX_CONTENT_LENGTH) {
-        text = text.substring(0, MAX_CONTENT_LENGTH) + "\n\n[Content truncated at 50KB]";
+      if (text.length() > toolProperties.getUrlFetcherMaxContentLength()) {
+        text = text.substring(0, toolProperties.getUrlFetcherMaxContentLength()) + "\n\n[Content truncated at 50KB]";
       }
 
       return ToolResult.success(text);

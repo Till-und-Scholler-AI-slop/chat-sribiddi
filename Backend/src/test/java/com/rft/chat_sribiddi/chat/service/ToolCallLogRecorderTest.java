@@ -26,7 +26,7 @@ class ToolCallLogRecorderTest {
 
   @BeforeEach
   void setUp() {
-    recorder = new ToolCallLogRecorder(toolCallLogRepository);
+    recorder = new ToolCallLogRecorder(toolCallLogRepository, new ChatProperties());
   }
 
   @Test

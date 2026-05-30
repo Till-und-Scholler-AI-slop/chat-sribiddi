@@ -31,7 +31,7 @@ class PromptAdvisorsTest {
             null,
             2);
 
-    PromptAdvisors.bind(promptSpec, batch, null);
+    PromptAdvisors.bind(promptSpec, batch, null, new DocumentContextFormatter(new RagProperties()));
 
     ArgumentCaptor<Consumer<ChatClient.AdvisorSpec>> captor = ArgumentCaptor.forClass(Consumer.class);
     verify(promptSpec).advisors(captor.capture());
@@ -57,7 +57,7 @@ class PromptAdvisorsTest {
             null,
             2);
 
-    PromptAdvisors.bind(promptSpec, batch, null);
+    PromptAdvisors.bind(promptSpec, batch, null, new DocumentContextFormatter(new RagProperties()));
 
     ArgumentCaptor<Consumer<ChatClient.AdvisorSpec>> captor = ArgumentCaptor.forClass(Consumer.class);
     verify(promptSpec).advisors(captor.capture());
@@ -85,7 +85,7 @@ class PromptAdvisorsTest {
             context,
             1);
 
-    PromptAdvisors.bind(promptSpec, batch, documentRetrievalService);
+    PromptAdvisors.bind(promptSpec, batch, documentRetrievalService, new DocumentContextFormatter(new RagProperties()));
 
     ArgumentCaptor<Consumer<ChatClient.AdvisorSpec>> captor = ArgumentCaptor.forClass(Consumer.class);
     verify(promptSpec).advisors(captor.capture());

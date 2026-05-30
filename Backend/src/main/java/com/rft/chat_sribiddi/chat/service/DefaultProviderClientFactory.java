@@ -16,6 +16,10 @@ import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.ChatRuntimeOptions;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import io.micrometer.observation.ObservationRegistry;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -90,7 +94,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
     }
     // Prefix the cache key with the billing mode so that user-supplied (BYOK) keys and
     // server-managed (MANAGED) keys never share cache entries, even if their raw values collide.
-    String cacheKey = billingMode.name() + ":" + apiKey;
+    String cacheKey = billingMode.name() + ":" + hashApiKey(apiKey);
 
     return switch (provider) {
       case OPENAI ->
@@ -374,5 +378,15 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
     buildOpenRouterAttributionHeaders()
         .forEach((name, values) -> headers.put(name, List.copyOf(values)));
     return headers;
+  }
+
+  private static String hashApiKey(String apiKey) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      byte[] hash = digest.digest(apiKey.getBytes(StandardCharsets.UTF_8));
+      return HexFormat.of().formatHex(hash);
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 not available", e);
+    }
   }
 }

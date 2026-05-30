@@ -17,7 +17,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 @Slf4j
 public final class StreamErrorHandler {
 
-  private static final String EVENT_ERROR = "error";
+  public static final String EVENT_ERROR = "error";
   private static final ObjectMapper ERROR_MAPPER = new ObjectMapper();
 
   private StreamErrorHandler() {}

@@ -6,6 +6,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
@@ -18,6 +19,7 @@ import lombok.Setter;
 public class ChatEntity {
   @Id @GeneratedValue private UUID chatId;
 
+  @Size(max = 500)
   private String title;
 
   private Instant createdAt;

@@ -10,7 +10,7 @@ import org.springframework.ai.document.DocumentTransformer;
 
 class DocumentChunkerTest {
 
-  private final DocumentChunker chunker = new DocumentChunker();
+  private final DocumentChunker chunker = new DocumentChunker(new RagProperties());
 
   @Test
   void chunk_returnsSingleChunkForSmallDocument() {

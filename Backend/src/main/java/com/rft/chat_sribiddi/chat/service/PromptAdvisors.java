@@ -17,7 +17,8 @@ final class PromptAdvisors {
   static void bind(
       ChatClient.ChatClientRequestSpec promptSpec,
       PromptMessageBatch promptBatch,
-      DocumentRetrievalService documentRetrievalService) {
+      DocumentRetrievalService documentRetrievalService,
+      DocumentContextFormatter documentContextFormatter) {
     if (promptBatch.chatMemory() != null && promptBatch.conversationId() != null) {
       promptSpec.advisors(
           advisorSpec ->
@@ -39,7 +40,7 @@ final class PromptAdvisors {
               advisorSpec
                   .param(DocumentRetrievalService.CHAT_ID_CONTEXT_KEY, context.chatId())
                   .param(DocumentRetrievalService.USER_ID_CONTEXT_KEY, context.userId())
-                  .advisors(DocumentContextAdvisor.create(documentRetrievalService)));
+                  .advisors(DocumentContextAdvisor.create(documentRetrievalService, documentContextFormatter)));
     }
   }
 

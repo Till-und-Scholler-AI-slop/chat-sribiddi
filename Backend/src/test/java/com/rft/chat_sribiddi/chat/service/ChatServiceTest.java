@@ -100,7 +100,7 @@ class ChatServiceTest {
     managedKeys.setClaude("srv-claude");
     managedKeys.setOpenrouter("srv-openrouter");
     BillingModeResolver billingModeResolver =
-        new BillingModeResolver(apiKeyService, entitlementService, managedKeys);
+        new BillingModeResolver(apiKeyService, entitlementService, managedKeys, new org.springframework.mock.env.MockEnvironment());
     MediaValidationService mediaValidationService = new MediaValidationService(chatProperties);
     PromptToolBinder promptToolBinder =
         new PromptToolBinder(
@@ -119,7 +119,7 @@ class ChatServiceTest {
         new PromptMessageBuilder(messageRepository, chatProperties);
     ChatUsageRecorder chatUsageRecorder =
         new ChatUsageRecorder(entitlementService, usageEventService, chatMetrics);
-    ToolCallLogRecorder toolCallLogRecorder = new ToolCallLogRecorder(toolCallLogRepository);
+    ToolCallLogRecorder toolCallLogRecorder = new ToolCallLogRecorder(toolCallLogRepository, chatProperties);
     ChatStreamSubscriber chatStreamSubscriber =
         new ChatStreamSubscriber(
             chatRepository,
@@ -127,11 +127,31 @@ class ChatServiceTest {
             chatUsageRecorder,
             toolCallLogRecorder,
             chatMetrics);
-    return new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
-        providerClientFactory, chatProperties, mediaValidationService,
-        org.mockito.Mockito.mock(DocumentRetrievalService.class), userSettingsService,
-        promptToolBinder, promptMessageBuilder, chatUsageRecorder, toolCallLogRecorder,
-        chatStreamSubscriber, billingModeResolver, entitlementService, streamConcurrencyGate);
+    ChatMessageService chatMessageService =
+        new ChatMessageService(messageRepository, chatRepository, toolCallLogRepository, chatProperties);
+    ChatRequestResolver chatRequestResolver =
+        new ChatRequestResolver(
+            billingModeResolver,
+            entitlementService,
+            providerClientFactory,
+            org.mockito.Mockito.mock(DocumentRetrievalService.class),
+            new DocumentContextFormatter(new RagProperties()),
+            promptToolBinder,
+            promptMessageBuilder,
+            mediaValidationService,
+            userSettingsService,
+            chatMessageService);
+    return new ChatService(
+        chatRepository,
+        chatToolRepository,
+        providerClientFactory,
+        chatProperties,
+        chatMessageService,
+        chatRequestResolver,
+        chatUsageRecorder,
+        toolCallLogRecorder,
+        chatStreamSubscriber,
+        streamConcurrencyGate);
   }
 
   @BeforeEach

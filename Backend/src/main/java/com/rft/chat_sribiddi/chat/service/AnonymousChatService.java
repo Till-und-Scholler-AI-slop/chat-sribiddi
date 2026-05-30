@@ -33,6 +33,7 @@ public class AnonymousChatService {
   private final ChatProperties chatProperties;
   private final MediaValidationService mediaValidationService;
   private final PromptMessageBuilder promptMessageBuilder;
+  private final DocumentContextFormatter documentContextFormatter;
   private final BillingModeResolver billingModeResolver;
   private final EntitlementService entitlementService;
   private final GuestQuotaService guestQuotaService;
@@ -127,7 +128,7 @@ public class AnonymousChatService {
     var options = buildOptions(request, apiKey);
     var promptSpec =
         clientHandle.client().prompt().options(options.mutate()).messages(promptBatch.requestMessages());
-    PromptAdvisors.bind(promptSpec, promptBatch, null);
+    PromptAdvisors.bind(promptSpec, promptBatch, null, documentContextFormatter);
     return promptSpec;
   }
 

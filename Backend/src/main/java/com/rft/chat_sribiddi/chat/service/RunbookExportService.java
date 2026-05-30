@@ -12,7 +12,6 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,7 +24,6 @@ public class RunbookExportService {
   private final MessageRepository messageRepository;
   private final Clock clock;
 
-  @Autowired
   public RunbookExportService(ChatRepository chatRepository, MessageRepository messageRepository) {
     this(chatRepository, messageRepository, Clock.systemUTC());
   }

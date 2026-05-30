@@ -11,11 +11,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -33,10 +31,9 @@ import org.springframework.stereotype.Component;
  *   <li>stderr captured, sanitized, and returned</li>
  * </ul>
  */
+@Slf4j
 @Component
 public class PythonInterpreterTool implements ChatTool {
-
-  private static final Logger log = LoggerFactory.getLogger(PythonInterpreterTool.class);
 
   private static final Pattern ANSI_ESCAPE_PATTERN =
       Pattern.compile("\\u001B\\[[0-?]*[ -/]*[@-~]");
@@ -44,7 +41,6 @@ public class PythonInterpreterTool implements ChatTool {
   private final PythonSandboxProperties properties;
   private final ProcessStarter processStarter;
 
-  @Autowired
   public PythonInterpreterTool(PythonSandboxProperties properties) {
     this(properties, processBuilder -> processBuilder.start());
   }
