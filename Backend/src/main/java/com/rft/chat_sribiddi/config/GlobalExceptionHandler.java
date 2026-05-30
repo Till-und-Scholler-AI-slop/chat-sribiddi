@@ -53,6 +53,7 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(DataIntegrityViolationException.class)
   public ResponseEntity<ApiError> handleDataIntegrity(DataIntegrityViolationException ex) {
+    log.warn("Data integrity violation encountered", ex);
     return ResponseEntity.status(HttpStatus.CONFLICT)
         .body(new ApiError("A data integrity constraint was violated. The referenced resource may no longer exist."));
   }
