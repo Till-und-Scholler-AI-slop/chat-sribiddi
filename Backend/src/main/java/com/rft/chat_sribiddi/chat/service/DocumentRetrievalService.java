@@ -20,9 +20,9 @@ public class DocumentRetrievalService implements DocumentRetriever {
 
   static final String CHAT_ID_CONTEXT_KEY = "chat-sribiddi.chatId";
   static final String USER_ID_CONTEXT_KEY = "chat-sribiddi.userId";
-  private static final int MAX_CHUNKS = 4;
 
   private final DocumentChunkRepository chunkRepository;
+  private final RagProperties ragProperties;
 
   @Override
   @Transactional(readOnly = true)
@@ -44,11 +44,11 @@ public class DocumentRetrievalService implements DocumentRetriever {
     List<DocumentChunkEntity> chunks;
     String normalizedQuery = query == null ? "" : query.trim();
     if (normalizedQuery.isBlank() || isGenericAttachmentPrompt(normalizedQuery)) {
-      chunks = chunkRepository.findInitialChunks(chatId, userId, PageRequest.of(0, MAX_CHUNKS));
+      chunks = chunkRepository.findInitialChunks(chatId, userId, PageRequest.of(0, ragProperties.getMaxChunks()));
     } else {
-      chunks = chunkRepository.search(chatId, userId, normalizedQuery, PageRequest.of(0, MAX_CHUNKS));
+      chunks = chunkRepository.search(chatId, userId, normalizedQuery, PageRequest.of(0, ragProperties.getMaxChunks()));
       if (chunks.isEmpty()) {
-        chunks = chunkRepository.findInitialChunks(chatId, userId, PageRequest.of(0, MAX_CHUNKS));
+        chunks = chunkRepository.findInitialChunks(chatId, userId, PageRequest.of(0, ragProperties.getMaxChunks()));
       }
     }
 

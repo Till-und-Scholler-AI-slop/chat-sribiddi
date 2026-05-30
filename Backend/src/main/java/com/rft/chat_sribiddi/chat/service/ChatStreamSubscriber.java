@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -34,9 +35,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequiredArgsConstructor
 public class ChatStreamSubscriber {
 
-  private static final String EVENT_ERROR = "error";
-  private static final String CHAT_FK_CONSTRAINT = "messages_chat_id_fkey";
-
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
   private final ChatUsageRecorder chatUsageRecorder;
@@ -44,52 +42,146 @@ public class ChatStreamSubscriber {
   private final ChatMetrics chatMetrics;
 
   void subscribe(ChatStreamSubscription subscription) {
+    subscribeShared(
+        subscription.promptSpec(),
+        subscription.emitter(),
+        subscription.clientHandle(),
+        subscription.quotaReservation(),
+        subscription.provider(),
+        subscription.modelId(),
+        new StreamCallbacks(
+            () ->
+                sendUnexpectedChunkErrorShared(
+                    subscription.emitter(),
+                    subscription.provider(),
+                    subscription.modelId(),
+                    subscription.quotaReservation(),
+                    subscription.clientHandle()),
+            (error, streamedTextUtf8Bytes, lastUsage, streamSample) ->
+                handleSharedStreamError(
+                    error,
+                    streamedTextUtf8Bytes,
+                    lastUsage,
+                    streamSample,
+                    subscription.provider(),
+                    subscription.modelId(),
+                    subscription.emitter(),
+                    subscription.quotaReservation(),
+                    subscription.clientHandle(),
+                    details -> logStreamingError(subscription.chatId(), details, error),
+                    tokenUsage ->
+                        chatUsageRecorder.recordUsage(
+                            new ChatUsage(
+                                subscription.userId(),
+                                subscription.provider(),
+                                subscription.modelId(),
+                                tokenUsage,
+                                null,
+                                subscription.billingMode(),
+                                subscription.plan(),
+                                false))),
+            (fullText, lastUsage, streamSample) ->
+                handleStreamCompletion(subscription, fullText, lastUsage, streamSample)));
+  }
+
+  void subscribeStateless(StatelessStreamSubscription subscription) {
+    subscribeShared(
+        subscription.promptSpec(),
+        subscription.emitter(),
+        subscription.clientHandle(),
+        subscription.quotaReservation(),
+        subscription.provider(),
+        subscription.modelId(),
+        new StreamCallbacks(
+            () ->
+                sendUnexpectedChunkErrorShared(
+                    subscription.emitter(),
+                    null,
+                    null,
+                    subscription.quotaReservation(),
+                    subscription.clientHandle()),
+            (error, streamedTextUtf8Bytes, lastUsage, streamSample) ->
+                handleSharedStreamError(
+                    error,
+                    streamedTextUtf8Bytes,
+                    lastUsage,
+                    streamSample,
+                    subscription.provider(),
+                    subscription.modelId(),
+                    subscription.emitter(),
+                    subscription.quotaReservation(),
+                    subscription.clientHandle(),
+                    details ->
+                        log.warn(
+                            "Stateless streaming error type={} provider={} model={} statusCode={} receivedBytes={} providerMessage={}",
+                            details.errorType(),
+                            details.provider().name(),
+                            details.modelId(),
+                            details.statusCode(),
+                            details.receivedBytes(),
+                            StreamErrorHandler.extractProviderMessage(error)),
+                    tokenUsage ->
+                        chatUsageRecorder.recordRequestMetric(
+                            subscription.provider(), subscription.modelId(), Plan.FREE, false)),
+            (fullText, lastUsage, streamSample) ->
+                handleStatelessStreamCompletion(subscription, lastUsage, streamSample)));
+  }
+
+  private void subscribeShared(
+      ChatClient.ChatClientRequestSpec promptSpec,
+      SseEmitter emitter,
+      ProviderClientHandle clientHandle,
+      QuotaReservation quotaReservation,
+      Provider provider,
+      String modelId,
+      StreamCallbacks callbacks) {
     StringBuilder fullText = new StringBuilder();
     AtomicLong streamedTextUtf8Bytes = new AtomicLong();
     AtomicReference<Usage> lastUsage = new AtomicReference<>();
-    ChatMetrics.StreamSample streamSample =
-        chatMetrics.startStream(subscription.provider(), subscription.modelId());
+    ChatMetrics.StreamSample streamSample = chatMetrics.startStream(provider, modelId);
 
     try {
-      subscription
-          .promptSpec()
+      promptSpec
           .stream()
           .chatResponse()
           .subscribe(
               chunk ->
-                  handleStreamChunk(
-                      chunk, fullText, streamedTextUtf8Bytes, lastUsage, subscription),
-              error -> handleStreamError(subscription, error, streamedTextUtf8Bytes.get(),
-                  lastUsage, streamSample),
-              () -> handleStreamCompletion(subscription, fullText, lastUsage, streamSample));
+                  handleSharedChunk(
+                      chunk, fullText, streamedTextUtf8Bytes, lastUsage, emitter, callbacks),
+              error ->
+                  callbacks.onStreamError()
+                      .accept(error, streamedTextUtf8Bytes.get(), lastUsage, streamSample),
+              () ->
+                  callbacks.onStreamCompletion()
+                      .accept(fullText.toString(), lastUsage, streamSample));
     } catch (RuntimeException | Error error) {
-      subscription.quotaReservation().rollback();
+      quotaReservation.rollback();
       chatMetrics.recordStreamEnd(streamSample);
       throw error;
     }
 
-    subscription.emitter().onTimeout(
+    emitter.onTimeout(
         () -> {
-          subscription.quotaReservation().rollback();
+          quotaReservation.rollback();
           chatMetrics.recordStreamEnd(streamSample);
-          subscription.clientHandle().close();
+          clientHandle.close();
         });
-    subscription.emitter().onError(
+    emitter.onError(
         _ -> {
-          subscription.quotaReservation().rollback();
+          quotaReservation.rollback();
           chatMetrics.recordStreamEnd(streamSample);
-          subscription.clientHandle().close();
+          clientHandle.close();
         });
-    subscription.emitter().onCompletion(() -> chatMetrics.recordStreamEnd(streamSample));
+    emitter.onCompletion(() -> chatMetrics.recordStreamEnd(streamSample));
   }
 
-  private void handleStreamChunk(
+  private void handleSharedChunk(
       ChatResponse chunk,
       StringBuilder fullText,
       AtomicLong streamedTextUtf8Bytes,
       AtomicReference<Usage> lastUsage,
-      ChatStreamSubscription subscription) {
-    SseEmitter emitter = subscription.emitter();
+      SseEmitter emitter,
+      StreamCallbacks callbacks) {
     try {
       String text = ChatResponseExtractor.text(chunk);
 
@@ -120,112 +212,111 @@ public class ChatStreamSubscriber {
 
       ChatResponseExtractor.usage(chunk).ifPresent(lastUsage::set);
     } catch (IOException | IllegalStateException e) {
-      // Client disconnected (broken pipe) or emitter already completed — normal during long streams (e.g. PDF RAG)
       log.debug("SSE send failed (client gone): {}", e.toString());
     } catch (Exception e) {
       log.warn("Unexpected error processing stream chunk", e);
-      sendUnexpectedChunkError(subscription);
+      callbacks.onUnexpectedChunkError().run();
     }
   }
 
-  private void sendUnexpectedChunkError(ChatStreamSubscription subscription) {
-    subscription.quotaReservation().rollback();
+  private void sendUnexpectedChunkErrorShared(
+      SseEmitter emitter,
+      Provider provider,
+      String modelId,
+      QuotaReservation quotaReservation,
+      ProviderClientHandle clientHandle) {
+    quotaReservation.rollback();
     try {
-      subscription.emitter().send(
+      emitter.send(
           SseEmitter.event()
-              .name(EVENT_ERROR)
+              .name(StreamErrorHandler.EVENT_ERROR)
               .data(
                   new StreamEventDTO(
-                      EVENT_ERROR,
+                      StreamErrorHandler.EVENT_ERROR,
                       "An unexpected error occurred while processing the response stream.",
                       null, null, null, null, null, null,
-                      subscription.provider().name(),
-                      subscription.modelId(),
+                      provider != null ? provider.name() : null,
+                      modelId,
                       null,
                       "STREAM_CHUNK_ERROR",
                       null,
                       true),
                   MediaType.APPLICATION_JSON));
     } catch (IOException | IllegalStateException ex) {
-      // Emitter already closed (client disconnect) — ignore
       log.debug("Failed to send unexpected-chunk error event (client gone)");
     } finally {
       try {
-        subscription.emitter().complete();
-      } catch (Exception ignored) {}
-      subscription.clientHandle().close();
+        emitter.complete();
+      } catch (Exception ignored) {
+      }
+      clientHandle.close();
     }
   }
 
-  private void handleStreamError(
-      ChatStreamSubscription subscription,
+  private void handleSharedStreamError(
       Throwable error,
       long streamedTextUtf8Bytes,
       AtomicReference<Usage> lastUsage,
-      ChatMetrics.StreamSample streamSample) {
-    StreamErrorHandler.StreamErrorDetails streamErrorDetails =
-        StreamErrorHandler.describe(
-            subscription.provider(), subscription.modelId(), streamedTextUtf8Bytes, error);
-    logStreamingError(subscription.chatId(), streamErrorDetails, error);
+      ChatMetrics.StreamSample streamSample,
+      Provider provider,
+      String modelId,
+      SseEmitter emitter,
+      QuotaReservation quotaReservation,
+      ProviderClientHandle clientHandle,
+      Consumer<StreamErrorHandler.StreamErrorDetails> logError,
+      Consumer<TokenUsage> recordUsage) {
+    StreamErrorHandler.StreamErrorDetails details =
+        StreamErrorHandler.describe(provider, modelId, streamedTextUtf8Bytes, error);
     TokenUsage tokenUsage = chatUsageRecorder.tokenUsage(lastUsage.get());
-    ProviderClientHandle clientHandle = subscription.clientHandle();
+    logError.accept(details);
     try (clientHandle) {
-      subscription.emitter().send(
+      emitter.send(
           SseEmitter.event()
-              .name(EVENT_ERROR)
+              .name(StreamErrorHandler.EVENT_ERROR)
               .data(
                   new StreamEventDTO(
-                      EVENT_ERROR,
-                      StreamErrorHandler.buildClientMessage(streamErrorDetails),
+                      StreamErrorHandler.EVENT_ERROR,
+                      StreamErrorHandler.buildClientMessage(details),
                       null, null, null, null, null, null,
-                      streamErrorDetails.provider().name(),
-                      streamErrorDetails.modelId(),
-                      streamErrorDetails.statusCode(),
-                      streamErrorDetails.errorType(),
-                      streamErrorDetails.receivedBytes(),
+                      details.provider().name(),
+                      details.modelId(),
+                      details.statusCode(),
+                      details.errorType(),
+                      details.receivedBytes(),
                       true),
                   MediaType.APPLICATION_JSON));
     } catch (IOException | IllegalStateException e) {
-      // Client already gone (broken pipe / emitter completed) — normal for disconnects during long PDF streams
       log.debug("Failed to send SSE error event (client disconnected)");
     } finally {
-      subscription.quotaReservation().rollback();
-      chatUsageRecorder.recordUsage(
-          new ChatUsage(
-              subscription.userId(),
-              subscription.provider(),
-              subscription.modelId(),
-              tokenUsage,
-              null,
-              subscription.billingMode(),
-              subscription.plan(),
-              false));
+      quotaReservation.rollback();
+      recordUsage.accept(tokenUsage);
       chatMetrics.recordStreamEnd(streamSample);
       try {
-        subscription.emitter().complete();
-      } catch (Exception ignored) {}
+        emitter.complete();
+      } catch (Exception ignored) {
+      }
     }
   }
 
   private void handleStreamCompletion(
       ChatStreamSubscription subscription,
-      StringBuilder fullText,
+      String fullText,
       AtomicReference<Usage> lastUsage,
       ChatMetrics.StreamSample streamSample) {
     AtomicReference<Long> savedMessageId = new AtomicReference<>();
     boolean streamCompletedSuccessfully = false;
     ProviderClientHandle clientHandle = subscription.clientHandle();
     try (clientHandle) {
-      String assistantResponse = fullText.toString();
+      String assistantResponse = fullText;
       if (assistantResponse.isBlank()) {
         subscription.quotaReservation().rollback();
         try {
           subscription.emitter().send(
               SseEmitter.event()
-                  .name(EVENT_ERROR)
+                  .name(StreamErrorHandler.EVENT_ERROR)
                   .data(
                       new StreamEventDTO(
-                          EVENT_ERROR,
+                          StreamErrorHandler.EVENT_ERROR,
                           "The provider returned an empty response. Please try again or switch models.",
                           null, null, null, null, null, null,
                           subscription.provider().name(),
@@ -235,10 +326,12 @@ public class ChatStreamSubscriber {
                           0L,
                           true),
                       MediaType.APPLICATION_JSON));
-        } catch (IOException | IllegalStateException ignored) {}
+        } catch (IOException | IllegalStateException ignored) {
+        }
         try {
           subscription.emitter().complete();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return;
       }
       TokenUsage tokenUsage = chatUsageRecorder.tokenUsage(lastUsage.get());
@@ -321,7 +414,7 @@ public class ChatStreamSubscriber {
       messageRepository.save(message);
       return true;
     } catch (DataIntegrityViolationException ex) {
-      if (isChatFkViolation(ex)) {
+      if (DbConstraintChecker.isChatFkViolation(ex)) {
         log.warn(
             "Failed to save assistant message for chat {} — chat no longer exists", chatId, ex);
         sendChatDeletedError(emitter);
@@ -368,20 +461,14 @@ public class ChatStreamSubscriber {
         error);
   }
 
-  private static boolean isChatFkViolation(DataIntegrityViolationException ex) {
-    Throwable cause = ex.getMostSpecificCause();
-    String message = cause.getMessage();
-    return message != null && message.contains(CHAT_FK_CONSTRAINT);
-  }
-
   private void sendChatDeletedError(SseEmitter emitter) {
     try {
       emitter.send(
           SseEmitter.event()
-              .name(EVENT_ERROR)
+              .name(StreamErrorHandler.EVENT_ERROR)
               .data(
                   new StreamEventDTO(
-                      EVENT_ERROR,
+                      StreamErrorHandler.EVENT_ERROR,
                       "Chat was deleted while response was being generated.",
                       null, null, null, null, null, null,
                       null, null, null, "CHAT_DELETED", null, true),
@@ -390,162 +477,6 @@ public class ChatStreamSubscriber {
       log.warn("Failed to send SSE chat-deleted error event", e);
     } finally {
       emitter.complete();
-    }
-  }
-
-  void subscribeStateless(StatelessStreamSubscription subscription) {
-    StringBuilder fullText = new StringBuilder();
-    AtomicLong streamedTextUtf8Bytes = new AtomicLong();
-    AtomicReference<Usage> lastUsage = new AtomicReference<>();
-    ChatMetrics.StreamSample streamSample =
-        chatMetrics.startStream(subscription.provider(), subscription.modelId());
-
-    try {
-      subscription
-          .promptSpec()
-          .stream()
-          .chatResponse()
-          .subscribe(
-              chunk ->
-                  handleStatelessStreamChunk(
-                      chunk, fullText, streamedTextUtf8Bytes, lastUsage, subscription),
-              error ->
-                  handleStatelessStreamError(
-                      subscription, error, streamedTextUtf8Bytes.get(), lastUsage, streamSample),
-              () -> handleStatelessStreamCompletion(subscription, lastUsage, streamSample));
-    } catch (RuntimeException | Error error) {
-      subscription.quotaReservation().rollback();
-      chatMetrics.recordStreamEnd(streamSample);
-      throw error;
-    }
-
-    subscription.emitter().onTimeout(
-        () -> {
-          subscription.quotaReservation().rollback();
-          chatMetrics.recordStreamEnd(streamSample);
-          subscription.clientHandle().close();
-        });
-    subscription.emitter().onError(
-        _ -> {
-          subscription.quotaReservation().rollback();
-          chatMetrics.recordStreamEnd(streamSample);
-          subscription.clientHandle().close();
-        });
-    subscription.emitter().onCompletion(() -> chatMetrics.recordStreamEnd(streamSample));
-  }
-
-  private void handleStatelessStreamChunk(
-      ChatResponse chunk,
-      StringBuilder fullText,
-      AtomicLong streamedTextUtf8Bytes,
-      AtomicReference<Usage> lastUsage,
-      StatelessStreamSubscription subscription) {
-    SseEmitter emitter = subscription.emitter();
-    try {
-      String text = ChatResponseExtractor.text(chunk);
-
-      if (text != null && !text.isEmpty()) {
-        fullText.append(text);
-        streamedTextUtf8Bytes.addAndGet(ChatResponseExtractor.utf8Length(text));
-        emitter.send(
-            SseEmitter.event()
-                .name("text")
-                .data(
-                    new StreamEventDTO(
-                        "text", text, null, null, null, null, null, null,
-                        null, null, null, null, null, null),
-                    MediaType.APPLICATION_JSON));
-      }
-
-      String reasoning = ChatResponseExtractor.reasoningContent(chunk);
-      if (reasoning != null && !reasoning.isEmpty()) {
-        emitter.send(
-            SseEmitter.event()
-                .name("reasoning")
-                .data(
-                    new StreamEventDTO(
-                        "reasoning", reasoning, null, null, null, null, null, null,
-                        null, null, null, null, null, null),
-                    MediaType.APPLICATION_JSON));
-      }
-
-      ChatResponseExtractor.usage(chunk).ifPresent(lastUsage::set);
-    } catch (IOException | IllegalStateException e) {
-      log.debug("Stateless SSE send failed (client gone): {}", e.toString());
-    } catch (Exception e) {
-      log.warn("Unexpected error processing stateless stream chunk", e);
-      sendStatelessUnexpectedChunkError(subscription);
-    }
-  }
-
-  private void sendStatelessUnexpectedChunkError(StatelessStreamSubscription subscription) {
-    subscription.quotaReservation().rollback();
-    try {
-      subscription.emitter().send(
-          SseEmitter.event()
-              .name(EVENT_ERROR)
-              .data(
-                  new StreamEventDTO(
-                      EVENT_ERROR,
-                      "An unexpected error occurred while processing the response stream.",
-                      null, null, null, null, null, null,
-                      null, null, null, "STREAM_CHUNK_ERROR", null, true),
-                  MediaType.APPLICATION_JSON));
-    } catch (IOException | IllegalStateException ex) {
-      log.debug("Failed to send stateless unexpected-chunk error (client gone)");
-    } finally {
-      try { subscription.emitter().complete(); } catch (Exception ignored) {}
-      subscription.clientHandle().close();
-    }
-  }
-
-  private void handleStatelessStreamError(
-      StatelessStreamSubscription subscription,
-      Throwable error,
-      long streamedTextUtf8Bytes,
-      AtomicReference<Usage> lastUsage,
-      ChatMetrics.StreamSample streamSample) {
-    StreamErrorHandler.StreamErrorDetails details =
-        StreamErrorHandler.describe(
-            subscription.provider(), subscription.modelId(), streamedTextUtf8Bytes, error);
-    log.warn(
-        "Stateless streaming error type={} provider={} model={} statusCode={} receivedBytes={} providerMessage={}",
-        details.errorType(),
-        details.provider().name(),
-        details.modelId(),
-        details.statusCode(),
-        details.receivedBytes(),
-        StreamErrorHandler.extractProviderMessage(error));
-    chatUsageRecorder.tokenUsage(lastUsage.get());
-    ProviderClientHandle clientHandle = subscription.clientHandle();
-    try (clientHandle) {
-      subscription.emitter().send(
-          SseEmitter.event()
-              .name(EVENT_ERROR)
-              .data(
-                  new StreamEventDTO(
-                      EVENT_ERROR,
-                      StreamErrorHandler.buildClientMessage(details),
-                      null,
-                      null,
-                      null,
-                      null,
-                      null,
-                      null,
-                      details.provider().name(),
-                      details.modelId(),
-                      details.statusCode(),
-                      details.errorType(),
-                      details.receivedBytes(),
-                      true),
-                  MediaType.APPLICATION_JSON));
-    } catch (IOException | IllegalStateException e) {
-      log.debug("Failed to send stateless SSE error event (client disconnected)");
-    } finally {
-      subscription.quotaReservation().rollback();
-      chatUsageRecorder.recordRequestMetric(subscription.provider(), subscription.modelId(), Plan.FREE, false);
-      chatMetrics.recordStreamEnd(streamSample);
-      try { subscription.emitter().complete(); } catch (Exception ignored) {}
     }
   }
 
@@ -580,11 +511,35 @@ public class ChatStreamSubscriber {
       subscription.emitter().complete();
     } catch (IOException | IllegalStateException e) {
       log.debug("Failed to send stateless SSE done event (client gone)");
-      try { subscription.emitter().complete(); } catch (Exception ignored) {}
+      try {
+        subscription.emitter().complete();
+      } catch (Exception ignored) {
+      }
     } finally {
-      chatUsageRecorder.recordRequestMetric(subscription.provider(), subscription.modelId(), Plan.FREE, true);
+      chatUsageRecorder.recordRequestMetric(
+          subscription.provider(), subscription.modelId(), Plan.FREE, true);
       chatMetrics.recordStreamEnd(streamSample);
     }
+  }
+
+  private record StreamCallbacks(
+      Runnable onUnexpectedChunkError,
+      StreamErrorCallback onStreamError,
+      StreamCompletionCallback onStreamCompletion) {}
+
+  @FunctionalInterface
+  private interface StreamErrorCallback {
+    void accept(
+        Throwable error,
+        long streamedTextUtf8Bytes,
+        AtomicReference<Usage> lastUsage,
+        ChatMetrics.StreamSample streamSample);
+  }
+
+  @FunctionalInterface
+  private interface StreamCompletionCallback {
+    void accept(
+        String fullText, AtomicReference<Usage> lastUsage, ChatMetrics.StreamSample streamSample);
   }
 
   record ChatStreamSubscription(

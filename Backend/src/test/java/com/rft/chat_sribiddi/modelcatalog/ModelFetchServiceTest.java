@@ -33,7 +33,12 @@ class ModelFetchServiceTest {
   void setUp() throws Exception {
     openRouterProperties = new OpenRouterProviderProperties();
     httpProperties = new ModelCatalogHttpProperties();
-    service = new ModelFetchService(openRouterProperties, httpProperties);
+    service = new ModelFetchService(
+        RestClient.builder()
+            .requestFactory(new org.springframework.http.client.JdkClientHttpRequestFactory())
+            .build(),
+        new ObjectMapper(),
+        openRouterProperties);
     isRelevantOpenAiModel =
         ModelFetchService.class.getDeclaredMethod("isRelevantOpenAiModel", String.class);
     isRelevantOpenAiModel.setAccessible(true);
@@ -242,6 +247,8 @@ class ModelFetchServiceTest {
   void springContextInstantiatesServiceUsingInjectedPropertiesConstructor() {
     try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
       context.register(OpenRouterProviderProperties.class, ModelCatalogHttpProperties.class, ModelFetchService.class);
+      context.getDefaultListableBeanFactory().registerSingleton("objectMapper", new com.fasterxml.jackson.databind.ObjectMapper());
+      context.getDefaultListableBeanFactory().registerSingleton("restClient", org.springframework.web.client.RestClient.create());
 
       context.refresh();
 

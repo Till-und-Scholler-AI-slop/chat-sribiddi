@@ -12,40 +12,22 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class ModelFetchService {
-
-  private static final Logger log = LoggerFactory.getLogger(ModelFetchService.class);
 
   private final RestClient restClient;
   private final ObjectMapper objectMapper;
   private final OpenRouterProviderProperties openRouterProperties;
-
-  @Autowired
-  public ModelFetchService(
-      OpenRouterProviderProperties openRouterProperties,
-      ModelCatalogHttpProperties httpProperties) {
-    this(createRestClient(httpProperties), new ObjectMapper(), openRouterProperties);
-  }
-
-  /** Package-private for focused tests that need to inject a mocked RestClient. */
-  ModelFetchService(
-      RestClient restClient,
-      ObjectMapper objectMapper,
-      OpenRouterProviderProperties openRouterProperties) {
-    this.restClient = restClient;
-    this.objectMapper = objectMapper;
-    this.openRouterProperties = openRouterProperties;
-  }
 
   @Cacheable(value = "model-catalog", keyGenerator = "modelCatalogKeyGenerator")
   public List<ModelOption> fetchOpenAiModels(String apiKey) {
@@ -304,13 +286,5 @@ public class ModelFetchService {
       }
     }
     return null;
-  }
-
-  private static RestClient createRestClient(ModelCatalogHttpProperties properties) {
-    HttpClient httpClient =
-        HttpClient.newBuilder().connectTimeout(properties.getConnectTimeout()).build();
-    JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
-    requestFactory.setReadTimeout(properties.getReadTimeout());
-    return RestClient.builder().requestFactory(requestFactory).build();
   }
 }

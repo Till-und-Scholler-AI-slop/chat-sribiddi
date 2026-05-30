@@ -98,6 +98,7 @@
     "startFailedDescription": "Is the backend running?",
     "editMessage": "Edit message",
     "saveAndRegenerate": "Save & regenerate",
+    "regenerateResponse": "Regenerate response",
     "exportRunbook": "Export as runbook",
     "runbookExportedTitle": "Runbook exported",
     "runbookExportFailedTitle": "Runbook export failed",

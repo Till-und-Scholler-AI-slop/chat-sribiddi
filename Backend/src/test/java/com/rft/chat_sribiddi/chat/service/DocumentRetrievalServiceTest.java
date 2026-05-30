@@ -32,7 +32,7 @@ class DocumentRetrievalServiceTest {
 
   @BeforeEach
   void setUp() {
-    service = new DocumentRetrievalService(chunkRepository);
+    service = new DocumentRetrievalService(chunkRepository, new RagProperties());
     chatId = UUID.randomUUID();
   }
 

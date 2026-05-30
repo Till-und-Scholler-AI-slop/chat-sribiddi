@@ -21,9 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -46,11 +44,10 @@ import org.springframework.web.server.ResponseStatusException;
  * other account endpoints: {@link OidcUser} in production, falling back to the
  * {@code X-Chat-User-Id} header in the dev profile via {@link RequestUserResolver}.
  */
+@Slf4j
 @RestController
 @RequestMapping("/billing")
 public class BillingController {
-
-  private static final Logger log = LoggerFactory.getLogger(BillingController.class);
 
   /** Window used by {@code GET /billing/usage}: the trailing 30 days of {@code usage_events}. */
   static final Duration USAGE_WINDOW = Duration.ofDays(30);
@@ -64,7 +61,6 @@ public class BillingController {
   private final StripeWebhookProcessor stripeWebhookProcessor;
   private final Clock clock;
 
-  @Autowired
   public BillingController(
       StripeService stripeService,
       StripeProperties stripeProperties,

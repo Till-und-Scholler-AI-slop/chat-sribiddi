@@ -8,7 +8,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -21,21 +21,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * implementations based on {@code app.rate-limit.backend}; keeping this class out of component
  * scanning prevents double rate limiting.
  */
+@RequiredArgsConstructor
 public class InMemoryRateLimitFilter extends OncePerRequestFilter {
 
   private final RateLimitProperties properties;
   private final Clock clock;
   private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
-
-  @Autowired
-  public InMemoryRateLimitFilter(RateLimitProperties properties) {
-    this(properties, Clock.systemUTC());
-  }
-
-  InMemoryRateLimitFilter(RateLimitProperties properties, Clock clock) {
-    this.properties = properties;
-    this.clock = clock;
-  }
 
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {

@@ -12,25 +12,29 @@ import org.springframework.stereotype.Component;
 @Component
 public class DocumentChunker implements DocumentTransformer {
 
-  private static final int TARGET_TOKENS = 1_200;
-  private static final int CHARS_PER_TOKEN = 4;
   static final String CHUNK_INDEX_METADATA = "chunk_index";
   static final String PAGE_START_METADATA = "page_start";
   static final String PAGE_END_METADATA = "page_end";
   static final String TOKEN_ESTIMATE_METADATA = "token_estimate";
 
-  private final TokenTextSplitter splitter =
-      TokenTextSplitter.builder()
-          .withChunkSize(TARGET_TOKENS)
-          .withMinChunkSizeChars(350)
-          .withMinChunkLengthToEmbed(5)
-          .withMaxNumChunks(10_000)
-          .withKeepSeparator(true)
-          .withPunctuationMarks(List.of('.', '?', '!', '\n', ';', ':'))
-          .build();
+  private final TokenTextSplitter splitter;
+  private final RagProperties ragProperties;
+
+  public DocumentChunker(RagProperties ragProperties) {
+    this.ragProperties = ragProperties;
+    this.splitter =
+        TokenTextSplitter.builder()
+            .withChunkSize(ragProperties.getTargetTokens())
+            .withMinChunkSizeChars(350)
+            .withMinChunkLengthToEmbed(5)
+            .withMaxNumChunks(10_000)
+            .withKeepSeparator(true)
+            .withPunctuationMarks(List.of('.', '?', '!', '\n', ';', ':'))
+            .build();
+  }
 
   public List<DocumentChunk> chunk(List<Document> documents) {
-    return apply(documents).stream().map(DocumentChunker::toChunk).toList();
+    return apply(documents).stream().map(this::toChunk).toList();
   }
 
   @Override
@@ -58,7 +62,7 @@ public class DocumentChunker implements DocumentTransformer {
     return chunks;
   }
 
-  private static Document toChunkDocument(int index, Integer page, String text) {
+  private Document toChunkDocument(int index, Integer page, String text) {
     Map<String, Object> metadata = new LinkedHashMap<>();
     metadata.put(CHUNK_INDEX_METADATA, index);
     if (page != null) {
@@ -69,7 +73,7 @@ public class DocumentChunker implements DocumentTransformer {
     return new Document(text, metadata);
   }
 
-  private static DocumentChunk toChunk(Document document) {
+  private DocumentChunk toChunk(Document document) {
     return new DocumentChunk(
         integerMetadata(document, CHUNK_INDEX_METADATA, 0),
         integerMetadata(document, PAGE_START_METADATA, null),
@@ -87,11 +91,11 @@ public class DocumentChunker implements DocumentTransformer {
     return value instanceof Number number ? number.intValue() : fallback;
   }
 
-  static int estimateTokens(String text) {
+  int estimateTokens(String text) {
     if (text == null || text.isBlank()) {
       return 0;
     }
-    return Math.max(1, (int) Math.ceil(text.trim().length() / (double) CHARS_PER_TOKEN));
+    return Math.max(1, (int) Math.ceil(text.trim().length() / (double) ragProperties.getCharsPerToken()));
   }
 
   public record DocumentChunk(

@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
@@ -27,9 +28,11 @@ public class MessageEntity {
   @Column(nullable = false)
   private UUID chatId;
 
+  @Size(max = 100_000)
   @Column(columnDefinition = "TEXT", nullable = false)
   private String message;
 
+  @Size(max = 50_000)
   @Column(columnDefinition = "TEXT")
   private String context;
 

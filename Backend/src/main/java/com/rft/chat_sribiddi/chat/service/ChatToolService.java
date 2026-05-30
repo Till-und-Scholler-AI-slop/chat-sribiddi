@@ -14,6 +14,7 @@ import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
+import com.rft.chat_sribiddi.tools.ToolProperties;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.util.Collection;
 import java.util.List;
@@ -37,9 +38,7 @@ public class ChatToolService {
   private final ApiKeyService apiKeyService;
   private final EntitlementService entitlementService;
   private final WebSearchProperties webSearchProperties;
-
-  private static final Set<String> DEFAULT_ENABLED_TOOLS =
-      Set.of("calculator", "current-datetime", "brave-search");
+  private final ToolProperties toolProperties;
 
   @Transactional(readOnly = true)
   public List<AvailableToolDTO> listAvailableTools(UUID chatId, String userId) {
@@ -148,7 +147,7 @@ public class ChatToolService {
   }
 
   private boolean isToolEnabledForChat(String toolName, Map<String, Boolean> enabledByToolName) {
-    return enabledByToolName.getOrDefault(toolName, DEFAULT_ENABLED_TOOLS.contains(toolName));
+    return enabledByToolName.getOrDefault(toolName, toolProperties.getDefaultEnabled().contains(toolName));
   }
 
   private boolean isServerBraveSearchConfigNeeded(

@@ -32,7 +32,7 @@ class RateLimitFilterTest {
   void doFilterInternal_returns429AfterAnonymousLimit() throws ServletException, IOException {
     RateLimitProperties properties = new RateLimitProperties();
     properties.setAnonymousRequestsPerMinute(1);
-    InMemoryRateLimiter limiter = new InMemoryRateLimiter(properties);
+    InMemoryRateLimiter limiter = new InMemoryRateLimiter(properties, java.time.Clock.systemUTC());
     RateLimitFilter filter = new RateLimitFilter(properties, limiter, planResolver);
 
     MockHttpServletRequest firstRequest = new MockHttpServletRequest("GET", "/chats");

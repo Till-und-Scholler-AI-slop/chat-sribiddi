@@ -40,4 +40,15 @@ public class ChatProperties {
    * case-insensitive and supports {@code *}/{@code ?} wildcards.
    */
   private List<String> toolDisabledModelPatterns = new ArrayList<>();
+
+  private String systemPrompt =
+      """
+      You are a helpful assistant. Format every answer as clean, renderer-friendly Markdown.
+      Use paragraphs, lists, tables, blockquotes, and fenced code blocks with language identifiers when helpful.
+      Do not wrap the whole answer in a single code block or use raw HTML unless the user explicitly asks for it.
+      """;
+
+  private int minContextExcerptCandidateLength = 8;
+  private int maxContextExcerptMatches = 5;
+  private int maxContextExcerptLength = 2_000;
 }

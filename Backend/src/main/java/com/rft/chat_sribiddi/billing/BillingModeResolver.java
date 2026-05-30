@@ -6,8 +6,8 @@ import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import java.util.Objects;
 import java.util.Optional;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
@@ -34,31 +34,13 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class BillingModeResolver {
 
   private final ApiKeyService apiKeyService;
   private final EntitlementService entitlementService;
   private final ManagedApiKeyProperties managedKeys;
   private final Environment environment;
-
-  @Autowired
-  public BillingModeResolver(
-      ApiKeyService apiKeyService,
-      EntitlementService entitlementService,
-      ManagedApiKeyProperties managedKeys,
-      Environment environment) {
-    this.apiKeyService = apiKeyService;
-    this.entitlementService = entitlementService;
-    this.managedKeys = managedKeys;
-    this.environment = environment;
-  }
-
-  public BillingModeResolver(
-      ApiKeyService apiKeyService,
-      EntitlementService entitlementService,
-      ManagedApiKeyProperties managedKeys) {
-    this(apiKeyService, entitlementService, managedKeys, null);
-  }
 
   /**
    * Resolves the effective {@link BillingMode} and API key for the given request.

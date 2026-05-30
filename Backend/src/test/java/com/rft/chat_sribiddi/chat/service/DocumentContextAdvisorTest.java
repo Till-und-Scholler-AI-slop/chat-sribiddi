@@ -28,7 +28,8 @@ class DocumentContextAdvisorTest {
                             "document_id", 1L,
                             "chunk_index", 0,
                             "page_start", 2,
-                            "page_end", 3))));
+                            "page_end", 3))),
+            new DocumentContextFormatter(new RagProperties()));
     UserMessage userMessage =
         UserMessage.builder()
             .text("What is in this file?")

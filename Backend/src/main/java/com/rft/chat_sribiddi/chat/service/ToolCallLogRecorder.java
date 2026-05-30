@@ -14,11 +14,8 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class ToolCallLogRecorder {
 
-  private static final int MIN_CONTEXT_EXCERPT_CANDIDATE_LENGTH = 8;
-  private static final int MAX_CONTEXT_EXCERPT_MATCHES = 5;
-  private static final int MAX_CONTEXT_EXCERPT_LENGTH = 2_000;
-
   private final ToolCallLogRepository toolCallLogRepository;
+  private final ChatProperties chatProperties;
 
   void recordAssistantToolCalls(
       MessageEntity assistantMessage,
@@ -48,17 +45,17 @@ public class ToolCallLogRecorder {
     List<String> matches = new ArrayList<>();
     for (String line : toolOutput.split("\\R+")) {
       String candidate = line.replaceFirst("^\\d+\\.\\s*", "").trim();
-      if (candidate.length() < MIN_CONTEXT_EXCERPT_CANDIDATE_LENGTH) {
+      if (candidate.length() < chatProperties.getMinContextExcerptCandidateLength()) {
         continue;
       }
       String normalizedCandidate = normalizeForMatch(candidate);
-      if (normalizedCandidate.length() < MIN_CONTEXT_EXCERPT_CANDIDATE_LENGTH) {
+      if (normalizedCandidate.length() < chatProperties.getMinContextExcerptCandidateLength()) {
         continue;
       }
       if (normalizedAssistant.contains(normalizedCandidate) && !matches.contains(candidate)) {
         matches.add(candidate);
       }
-      if (matches.size() >= MAX_CONTEXT_EXCERPT_MATCHES) {
+      if (matches.size() >= chatProperties.getMaxContextExcerptMatches()) {
         break;
       }
     }
@@ -66,8 +63,8 @@ public class ToolCallLogRecorder {
       return null;
     }
     String excerpt = String.join("\n", matches);
-    return excerpt.length() > MAX_CONTEXT_EXCERPT_LENGTH
-        ? excerpt.substring(0, MAX_CONTEXT_EXCERPT_LENGTH)
+    return excerpt.length() > chatProperties.getMaxContextExcerptLength()
+        ? excerpt.substring(0, chatProperties.getMaxContextExcerptLength())
         : excerpt;
   }
 

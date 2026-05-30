@@ -20,13 +20,6 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class PromptMessageBuilder {
 
-  private static final String SYSTEM_PROMPT =
-      """
-      You are a helpful assistant. Format every answer as clean, renderer-friendly Markdown.
-      Use paragraphs, lists, tables, blockquotes, and fenced code blocks with language identifiers when helpful.
-      Do not wrap the whole answer in a single code block or use raw HTML unless the user explicitly asks for it.
-      """;
-
   private static final String USER_INSTRUCTION_PREFIX =
       "System instructions for this conversation. Follow them when responding.\n\n";
 
@@ -140,9 +133,10 @@ public class PromptMessageBuilder {
   }
 
   private String instructionContent(String customInstructions) {
+    String systemPrompt = chatProperties.getSystemPrompt();
     return customInstructions != null && !customInstructions.isBlank()
-        ? SYSTEM_PROMPT + "\n\n" + customInstructions
-        : SYSTEM_PROMPT;
+        ? systemPrompt + "\n\n" + customInstructions
+        : systemPrompt;
   }
 
   private int totalContextMessageLimit(Entitlements entitlements) {

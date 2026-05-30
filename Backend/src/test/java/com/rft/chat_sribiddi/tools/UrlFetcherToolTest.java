@@ -10,7 +10,7 @@ import org.springframework.ai.chat.model.ToolContext;
 
 class UrlFetcherToolTest {
 
-  private final UrlFetcherTool tool = new UrlFetcherTool(HttpClient.newHttpClient(), "test-agent");
+  private final UrlFetcherTool tool = new UrlFetcherTool(HttpClient.newHttpClient(), "test-agent", new ToolProperties());
 
   @Test
   void fetchUrl_rejectsUrlOutsideApprovedToolContextHost() {

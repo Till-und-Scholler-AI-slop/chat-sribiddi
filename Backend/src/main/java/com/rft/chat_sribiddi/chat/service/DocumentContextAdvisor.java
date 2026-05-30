@@ -21,14 +21,15 @@ final class DocumentContextAdvisor {
 
   private DocumentContextAdvisor() {}
 
-  static RetrievalAugmentationAdvisor create(DocumentRetriever documentRetriever) {
+  static RetrievalAugmentationAdvisor create(
+      DocumentRetriever documentRetriever, DocumentContextFormatter documentContextFormatter) {
     return RetrievalAugmentationAdvisor.builder()
         .documentRetriever(documentRetriever)
         .queryAugmenter(
             ContextualQueryAugmenter.builder()
                 .promptTemplate(DOCUMENT_CONTEXT_PROMPT)
                 .allowEmptyContext(true)
-                .documentFormatter(DocumentContextFormatter::formatDocuments)
+                .documentFormatter(documentContextFormatter::formatDocuments)
                 .build())
         .order(Advisor.DEFAULT_CHAT_MEMORY_PRECEDENCE_ORDER + 1)
         .build();

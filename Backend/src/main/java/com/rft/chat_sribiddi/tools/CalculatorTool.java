@@ -10,8 +10,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import jakarta.annotation.PreDestroy;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -20,23 +19,26 @@ import org.springframework.stereotype.Component;
  * Calculator tool that evaluates arithmetic expressions safely using a recursive descent parser.
  * Supports: +, -, *, /, ^ (power), % (modulo), parentheses, decimal numbers.
  */
+@Slf4j
 @Component
 public class CalculatorTool implements ChatTool {
-
-  private static final Logger log = LoggerFactory.getLogger(CalculatorTool.class);
 
   private static final Set<Character> ALLOWED_CHARS =
       Set.of(
           '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
           '.', '+', '-', '*', '/', '^', '(', ')', ' ', '%');
 
-  private static final long EVAL_TIMEOUT_MS = 3000;
+  private final ToolProperties toolProperties;
 
   private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool(r -> {
     Thread t = new Thread(r);
     t.setDaemon(true);
     return t;
   });
+
+  public CalculatorTool(ToolProperties toolProperties) {
+    this.toolProperties = toolProperties;
+  }
 
   @PreDestroy
   void shutdown() {
@@ -93,7 +95,7 @@ public class CalculatorTool implements ChatTool {
     });
 
     try {
-      double num = future.get(EVAL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+      double num = future.get(toolProperties.getCalculatorEvalTimeoutMs(), TimeUnit.MILLISECONDS);
       if (!Double.isFinite(num)) {
         return ToolResult.failure("Result is not a finite number.");
       }

@@ -98,6 +98,7 @@
     "startFailedDescription": "Läuft das Backend?",
     "editMessage": "Nachricht bearbeiten",
     "saveAndRegenerate": "Speichern & neu generieren",
+    "regenerateResponse": "Antwort neu generieren",
     "exportRunbook": "Als Runbook exportieren",
     "runbookExportedTitle": "Runbook exportiert",
     "runbookExportFailedTitle": "Runbook-Export fehlgeschlagen",

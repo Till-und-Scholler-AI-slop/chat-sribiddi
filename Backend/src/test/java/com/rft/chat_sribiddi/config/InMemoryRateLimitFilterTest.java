@@ -21,6 +21,7 @@ class InMemoryRateLimitFilterTest {
   void springContextInstantiatesFilterUsingInjectedPropertiesConstructor() {
     try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
       context.register(RateLimitProperties.class, InMemoryRateLimitFilter.class);
+      context.getDefaultListableBeanFactory().registerSingleton("clock", Clock.systemUTC());
       context.refresh();
 
       InMemoryRateLimitFilter filter = context.getBean(InMemoryRateLimitFilter.class);

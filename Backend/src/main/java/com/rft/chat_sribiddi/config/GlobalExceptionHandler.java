@@ -31,12 +31,12 @@ import lombok.extern.slf4j.Slf4j;
 public class GlobalExceptionHandler {
 
   @ExceptionHandler(ChatNotFoundException.class)
-  public ResponseEntity<Map<String, String>> handleChatNotFound(ChatNotFoundException ex) {
-    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", ex.getMessage()));
+  public ResponseEntity<ApiError> handleChatNotFound(ChatNotFoundException ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiError(ex.getMessage()));
   }
 
   @ExceptionHandler(PlanRestrictionException.class)
-  public ResponseEntity<Map<String, String>> handlePlanRestriction(PlanRestrictionException ex) {
+  public ResponseEntity<ApiError> handlePlanRestriction(PlanRestrictionException ex) {
     HttpStatus status =
         switch (ex.getReason()) {
           case MODEL_NOT_ALLOWED, DAILY_CAP_EXCEEDED -> HttpStatus.PAYMENT_REQUIRED;
@@ -44,100 +44,95 @@ public class GlobalExceptionHandler {
           case TOOL_NOT_ALLOWED -> HttpStatus.FORBIDDEN;
           case MANAGED_PROVIDER_UNCONFIGURED -> HttpStatus.SERVICE_UNAVAILABLE;
         };
-    Map<String, String> body = new HashMap<>();
-    body.put("message", ex.getMessage());
-    body.put("reason", ex.getReason().name());
+    Map<String, String> details = new HashMap<>();
     if (ex.getPlan() != null) {
-      body.put("plan", ex.getPlan().name());
+      details.put("plan", ex.getPlan().name());
     }
-    return ResponseEntity.status(status).body(body);
+    return ResponseEntity.status(status).body(new ApiError(ex.getMessage(), ex.getReason().name(), details));
   }
 
   @ExceptionHandler(DataIntegrityViolationException.class)
-  public ResponseEntity<Map<String, String>> handleDataIntegrity(DataIntegrityViolationException ex) {
+  public ResponseEntity<ApiError> handleDataIntegrity(DataIntegrityViolationException ex) {
+    log.warn("Data integrity violation encountered", ex);
     return ResponseEntity.status(HttpStatus.CONFLICT)
-        .body(Map.of("message",
-            "A data integrity constraint was violated. The referenced resource may no longer exist."));
+        .body(new ApiError("A data integrity constraint was violated. The referenced resource may no longer exist."));
   }
 
   @ExceptionHandler(IllegalArgumentException.class)
-  public ResponseEntity<Map<String, String>> handleIllegalArgument(IllegalArgumentException ex) {
-    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", ex.getMessage()));
+  public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException ex) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ApiError(ex.getMessage()));
   }
 
   @ExceptionHandler(ResponseStatusException.class)
-  public ResponseEntity<Map<String, String>> handleResponseStatus(ResponseStatusException ex) {
+  public ResponseEntity<ApiError> handleResponseStatus(ResponseStatusException ex) {
     return ResponseEntity.status(ex.getStatusCode())
-        .body(Map.of("message", ex.getReason() != null ? ex.getReason() : ex.getMessage()));
+        .body(new ApiError(ex.getReason() != null ? ex.getReason() : ex.getMessage()));
   }
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
-  public ResponseEntity<Map<String, String>> handleValidation(MethodArgumentNotValidException ex) {
+  public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex) {
     Map<String, String> errors = new HashMap<>();
     for (FieldError fieldError : ex.getBindingResult().getFieldErrors()) {
       errors.put(fieldError.getField(), fieldError.getDefaultMessage());
     }
-    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors);
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ApiError("Validation failed", "VALIDATION_ERROR", errors));
   }
 
   @ExceptionHandler(ResourceAccessException.class)
-  public ResponseEntity<Map<String, String>> handleResourceAccess(ResourceAccessException ex) {
+  public ResponseEntity<ApiError> handleResourceAccess(ResourceAccessException ex) {
     if (isTimeout(ex)) {
       return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
-          .body(
-              Map.of(
-                  "message",
-                  "The AI provider timed out while processing the request. Try a shorter prompt or retry."));
+          .body(new ApiError("The AI provider timed out while processing the request. Try a shorter prompt or retry."));
     }
 
     return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-        .body(Map.of("message", "Failed to reach the AI provider. Please retry."));
+        .body(new ApiError("Failed to reach the AI provider. Please retry."));
   }
 
   @ExceptionHandler(RestClientResponseException.class)
-  public ResponseEntity<Map<String, String>> handleProviderResponse(RestClientResponseException ex) {
+  public ResponseEntity<ApiError> handleProviderResponse(RestClientResponseException ex) {
     HttpStatus mappedStatus = mapProviderStatus(ex.getStatusCode());
     String message = StreamErrorHandler.formatProviderError(
         ex.getResponseBodyAsString(), ex.getStatusCode().value());
-    return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
+    return ResponseEntity.status(mappedStatus).body(new ApiError(message));
   }
 
   @ExceptionHandler(WebClientResponseException.class)
-  public ResponseEntity<Map<String, String>> handleWebClientResponse(WebClientResponseException ex) {
+  public ResponseEntity<ApiError> handleWebClientResponse(WebClientResponseException ex) {
     HttpStatus mappedStatus = mapProviderStatus(ex.getStatusCode());
     String message = StreamErrorHandler.formatProviderError(
         ex.getResponseBodyAsString(), ex.getStatusCode().value());
-    return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
+    return ResponseEntity.status(mappedStatus).body(new ApiError(message));
   }
 
   @ExceptionHandler(OpenAIServiceException.class)
-  public ResponseEntity<Map<String, String>> handleOpenAiService(OpenAIServiceException ex) {
+  public ResponseEntity<ApiError> handleOpenAiService(OpenAIServiceException ex) {
     HttpStatus mappedStatus = mapProviderStatus(HttpStatusCode.valueOf(ex.statusCode()));
     String message = StreamErrorHandler.formatProviderError(ex);
-    return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
+    return ResponseEntity.status(mappedStatus).body(new ApiError(message));
   }
 
   @ExceptionHandler(AnthropicServiceException.class)
-  public ResponseEntity<Map<String, String>> handleAnthropicService(AnthropicServiceException ex) {
+  public ResponseEntity<ApiError> handleAnthropicService(AnthropicServiceException ex) {
     HttpStatus mappedStatus = mapProviderStatus(HttpStatusCode.valueOf(ex.statusCode()));
     String message = StreamErrorHandler.formatProviderError(ex);
-    return ResponseEntity.status(mappedStatus).body(Map.of("message", message));
+    return ResponseEntity.status(mappedStatus).body(new ApiError(message));
   }
 
   @ExceptionHandler(TransientAiException.class)
-  public ResponseEntity<Map<String, String>> handleTransientAi(TransientAiException ex) {
+  public ResponseEntity<ApiError> handleTransientAi(TransientAiException ex) {
     return handleSpringAiProviderException(ex, HttpStatus.BAD_GATEWAY);
   }
 
   @ExceptionHandler(NonTransientAiException.class)
-  public ResponseEntity<Map<String, String>> handleNonTransientAi(NonTransientAiException ex) {
+  public ResponseEntity<ApiError> handleNonTransientAi(NonTransientAiException ex) {
     return handleSpringAiProviderException(ex, HttpStatus.BAD_REQUEST);
   }
 
   @ExceptionHandler(ToolExecutionException.class)
-  public ResponseEntity<Map<String, String>> handleToolExecution(ToolExecutionException ex) {
+  public ResponseEntity<ApiError> handleToolExecution(ToolExecutionException ex) {
     return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-        .body(Map.of("message", StreamErrorHandler.extractProviderMessage(ex)));
+        .body(new ApiError(StreamErrorHandler.extractProviderMessage(ex)));
   }
 
   /**
@@ -151,7 +146,7 @@ public class GlobalExceptionHandler {
     return statusCode.is4xxClientError() ? HttpStatus.BAD_REQUEST : HttpStatus.BAD_GATEWAY;
   }
 
-  private ResponseEntity<Map<String, String>> handleSpringAiProviderException(
+  private ResponseEntity<ApiError> handleSpringAiProviderException(
       Throwable ex, HttpStatus fallbackStatus) {
     StreamErrorHandler.StreamErrorDetails details =
         StreamErrorHandler.describe(null, null, 0, ex);
@@ -160,16 +155,16 @@ public class GlobalExceptionHandler {
             ? fallbackStatus
             : mapProviderStatus(HttpStatusCode.valueOf(details.statusCode()));
     return ResponseEntity.status(status)
-        .body(Map.of("message", StreamErrorHandler.extractProviderMessage(ex)));
+        .body(new ApiError(StreamErrorHandler.extractProviderMessage(ex)));
   }
 
   @ExceptionHandler(Exception.class)
-  public ResponseEntity<Map<String, String>> handleUnexpected(Exception ex) {
+  public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
     // On SSE/async streams, client disconnects can cause secondary write failures (e.g. Map with text/event-stream).
     // Log at debug to avoid noise; the primary stream error was already handled in ChatStreamSubscriber.
     log.debug("Unexpected error (possibly async/SSE disconnect): {}", ex.getMessage());
     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-        .body(Map.of("message", "An unexpected error occurred. Please try again later."));
+        .body(new ApiError("An unexpected error occurred. Please try again later."));
   }
 
   private boolean isTimeout(Throwable throwable) {
