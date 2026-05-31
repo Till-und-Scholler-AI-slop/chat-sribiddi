@@ -30,7 +30,7 @@ services:
   backend:
     build:
       context: ..
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     image: chat-sribiddi-backend:latest
     restart: unless-stopped
     env_file:
