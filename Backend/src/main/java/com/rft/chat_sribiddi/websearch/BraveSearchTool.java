@@ -1,7 +1,5 @@
 package com.rft.chat_sribiddi.websearch;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -12,6 +10,8 @@ import java.time.Duration;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Spring AI tool that performs web searches via the Brave Search API.
@@ -22,7 +22,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 @Slf4j
 public class BraveSearchTool {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final JsonMapper MAPPER = new JsonMapper();
 
   private final String apiKey;
   private final HttpClient httpClient;
@@ -94,9 +94,9 @@ public class BraveSearchTool {
         if (count >= maxResults) break;
         count++;
 
-        String title = result.path("title").asText("");
-        String url = result.path("url").asText("");
-        String description = result.path("description").asText("");
+        String title = result.path("title").asString("");
+        String url = result.path("url").asString("");
+        String description = result.path("description").asString("");
 
         sb.append("%d. **%s**\n".formatted(count, title));
         sb.append("   URL: %s\n".formatted(url));

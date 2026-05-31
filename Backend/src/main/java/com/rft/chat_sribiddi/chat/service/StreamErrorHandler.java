@@ -1,8 +1,6 @@
 package com.rft.chat_sribiddi.chat.service;
 
 import com.anthropic.errors.AnthropicServiceException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.errors.OpenAIServiceException;
 import com.openai.models.ErrorObject;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
@@ -13,12 +11,14 @@ import org.springframework.ai.retry.TransientAiException;
 import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 @Slf4j
 public final class StreamErrorHandler {
 
   public static final String EVENT_ERROR = "error";
-  private static final ObjectMapper ERROR_MAPPER = new ObjectMapper();
+  private static final JsonMapper ERROR_MAPPER = new JsonMapper();
 
   private StreamErrorHandler() {}
 
@@ -284,13 +284,13 @@ public final class StreamErrorHandler {
       JsonNode errorNode = root.path(EVENT_ERROR);
       if (!errorNode.isMissingNode()) {
         JsonNode messageNode = errorNode.path("message");
-        if (messageNode.isTextual() && !messageNode.asText().isBlank()) {
-          return messageNode.asText();
+        if (messageNode.isString() && !messageNode.asString().isBlank()) {
+          return messageNode.asString();
         }
       }
       JsonNode messageNode = root.path("message");
-      if (messageNode.isTextual() && !messageNode.asText().isBlank()) {
-        return messageNode.asText();
+      if (messageNode.isString() && !messageNode.asString().isBlank()) {
+        return messageNode.asString();
       }
     } catch (Exception e) {
       log.debug("Failed to parse provider error response as JSON", e);

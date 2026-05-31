@@ -1,17 +1,17 @@
 package com.rft.chat_sribiddi.chat.toolcall;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
 
 public class ToolExecutionCollector {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final JsonMapper MAPPER = new JsonMapper();
 
   private final List<Record> records = Collections.synchronizedList(new ArrayList<>());
 
@@ -53,7 +53,7 @@ public class ToolExecutionCollector {
   private static String serialize(Map<String, Object> input) {
     try {
       return MAPPER.writeValueAsString(input == null ? Map.of() : input);
-    } catch (JsonProcessingException ex) {
+    } catch (JacksonException ex) {
       return "{}";
     }
   }
