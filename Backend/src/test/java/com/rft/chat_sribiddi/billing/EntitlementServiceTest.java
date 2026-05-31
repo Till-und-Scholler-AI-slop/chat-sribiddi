@@ -412,38 +412,6 @@ class EntitlementServiceTest {
     verifyNoInteractions(dailyQuotaCounterRepository);
   }
 
-  // -------- assertWithinDailyCap (deprecated) --------
-
-  @Test
-  void assertWithinDailyCap_allowsWhenUnderCapForFree() {
-    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
-    when(dailyQuotaCounterRepository.getCount(INTERNAL_ID, TODAY)).thenReturn(5L);
-
-    service.assertWithinDailyCap(USER_ID);
-  }
-
-  @Test
-  void assertWithinDailyCap_rejectsWhenAtCapForFree() {
-    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
-    when(dailyQuotaCounterRepository.getCount(INTERNAL_ID, TODAY)).thenReturn(10L);
-
-    assertThatThrownBy(() -> service.assertWithinDailyCap(USER_ID))
-        .isInstanceOf(PlanRestrictionException.class)
-        .satisfies(
-            ex ->
-                assertThat(((PlanRestrictionException) ex).getReason())
-                    .isEqualTo(PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED));
-  }
-
-  @Test
-  void assertWithinDailyCap_noOpWhenCapIsZero() {
-    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.MAX)));
-
-    service.assertWithinDailyCap(USER_ID);
-
-    verifyNoInteractions(dailyQuotaCounterRepository);
-  }
-
   // -------- incrementCounter --------
 
   @Test
@@ -746,26 +714,4 @@ class EntitlementServiceTest {
     verifyNoInteractions(modelPricingLookup);
   }
 
-  // -------- filterOpenRouterModelsForPlan (deprecated shim) -----
-
-  @Test
-  void filterOpenRouterModelsForPlan_delegatesToUsableFilterForBackwardsCompatibility() {
-    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(userWithPlan(Plan.FREE)));
-    when(modelPricingLookup.find(Provider.OPENROUTER, "openrouter/free"))
-        .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.0, 0.0)));
-    when(modelPricingLookup.find(Provider.OPENROUTER, "openai/gpt-4o")).thenReturn(Optional.empty());
-    var paid =
-        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
-            "openai/gpt-4o", "GPT-4o");
-    var free =
-        new com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption(
-            "openrouter/free", "OpenRouter Free");
-
-    var result = service.filterOpenRouterModelsForPlan(USER_ID, java.util.List.of(paid, free));
-
-    assertThat(result).hasSize(1);
-    assertThat(result.getFirst().getId()).isEqualTo("openrouter/free");
-    assertThat(result.getFirst().getAvailability())
-        .isEqualTo(com.rft.chat_sribiddi.modelcatalog.AvailabilityFlag.ALWAYS);
-  }
 }

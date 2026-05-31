@@ -26,7 +26,7 @@ public record RequestDTO(
     @NotBlank(message = "content must not be blank") String content,
     @NotNull(message = "provider is required") Provider provider,
     @NotBlank(message = "modelId must not be blank") String modelId,
-    @Deprecated @JsonIgnore String apiKey,
+    @JsonIgnore String apiKey,
     @Size(max = 5, message = "media supports up to 5 attachments")
         List<@NotNull(message = "media items must not be null") @Valid MediaAttachment> media,
     Boolean webSearchEnabled,
