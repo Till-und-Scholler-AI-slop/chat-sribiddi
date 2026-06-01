@@ -575,4 +575,9 @@ class UrlFetcherToolTest {
     assertThat(tool.getDisplayName()).isEqualTo("URL Fetcher");
     assertThat(tool.riskLevel()).isEqualTo(ToolRiskLevel.HIGH);
   }
+
+  @Test
+  void requiresPerCallConsent_returnsFalse() {
+    assertThat(tool.requiresPerCallConsent()).isFalse();
+  }
 }

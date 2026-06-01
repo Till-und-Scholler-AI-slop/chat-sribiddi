@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "app.tools")
 public class ToolProperties {
-  private Set<String> defaultEnabled = Set.of("calculator", "current-datetime", "brave-search");
+  private Set<String> defaultEnabled = Set.of("calculator", "current-datetime", "brave-search", "url-fetcher");
   private int urlFetcherMaxContentLength = 50_000;
   private int urlFetcherMaxHtmlSize = 2_000_000;
   private Duration urlFetcherTimeout = Duration.ofSeconds(10);
