@@ -128,6 +128,9 @@ public class PromptToolBinder {
             // UrlFetcherTool#fetchUrl) when the supplied ToolContext has an empty context map,
             // so a non-empty outer context map is required for those tools to run at all.
             toolSpec.context(TOOL_CONSENT_CONTEXT_KEY, toolContext);
+            // Surface the active user id so tools that need per-user rate limiting (e.g.
+            // UrlFetcherTool) can identify the caller without an extra plumbing layer.
+            toolSpec.context(UrlFetcherTool.USER_ID_CONTEXT_KEY, userId);
           });
     }
   }
@@ -268,7 +271,37 @@ public class PromptToolBinder {
     if (entitlements.allowsTool(tool.getName())) {
       return true;
     }
-    return "brave-search".equals(tool.getName()) && resolveUserWebSearchApiKey(userId).isPresent();
+    if ("brave-search".equals(tool.getName()) && resolveUserWebSearchApiKey(userId).isPresent()) {
+      return true;
+    }
+    if ("url-fetcher".equals(tool.getName()) && userHasAnyProviderKey(userId)) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * True if the user has at least one non-blank provider key in the keyring. The url-fetcher tool
+   * is gated on this so that users who have invested in storing their own API keys get full tool
+   * access even on the Free tier.
+   */
+  private boolean userHasAnyProviderKey(String userId) {
+    if (userId == null || userId.isBlank()) {
+      return false;
+    }
+    for (Provider provider : Provider.values()) {
+      try {
+        if (apiKeyService.hasKey(userId, provider)) {
+          Optional<String> key = apiKeyService.getKey(userId, provider);
+          if (key.isPresent() && !key.get().isBlank()) {
+            return true;
+          }
+        }
+      } catch (RuntimeException e) {
+        log.debug("Keyring lookup failed for user={} provider={}", userId, provider, e);
+      }
+    }
+    return false;
   }
 
   private Optional<String> resolveUserWebSearchApiKey(String userId) {
@@ -340,7 +373,7 @@ public class PromptToolBinder {
       return configured;
     }
     return switch (toolName) {
-      case "calculator", "current-datetime", "brave-search" -> true;
+      case "calculator", "current-datetime", "brave-search", "url-fetcher" -> true;
       default -> false;
     };
   }

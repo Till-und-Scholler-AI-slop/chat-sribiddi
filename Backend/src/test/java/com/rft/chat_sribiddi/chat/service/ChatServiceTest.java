@@ -1417,6 +1417,7 @@ class ChatServiceTest {
                 "gemma-4-31b-it",
                 503,
                 "SERVER_ERROR",
+                null,
                 128L));
 
     assertThat(message)

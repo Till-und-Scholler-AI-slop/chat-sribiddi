@@ -1,17 +1,17 @@
 package com.rft.chat_sribiddi.chat.toolcall;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
 import java.util.function.Supplier;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.metadata.ToolMetadata;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 
 public final class RecordingToolCallback implements ToolCallback {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final JsonMapper MAPPER = new JsonMapper();
   private static final TypeReference<Map<String, Object>> INPUT_TYPE = new TypeReference<>() {};
 
   private final ToolCallback delegate;
