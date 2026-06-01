@@ -91,6 +91,9 @@ public final class StreamErrorHandler {
       log.warn("Upstream OpenAI-compatible provider rejected request (HTTP {}): {}",
           ex.statusCode(), rawBody);
     }
+    // 1) Try the SDK's typed ErrorObject accessor first. This works when the
+    //    SDK successfully deserialized the wire body (native OpenAI, and
+    //    most test scenarios that build the exception from an ErrorObject).
     try {
       String message = ex.body().convert(ErrorObject.class).message();
       if (message != null && !message.isBlank()) {
@@ -99,7 +102,48 @@ public final class StreamErrorHandler {
     } catch (Exception e) {
       log.debug("Failed to extract OpenAI SDK error body", e);
     }
-    return formatProviderError(ex.body().toString(), ex.statusCode());
+    // 2) Fall back to the generic JSON parser. Handles OpenRouter's nested
+    //    {"error":{"message":"..."}} shape that the SDK's strict deserializer
+    //    either misparses (returning a placeholder message) or rejects.
+    if (rawBody != null) {
+      String parsed = parseErrorMessage(rawBody);
+      if (parsed != null && !parsed.isBlank()) {
+        return parsed;
+      }
+    }
+    return formatProviderError(rawBody, ex.statusCode());
+  }
+
+  /**
+   * Extract the human-readable error message from a raw OpenAI / OpenAI-compatible error body.
+   *
+   * <p>The generic JSON parser handles both OpenAI's flat
+   * {@code {"message": "..."}} shape AND OpenRouter's nested
+   * {@code {"error": {"message": "..."}}} shape. The OpenAI Java SDK's
+   * {@link ErrorObject} deserializer only understands the OpenAI shape; for OpenRouter it
+   * returns a placeholder "Provider returned error" message that hides the real reason.
+   *
+   * <p>Package-private for unit tests; not part of the public API.
+   */
+  static String extractOpenAiStyleErrorMessage(String rawBody) {
+    if (rawBody == null || rawBody.isBlank()) {
+      return null;
+    }
+    String parsed = parseErrorMessage(rawBody);
+    if (parsed != null && !parsed.isBlank()) {
+      return parsed;
+    }
+    // Fall back to the SDK's ErrorObject for native OpenAI responses whose body
+    // doesn't match our generic parser (rare — the generic parser usually wins).
+    try {
+      ErrorObject obj = ERROR_MAPPER.readValue(rawBody, ErrorObject.class);
+      if (obj != null && obj.message() != null && !obj.message().isBlank()) {
+        return obj.message();
+      }
+    } catch (Exception ignored) {
+      // Body doesn't match the OpenAI ErrorObject schema — expected for OpenRouter.
+    }
+    return null;
   }
 
   public static String formatProviderError(AnthropicServiceException ex) {

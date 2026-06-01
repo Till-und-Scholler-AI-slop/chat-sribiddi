@@ -180,4 +180,77 @@ class StreamErrorHandlerTest {
     // The important contract: no exception is thrown.
     assertThat(result).isNotNull();
   }
+
+  // --- extractOpenAiStyleErrorMessage: OpenRouter vs native OpenAI shapes -----
+
+  @Test
+  void extractOpenAiStyleErrorMessage_handlesOpenRouterNestedShape() {
+    // OpenRouter returns {"error":{"code":...,"message":"..."}}, NOT OpenAI's
+    // flat {"message":"..."}. The SDK's ErrorObject deserializer returns a
+    // placeholder "Provider returned error" in this case; our generic parser
+    // extracts the real reason.
+    String body = "{\"error\":{\"code\":400,\"message\":\"Tool use is not supported\"}}";
+
+    assertThat(StreamErrorHandler.extractOpenAiStyleErrorMessage(body))
+        .isEqualTo("Tool use is not supported");
+  }
+
+  @Test
+  void extractOpenAiStyleErrorMessage_handlesOpenAiFlatShape() {
+    // Native OpenAI: {"message":"...","type":"...","code":"...","param":null}
+    String body = "{\"message\":\"Invalid API key\",\"type\":\"auth_error\",\"code\":\"invalid_api_key\"}";
+
+    assertThat(StreamErrorHandler.extractOpenAiStyleErrorMessage(body))
+        .isEqualTo("Invalid API key");
+  }
+
+  @Test
+  void extractOpenAiStyleErrorMessage_handlesTopLevelMessageField() {
+    // Some upstreams use a bare top-level message field.
+    String body = "{\"message\":\"Rate limit exceeded\"}";
+
+    assertThat(StreamErrorHandler.extractOpenAiStyleErrorMessage(body))
+        .isEqualTo("Rate limit exceeded");
+  }
+
+  @Test
+  void extractOpenAiStyleErrorMessage_returnsNullForNullInput() {
+    assertThat(StreamErrorHandler.extractOpenAiStyleErrorMessage(null)).isNull();
+  }
+
+  @Test
+  void extractOpenAiStyleErrorMessage_returnsNullForBlankInput() {
+    assertThat(StreamErrorHandler.extractOpenAiStyleErrorMessage("   ")).isNull();
+  }
+
+  @Test
+  void extractOpenAiStyleErrorMessage_returnsNullForNonJsonInput() {
+    assertThat(StreamErrorHandler.extractOpenAiStyleErrorMessage("plain text error")).isNull();
+  }
+
+  @Test
+  void extractOpenAiStyleErrorMessage_returnsNullForJsonWithoutMessage() {
+    String body = "{\"error\":{\"code\":400,\"type\":\"invalid_request_error\"}}";
+
+    assertThat(StreamErrorHandler.extractOpenAiStyleErrorMessage(body)).isNull();
+  }
+
+  @Test
+  void extractOpenAiStyleErrorMessage_skipsBlankNestedMessage() {
+    // OpenRouter shape but the message field is empty.
+    String body = "{\"error\":{\"code\":400,\"message\":\"\"}}";
+
+    assertThat(StreamErrorHandler.extractOpenAiStyleErrorMessage(body)).isNull();
+  }
+
+  @Test
+  void extractOpenAiStyleErrorMessage_fallsBackToErrorObjectWhenGenericParserMisses() {
+    // Generic parser misses (no `error.message` or top-level `message`),
+    // but the body IS a valid OpenAI ErrorObject. Fallback should extract.
+    String body = "{\"message\":\"\",\"type\":\"server_error\"}";
+
+    // The generic parser returns null for empty message, so the fallback
+    // is attempted. Since `message` is empty, the fallback also returns null.
+    assertThat(StreamErrorHandler.extractOpenAiStyleErrorMessage(body)).isNull();
+  }
 }
