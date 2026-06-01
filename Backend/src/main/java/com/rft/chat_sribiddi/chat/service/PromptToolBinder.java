@@ -111,6 +111,9 @@ public class PromptToolBinder {
             // UrlFetcherTool#fetchUrl) when the supplied ToolContext has an empty context map,
             // so a non-empty outer context map is required for those tools to run at all.
             toolSpec.context(TOOL_CONSENT_CONTEXT_KEY, toolContext);
+            // Surface the active user id so tools that need per-user rate limiting (e.g.
+            // UrlFetcherTool) can identify the caller without an extra plumbing layer.
+            toolSpec.context(UrlFetcherTool.USER_ID_CONTEXT_KEY, userId);
           });
     }
   }
