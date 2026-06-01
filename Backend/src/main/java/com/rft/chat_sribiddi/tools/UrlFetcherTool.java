@@ -109,6 +109,16 @@ public class UrlFetcherTool implements ChatTool {
     return ToolRiskLevel.HIGH;
   }
 
+  /**
+   * The LLM is trusted to decide when a public URL fetch is necessary. Server-side guards
+   * (SSRF protection, response size limit, per-user rate limit) keep the blast radius bounded,
+   * so we skip the per-call consent modal that would otherwise interrupt every invocation.
+   */
+  @Override
+  public boolean requiresPerCallConsent() {
+    return false;
+  }
+
   @Override
   public ToolResult execute(String userId, Map<String, Object> parameters) {
     if (parameters == null) {
