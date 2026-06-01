@@ -83,13 +83,37 @@ export type BackendMessage = {
 
 export type ToolCallLog = {
   id?: number | null
-  messageId: number
+  messageId?: number | null
   toolName: string
+  clientId?: string | null
+  status?: 'RUNNING' | 'SUCCESS' | 'FAILED' | null
   inputPayload: string
   outputPayload?: string | null
+  errorMessage?: string | null
   startedAt?: string | null
   durationMs?: number | null
   contextExcerpt?: string | null
+  displayType?: string | null
+}
+
+export type ToolCredentialProvider = 'openai-image' | 'github'
+
+export type ToolCredentialStatus = {
+  userConfigured: boolean
+  managedConfigured: boolean
+}
+
+export type ConnectorProvider = 'google-drive' | 'google-gmail' | 'google-calendar'
+
+export type ConnectorStatus = {
+  provider: ConnectorProvider
+  status: 'CONNECTED' | 'NEEDS_RECONNECT' | 'NOT_CONNECTED' | 'UNAVAILABLE'
+  configured: boolean
+  connected: boolean
+  scopes: string[]
+  credentialType?: string | null
+  lastUsedAt?: string | null
+  planAllowed: boolean
 }
 
 export type TokenUsage = {
@@ -359,6 +383,58 @@ export function useChatApi() {
 
   const fetchMessageToolCalls = async (messageId: number) => {
     return requestJson<ToolCallLog[]>(`/messages/${messageId}/tool-calls`, { method: 'GET' })
+  }
+
+  const fetchToolCredentialStatus = async (provider: ToolCredentialProvider) => {
+    return requestJson<ToolCredentialStatus>(`/tool-credentials/${provider}/exists`, { method: 'GET' })
+  }
+
+  const saveToolCredential = async (provider: ToolCredentialProvider, secret: string) => {
+    await requestJson<unknown>(`/tool-credentials/${provider}`, {
+      method: 'PUT',
+      body: JSON.stringify({ secret })
+    })
+  }
+
+  const deleteToolCredential = async (provider: ToolCredentialProvider) => {
+    await requestJson<unknown>(`/tool-credentials/${provider}`, { method: 'DELETE' })
+  }
+
+  const fetchGithubOAuthUrl = async () => {
+    return requestJson<{ url: string }>('/tool-credentials/github/oauth/url', { method: 'GET' })
+  }
+
+  const fetchConnectors = async () => {
+    return requestJson<ConnectorStatus[]>('/connectors', { method: 'GET' })
+  }
+
+  const fetchConnectorStatus = async (provider: ConnectorProvider) => {
+    return requestJson<ConnectorStatus>(`/connectors/${provider}`, { method: 'GET' })
+  }
+
+  const fetchConnectorOAuthUrl = async (provider: ConnectorProvider) => {
+    return requestJson<{ url: string }>(`/connectors/${provider}/oauth/url`, { method: 'GET' })
+  }
+
+  const disconnectConnector = async (provider: ConnectorProvider) => {
+    await requestJson<unknown>(`/connectors/${provider}`, { method: 'DELETE' })
+  }
+
+  const fetchGoogleDrivePickerToken = async () => {
+    return requestJson<{ accessToken: string; developerKey?: string | null; appId?: string | null }>(
+      '/connectors/google-drive/picker-token',
+      { method: 'GET' }
+    )
+  }
+
+  const importGoogleDriveFile = async (
+    chatId: string,
+    payload: { fileId: string; filename?: string | null; mimeType?: string | null }
+  ) => {
+    return requestJson<ChatDocument>(`/connectors/google-drive/import/${chatId}`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
   }
 
   const uploadDocument = async (chatId: string, file: File) => {
@@ -665,6 +741,16 @@ export function useChatApi() {
     fetchChats,
     fetchChatMessages,
     fetchMessageToolCalls,
+    fetchToolCredentialStatus,
+    saveToolCredential,
+    deleteToolCredential,
+    fetchGithubOAuthUrl,
+    fetchConnectors,
+    fetchConnectorStatus,
+    fetchConnectorOAuthUrl,
+    disconnectConnector,
+    fetchGoogleDrivePickerToken,
+    importGoogleDriveFile,
     uploadDocument,
     fetchDocuments,
     deleteDocument,

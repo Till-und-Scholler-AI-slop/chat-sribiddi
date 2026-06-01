@@ -72,12 +72,16 @@ public class ToolCallLogRecorder {
       Long messageId, ToolExecutionCollector.Record record, String assistantResponse) {
     ToolCallLogEntity entity = new ToolCallLogEntity();
     entity.setMessageId(messageId);
+    entity.setClientId(record.clientId());
     entity.setToolName(record.toolName());
+    entity.setStatus(record.status());
     entity.setInputPayload(record.inputPayload());
     entity.setOutputPayload(record.outputPayload());
+    entity.setErrorMessage(record.errorMessage());
     entity.setStartedAt(record.startedAt());
     entity.setDurationMs(record.durationMs());
     entity.setContextExcerpt(extractContextExcerpt(record.outputPayload(), assistantResponse));
+    entity.setDisplayType(record.displayType());
     return entity;
   }
 

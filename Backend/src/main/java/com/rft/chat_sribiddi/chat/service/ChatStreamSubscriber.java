@@ -42,6 +42,9 @@ public class ChatStreamSubscriber {
   private final ChatMetrics chatMetrics;
 
   void subscribe(ChatStreamSubscription subscription) {
+    subscription
+        .toolExecutionCollector()
+        .setEventSink(event -> sendToolCallEvent(subscription.emitter(), event));
     subscribeShared(
         subscription.promptSpec(),
         subscription.emitter(),
@@ -82,6 +85,48 @@ public class ChatStreamSubscriber {
                                 false))),
             (fullText, lastUsage, streamSample) ->
                 handleStreamCompletion(subscription, fullText, lastUsage, streamSample)));
+  }
+
+  private void sendToolCallEvent(SseEmitter emitter, ToolExecutionCollector.Event event) {
+    String eventType =
+        switch (event.status()) {
+          case RUNNING -> "tool_call_started";
+          case SUCCESS -> "tool_call_completed";
+          case FAILED -> "tool_call_failed";
+        };
+    try {
+      emitter.send(
+          SseEmitter.event()
+              .name(eventType)
+              .data(
+                  new StreamEventDTO(
+                      eventType,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      event.clientId(),
+                      event.toolName(),
+                      event.status(),
+                      event.inputPayload(),
+                      event.outputPayload(),
+                      event.startedAt(),
+                      event.durationMs(),
+                      event.errorMessage(),
+                      event.displayType()),
+                  MediaType.APPLICATION_JSON));
+    } catch (IOException | IllegalStateException e) {
+      log.debug("Failed to send tool call SSE event type={} clientId={}", eventType, event.clientId());
+    }
   }
 
   void subscribeStateless(StatelessStreamSubscription subscription) {

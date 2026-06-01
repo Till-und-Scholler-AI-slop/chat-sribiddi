@@ -10,14 +10,19 @@ import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
+import com.rft.chat_sribiddi.connectors.ConnectorAccountService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import com.rft.chat_sribiddi.tools.AgentPlanTool;
 import com.rft.chat_sribiddi.tools.CalculatorTool;
+import com.rft.chat_sribiddi.tools.ChartGeneratorTool;
 import com.rft.chat_sribiddi.tools.CurrentDateTimeTool;
 import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
 import com.rft.chat_sribiddi.tools.UrlFetcherTool;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolResult;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
+import com.rft.chat_sribiddi.tools.credentials.ToolCredentialProperties;
+import com.rft.chat_sribiddi.tools.credentials.ToolCredentialResolver;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.net.http.HttpClient;
 import java.util.List;
@@ -48,7 +53,11 @@ class PromptToolBinderTest {
   @Mock private CalculatorTool calculatorTool;
   @Mock private UrlFetcherTool urlFetcherTool;
   @Mock private PythonInterpreterTool pythonInterpreterTool;
+  @Mock private ChartGeneratorTool chartGeneratorTool;
+  @Mock private AgentPlanTool agentPlanTool;
+  @Mock private ToolCredentialResolver toolCredentialResolver;
   @Mock private EntitlementService entitlementService;
+  @Mock private ConnectorAccountService connectorAccountService;
   @Mock private ChatClient.ChatClientRequestSpec promptSpec;
 
   private ChatProperties chatProperties;
@@ -70,7 +79,12 @@ class PromptToolBinderTest {
             urlFetcherTool,
             pythonInterpreterTool,
             new CurrentDateTimeTool(),
-            entitlementService);
+            chartGeneratorTool,
+            agentPlanTool,
+            toolCredentialResolver,
+            new ToolCredentialProperties(),
+            entitlementService,
+            connectorAccountService);
     chatId = UUID.randomUUID();
   }
 
@@ -216,7 +230,12 @@ class PromptToolBinderTest {
             urlFetcherTool,
             pythonInterpreterTool,
             new CurrentDateTimeTool(),
-            entitlementService);
+            chartGeneratorTool,
+            agentPlanTool,
+            toolCredentialResolver,
+            new ToolCredentialProperties(),
+            entitlementService,
+            connectorAccountService);
     AtomicReference<ToolCallback[]> boundCallbacks = new AtomicReference<>();
     doAnswer(
             invocation -> {

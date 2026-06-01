@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import type {Provider} from '~/composables/useChatApi'
+import type {
+  ConnectorProvider,
+  ConnectorStatus,
+  Provider,
+  ToolCredentialProvider,
+  ToolCredentialStatus
+} from '~/composables/useChatApi'
 import type { BillingMode } from '~/composables/useEntitlements'
 import { providerLabel } from '~/utils/format'
 
@@ -13,8 +19,17 @@ definePageMeta({
 const { settings, hydrated, saveBillingMode} = useUserSettings()
 const {getStatus, saveKey, deleteKey} = useKeyApi()
 const {getCustomInstructions, saveCustomInstructions} = useInstructionsApi()
-const {deleteAccount} = useChatApi()
-const {entitlements, plan, ensureLoaded, load: loadEntitlements} = useEntitlements()
+const {
+  deleteAccount,
+  fetchToolCredentialStatus,
+  saveToolCredential,
+  deleteToolCredential,
+  fetchGithubOAuthUrl,
+  fetchConnectors,
+  fetchConnectorOAuthUrl,
+  disconnectConnector
+} = useChatApi()
+const {entitlements, plan, billingModePreference, ensureLoaded, load: loadEntitlements} = useEntitlements()
 const {models, ensureModels} = useChatStore()
 const {status: authStatus} = useAuth()
 const toast = useToast()
@@ -198,6 +213,191 @@ const deletingBraveSearch = ref(false)
 
 const braveSearchStatus = computed(() => status.value?.brave_search ?? false)
 
+type ToolCredentialCard = {
+  provider: ToolCredentialProvider
+  key: ToolCredentialProvider
+  titleKey: string
+  descriptionKey: string
+  placeholder: string
+  icon: string
+}
+
+const toolCredentialForms = reactive({
+  'openai-image': '',
+  github: ''
+})
+const toolCredentialReveal = reactive({
+  'openai-image': false,
+  github: false
+})
+const toolCredentialStatuses = reactive<Record<ToolCredentialProvider, ToolCredentialStatus | null>>({
+  'openai-image': null,
+  github: null
+})
+const toolCredentialSaving = reactive<Record<ToolCredentialProvider, boolean>>({
+  'openai-image': false,
+  github: false
+})
+const toolCredentialDeleting = reactive<Record<ToolCredentialProvider, boolean>>({
+  'openai-image': false,
+  github: false
+})
+const githubConnecting = ref(false)
+
+const connectorStatuses = reactive<Record<ConnectorProvider, ConnectorStatus | null>>({
+  'google-drive': null,
+  'google-gmail': null,
+  'google-calendar': null
+})
+const connectorLoading = ref(false)
+const connectorConnecting = reactive<Record<ConnectorProvider, boolean>>({
+  'google-drive': false,
+  'google-gmail': false,
+  'google-calendar': false
+})
+const connectorDisconnecting = reactive<Record<ConnectorProvider, boolean>>({
+  'google-drive': false,
+  'google-gmail': false,
+  'google-calendar': false
+})
+
+type IntegrationCategory = 'workspace' | 'research' | 'data' | 'developer' | 'creative'
+type IntegrationCard = {
+  id: string
+  category: IntegrationCategory
+  titleKey: string
+  descriptionKey: string
+  accessKey: string
+  icon: string
+  connector?: ConnectorProvider
+  toolCredential?: ToolCredentialProvider
+  kind: 'oauth' | 'api-key' | 'built-in'
+  scopes?: string[]
+  risk: 'LOW' | 'HIGH'
+  plan: 'PREMIUM'
+}
+
+const integrationCards: IntegrationCard[] = [
+  {
+    id: 'google-drive',
+    category: 'workspace',
+    titleKey: 'settings.integrations.googleDriveTitle',
+    descriptionKey: 'settings.integrations.googleDriveDescription',
+    accessKey: 'settings.integrations.googleDriveAccess',
+    icon: 'i-heroicons-folder-open',
+    connector: 'google-drive',
+    kind: 'oauth',
+    risk: 'HIGH',
+    plan: 'PREMIUM'
+  },
+  {
+    id: 'google-gmail',
+    category: 'workspace',
+    titleKey: 'settings.integrations.gmailTitle',
+    descriptionKey: 'settings.integrations.gmailDescription',
+    accessKey: 'settings.integrations.gmailAccess',
+    icon: 'i-heroicons-envelope',
+    connector: 'google-gmail',
+    kind: 'oauth',
+    risk: 'HIGH',
+    plan: 'PREMIUM'
+  },
+  {
+    id: 'google-calendar',
+    category: 'workspace',
+    titleKey: 'settings.integrations.calendarTitle',
+    descriptionKey: 'settings.integrations.calendarDescription',
+    accessKey: 'settings.integrations.calendarAccess',
+    icon: 'i-heroicons-calendar-days',
+    connector: 'google-calendar',
+    kind: 'oauth',
+    risk: 'HIGH',
+    plan: 'PREMIUM'
+  },
+  {
+    id: 'web-research',
+    category: 'research',
+    titleKey: 'settings.integrations.webResearchTitle',
+    descriptionKey: 'settings.integrations.webResearchDescription',
+    accessKey: 'settings.integrations.webResearchAccess',
+    icon: 'i-heroicons-globe-alt',
+    kind: 'api-key',
+    risk: 'HIGH',
+    plan: 'PREMIUM'
+  },
+  {
+    id: 'spreadsheet-analysis',
+    category: 'data',
+    titleKey: 'settings.integrations.spreadsheetTitle',
+    descriptionKey: 'settings.integrations.spreadsheetDescription',
+    accessKey: 'settings.integrations.spreadsheetAccess',
+    icon: 'i-heroicons-table-cells',
+    kind: 'built-in',
+    risk: 'LOW',
+    plan: 'PREMIUM'
+  },
+  {
+    id: 'github',
+    category: 'developer',
+    titleKey: 'settings.integrations.githubTitle',
+    descriptionKey: 'settings.integrations.githubDescription',
+    accessKey: 'settings.integrations.githubAccess',
+    icon: 'i-heroicons-code-bracket-square',
+    toolCredential: 'github',
+    kind: 'api-key',
+    risk: 'HIGH',
+    plan: 'PREMIUM'
+  },
+  {
+    id: 'openai-image',
+    category: 'creative',
+    titleKey: 'settings.integrations.imageTitle',
+    descriptionKey: 'settings.integrations.imageDescription',
+    accessKey: 'settings.integrations.imageAccess',
+    icon: 'i-heroicons-photo',
+    toolCredential: 'openai-image',
+    kind: 'api-key',
+    risk: 'HIGH',
+    plan: 'PREMIUM'
+  }
+]
+
+const selectedIntegration = ref<IntegrationCard | null>(null)
+
+const integrationGroups = computed(() =>
+  (['workspace', 'research', 'data', 'developer', 'creative'] as IntegrationCategory[])
+    .map(category => ({
+      category,
+      title: t(`settings.integrations.categories.${category}`),
+      items: integrationCards.filter(item => item.category === category)
+    }))
+    .filter(group => group.items.length > 0)
+)
+
+const toolCredentialCards: ToolCredentialCard[] = [
+  {
+    provider: 'openai-image',
+    key: 'openai-image',
+    titleKey: 'settings.toolCredentials.imageTitle',
+    descriptionKey: 'settings.toolCredentials.imageDescription',
+    placeholder: 'sk-...',
+    icon: 'i-heroicons-photo'
+  },
+  {
+    provider: 'github',
+    key: 'github',
+    titleKey: 'settings.toolCredentials.githubTitle',
+    descriptionKey: 'settings.toolCredentials.githubDescription',
+    placeholder: 'github_pat_...',
+    icon: 'i-heroicons-code-bracket-square'
+  }
+]
+
+const isToolCredentialConfigured = (provider: ToolCredentialProvider) => {
+  const current = toolCredentialStatuses[provider]
+  return current?.userConfigured === true || current?.managedConfigured === true
+}
+
 const statusByProvider = (provider: Provider) => {
   if (!status.value) return false
   return provider === 'OPENAI'
@@ -234,6 +434,8 @@ onMounted(async () => {
         color: 'error'
       })
     }),
+    refreshToolCredentialStatuses(),
+    refreshConnectors(),
     loadBillingModePreference(),
     loadCustomInstructions()
   ])
@@ -247,7 +449,7 @@ async function loadBillingModePreference() {
   loadingBillingMode.value = true
   try {
     const loaded = await ensureLoaded()
-    billingMode.value = loaded?.billingModePreference ?? entitlements.value.billingModePreference
+    billingMode.value = loaded?.billingModePreference ?? billingModePreference.value
   } catch (err) {
     console.error(err)
   } finally {
@@ -398,6 +600,209 @@ async function handleDeleteBraveSearch() {
   }
 }
 
+async function refreshToolCredentialStatuses() {
+  await Promise.all(
+    toolCredentialCards.map(async item => {
+      try {
+        toolCredentialStatuses[item.provider] = await fetchToolCredentialStatus(item.provider)
+      } catch (err) {
+        console.error(err)
+        toolCredentialStatuses[item.provider] = null
+      }
+    })
+  )
+}
+
+async function refreshConnectors() {
+  connectorLoading.value = true
+  try {
+    const connectors = await fetchConnectors()
+    for (const connector of connectors) {
+      connectorStatuses[connector.provider] = connector
+    }
+  } catch (err) {
+    console.error(err)
+  } finally {
+    connectorLoading.value = false
+  }
+}
+
+function integrationStatus(item: IntegrationCard) {
+  if (item.connector) {
+    return connectorStatuses[item.connector]?.status ?? 'NOT_CONNECTED'
+  }
+  if (item.toolCredential) {
+    return isToolCredentialConfigured(item.toolCredential) ? 'CONNECTED' : 'NOT_CONNECTED'
+  }
+  if (item.id === 'web-research') {
+    return braveSearchStatus.value ? 'CONNECTED' : 'NOT_CONNECTED'
+  }
+  return 'CONNECTED'
+}
+
+function integrationBadgeColor(item: IntegrationCard) {
+  const status = integrationStatus(item)
+  if (status === 'CONNECTED') return 'primary'
+  if (status === 'NEEDS_RECONNECT') return 'warning'
+  if (status === 'UNAVAILABLE') return 'error'
+  return 'neutral'
+}
+
+function integrationStatusLabel(item: IntegrationCard) {
+  return t(`settings.integrations.status.${integrationStatus(item).toLowerCase()}`)
+}
+
+function integrationScopes(item: IntegrationCard) {
+  if (item.connector) {
+    return connectorStatuses[item.connector]?.scopes ?? []
+  }
+  if (item.id === 'web-research') return ['Brave Search API key']
+  if (item.id === 'spreadsheet-analysis') return [t('settings.integrations.localOnly')]
+  if (item.id === 'github') return ['GitHub read-only search token']
+  if (item.id === 'openai-image') return ['OpenAI Images API key']
+  return item.scopes ?? []
+}
+
+function integrationLastUsed(item: IntegrationCard) {
+  if (!item.connector) return null
+  const value = connectorStatuses[item.connector]?.lastUsedAt
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString()
+}
+
+function showIntegrationDetails(item: IntegrationCard) {
+  selectedIntegration.value = item
+}
+
+async function handleConnectIntegration(item: IntegrationCard) {
+  if (item.connector) {
+    connectorConnecting[item.connector] = true
+    try {
+      const response = await fetchConnectorOAuthUrl(item.connector)
+      if (import.meta.client) {
+        window.location.href = response.url
+      }
+    } catch (err) {
+      toast.add({
+        title: t('settings.integrations.connectFailed'),
+        description: tt(err),
+        color: 'error'
+      })
+    } finally {
+      connectorConnecting[item.connector] = false
+    }
+    return
+  }
+  if (item.id === 'github') {
+    await handleGithubConnect()
+    return
+  }
+  showIntegrationDetails(item)
+}
+
+async function handleDisconnectIntegration(item: IntegrationCard) {
+  if (!item.connector) {
+    if (item.toolCredential) {
+      await handleDeleteToolCredential(item.toolCredential)
+    }
+    return
+  }
+  connectorDisconnecting[item.connector] = true
+  try {
+    await disconnectConnector(item.connector)
+    await refreshConnectors()
+    toast.add({
+      title: t('settings.integrations.disconnectedTitle'),
+      color: 'neutral'
+    })
+  } catch (err) {
+    toast.add({
+      title: t('settings.integrations.disconnectFailed'),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    connectorDisconnecting[item.connector] = false
+  }
+}
+
+function integrationBusy(item: IntegrationCard) {
+  if (!item.connector) return false
+  return connectorConnecting[item.connector] || connectorDisconnecting[item.connector]
+}
+
+async function handleSaveToolCredential(provider: ToolCredentialProvider) {
+  const secret = toolCredentialForms[provider].trim()
+  if (!secret) {
+    toast.add({
+      title: t('settings.missingKeyTitle'),
+      description: t('settings.toolCredentials.missingSecret'),
+      color: 'warning'
+    })
+    return
+  }
+
+  toolCredentialSaving[provider] = true
+  try {
+    await saveToolCredential(provider, secret)
+    toolCredentialForms[provider] = ''
+    await refreshToolCredentialStatuses()
+    toast.add({
+      title: t('settings.toolCredentials.savedTitle'),
+      description: t('settings.keySavedDescription'),
+      color: 'primary'
+    })
+  } catch (err) {
+    toast.add({
+      title: t('settings.toolCredentials.saveFailed'),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    toolCredentialSaving[provider] = false
+  }
+}
+
+async function handleDeleteToolCredential(provider: ToolCredentialProvider) {
+  toolCredentialDeleting[provider] = true
+  try {
+    await deleteToolCredential(provider)
+    await refreshToolCredentialStatuses()
+    toast.add({
+      title: t('settings.toolCredentials.removedTitle'),
+      color: 'neutral'
+    })
+  } catch (err) {
+    toast.add({
+      title: t('settings.toolCredentials.removeFailed'),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    toolCredentialDeleting[provider] = false
+  }
+}
+
+async function handleGithubConnect() {
+  githubConnecting.value = true
+  try {
+    const response = await fetchGithubOAuthUrl()
+    if (import.meta.client) {
+      window.location.href = response.url
+    }
+  } catch (err) {
+    toast.add({
+      title: t('settings.toolCredentials.githubConnectFailed'),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    githubConnecting.value = false
+  }
+}
+
 const showDeleteAccountModal = ref(false)
 const deletingAccount = ref(false)
 
@@ -518,6 +923,118 @@ async function handleDeleteAccount() {
                     :disabled="savingBillingMode"
                     @update:model-value="handleBillingModeChange"
                   />
+                </div>
+              </UCard>
+
+              <UCard class="card-elevated">
+                <div class="flex items-start justify-between gap-4 mb-8 flex-wrap">
+                  <div class="space-y-1">
+                    <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">
+                      {{ t('settings.integrations.heading') }}
+                    </h2>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 max-w-2xl">
+                      {{ t('settings.integrations.description') }}
+                    </p>
+                  </div>
+                  <UButton
+                    type="button"
+                    color="neutral"
+                    variant="outline"
+                    size="sm"
+                    icon="i-heroicons-arrow-path"
+                    :label="t('common.refresh')"
+                    :loading="connectorLoading"
+                    @click="Promise.all([refreshConnectors(), refreshToolCredentialStatuses(), refreshStatus()])"
+                  />
+                </div>
+
+                <div class="space-y-7">
+                  <section
+                    v-for="group in integrationGroups"
+                    :key="group.category"
+                    class="space-y-3"
+                  >
+                    <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                      {{ group.title }}
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div
+                        v-for="item in group.items"
+                        :key="item.id"
+                        class="rounded-lg border border-gray-200 dark:border-gray-800 bg-white/60 dark:bg-gray-950/40 p-4 space-y-4"
+                      >
+                        <div class="flex items-start justify-between gap-3">
+                          <div class="flex items-start gap-3 min-w-0">
+                            <span class="inline-flex size-9 items-center justify-center rounded-md bg-gray-100 dark:bg-gray-900 text-gray-600 dark:text-gray-300 shrink-0">
+                              <UIcon :name="item.icon" class="size-5" />
+                            </span>
+                            <div class="min-w-0">
+                              <div class="font-semibold text-gray-900 dark:text-gray-50">
+                                {{ t(item.titleKey) }}
+                              </div>
+                              <p class="text-sm text-gray-500 dark:text-gray-400">
+                                {{ t(item.descriptionKey) }}
+                              </p>
+                            </div>
+                          </div>
+                          <UBadge
+                            variant="soft"
+                            :color="integrationBadgeColor(item)"
+                            :label="integrationStatusLabel(item)"
+                          />
+                        </div>
+
+                        <div class="text-sm text-gray-600 dark:text-gray-300">
+                          {{ t(item.accessKey) }}
+                        </div>
+
+                        <div class="flex items-center justify-between gap-3 flex-wrap">
+                          <div class="flex items-center gap-2 flex-wrap">
+                            <UBadge variant="subtle" color="neutral" :label="item.plan" />
+                            <UBadge
+                              variant="subtle"
+                              :color="item.risk === 'HIGH' ? 'warning' : 'neutral'"
+                              :label="t(`settings.integrations.risk.${item.risk.toLowerCase()}`)"
+                            />
+                          </div>
+                          <div class="flex items-center gap-2">
+                            <UButton
+                              type="button"
+                              color="neutral"
+                              variant="ghost"
+                              size="sm"
+                              icon="i-heroicons-information-circle"
+                              :label="t('settings.integrations.manage')"
+                              @click="showIntegrationDetails(item)"
+                            />
+                            <UButton
+                              v-if="integrationStatus(item) === 'CONNECTED'"
+                              type="button"
+                              color="error"
+                              variant="outline"
+                              size="sm"
+                              icon="i-heroicons-x-mark"
+                              :label="t('settings.integrations.disconnect')"
+                              :loading="integrationBusy(item)"
+                              @click="handleDisconnectIntegration(item)"
+                            />
+                            <UButton
+                              v-else-if="item.kind !== 'built-in'"
+                              type="button"
+                              color="primary"
+                              variant="solid"
+                              size="sm"
+                              icon="i-heroicons-link"
+                              :label="t('settings.integrations.connect')"
+                              :loading="integrationBusy(item)"
+                              :disabled="integrationStatus(item) === 'UNAVAILABLE'"
+                              @click="handleConnectIntegration(item)"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
                 </div>
               </UCard>
 
@@ -694,6 +1211,108 @@ async function handleDeleteAccount() {
               </div>
             </div>
           </UCard>
+
+          <UCard class="card-elevated">
+            <div class="flex items-start justify-between gap-4 mb-8 flex-wrap">
+              <div class="space-y-1">
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">
+                  {{ t('settings.toolCredentials.heading') }}
+                </h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-xl">
+                  {{ t('settings.toolCredentials.description') }}
+                </p>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-6">
+              <UCard
+                v-for="item in toolCredentialCards"
+                :key="item.provider"
+                class="flex flex-col card-elevated"
+              >
+                <div class="flex flex-col gap-5 h-full">
+                  <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <div class="flex items-center gap-2">
+                      <UIcon :name="item.icon" class="size-5 text-gray-500" />
+                      <span
+                        class="status-dot"
+                        :class="isToolCredentialConfigured(item.provider) ? 'status-dot-active' : 'status-dot-inactive'"
+                      />
+                      <div class="text-base font-semibold">{{ t(item.titleKey) }}</div>
+                    </div>
+                    <UBadge
+                      variant="soft"
+                      :color="isToolCredentialConfigured(item.provider) ? 'primary' : 'neutral'"
+                      :label="isToolCredentialConfigured(item.provider) ? t('settings.stored') : t('settings.notStored')"
+                    />
+                  </div>
+
+                  <UFormField
+                    :label="t('settings.toolCredentials.secretLabel')"
+                    :description="t(item.descriptionKey)"
+                    :name="`tool-${item.provider}`"
+                  >
+                    <UInput
+                      v-model="toolCredentialForms[item.provider]"
+                      :type="toolCredentialReveal[item.provider] ? 'text' : 'password'"
+                      :placeholder="item.placeholder"
+                      icon="i-heroicons-lock-closed"
+                      autocomplete="off"
+                      class="w-full"
+                    />
+                  </UFormField>
+
+                  <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
+                    <div class="flex items-center justify-between gap-3 flex-wrap">
+                      <div class="flex items-center gap-3 flex-wrap">
+                        <UButton
+                          type="button"
+                          variant="ghost"
+                          color="neutral"
+                          size="sm"
+                          :icon="toolCredentialReveal[item.provider] ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
+                          :label="toolCredentialReveal[item.provider] ? t('common.hide') : t('common.show')"
+                          @click="toolCredentialReveal[item.provider] = !toolCredentialReveal[item.provider]"
+                        />
+                        <UButton
+                          type="button"
+                          color="primary"
+                          size="sm"
+                          icon="i-heroicons-check-circle"
+                          :label="t('settings.saveKey')"
+                          :loading="toolCredentialSaving[item.provider]"
+                          :disabled="!toolCredentialForms[item.provider].trim() || toolCredentialSaving[item.provider] || toolCredentialDeleting[item.provider]"
+                          @click="handleSaveToolCredential(item.provider)"
+                        />
+                        <UButton
+                          v-if="item.provider === 'github'"
+                          type="button"
+                          color="neutral"
+                          variant="outline"
+                          size="sm"
+                          icon="i-heroicons-arrow-top-right-on-square"
+                          :label="t('settings.toolCredentials.connectGithub')"
+                          :loading="githubConnecting"
+                          @click="handleGithubConnect"
+                        />
+                      </div>
+                      <UButton
+                        type="button"
+                        variant="outline"
+                        color="error"
+                        size="sm"
+                        icon="i-heroicons-trash"
+                        :label="t('common.remove')"
+                        :loading="toolCredentialDeleting[item.provider]"
+                        :disabled="toolCredentialSaving[item.provider] || toolCredentialDeleting[item.provider]"
+                        @click="handleDeleteToolCredential(item.provider)"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </UCard>
+            </div>
+          </UCard>
             </template>
 
             <template v-if="activeTab === 'interface'">
@@ -848,6 +1467,79 @@ async function handleDeleteAccount() {
                     :label="t('settings.deleteAccountConfirmAction')"
                     :loading="deletingAccount"
                     @click="handleDeleteAccount"
+                />
+              </div>
+            </template>
+          </UModal>
+
+          <UModal
+            :open="!!selectedIntegration"
+            :title="selectedIntegration ? t(selectedIntegration.titleKey) : ''"
+            :description="selectedIntegration ? t(selectedIntegration.descriptionKey) : ''"
+            @update:open="value => { if (!value) selectedIntegration = null }"
+          >
+            <template #body>
+              <div v-if="selectedIntegration" class="space-y-5">
+                <div class="rounded-lg border border-gray-200 dark:border-gray-800 p-4 space-y-2">
+                  <div class="text-sm font-medium text-gray-900 dark:text-gray-50">
+                    {{ t('settings.integrations.accessHeading') }}
+                  </div>
+                  <p class="text-sm text-gray-600 dark:text-gray-300">
+                    {{ t(selectedIntegration.accessKey) }}
+                  </p>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div class="text-gray-500 dark:text-gray-400">{{ t('settings.integrations.statusLabel') }}</div>
+                    <div class="font-medium">{{ integrationStatusLabel(selectedIntegration) }}</div>
+                  </div>
+                  <div>
+                    <div class="text-gray-500 dark:text-gray-400">{{ t('settings.integrations.credentialType') }}</div>
+                    <div class="font-medium">{{ selectedIntegration.kind }}</div>
+                  </div>
+                  <div>
+                    <div class="text-gray-500 dark:text-gray-400">{{ t('settings.integrations.riskLabel') }}</div>
+                    <div class="font-medium">{{ t(`settings.integrations.risk.${selectedIntegration.risk.toLowerCase()}`) }}</div>
+                  </div>
+                  <div>
+                    <div class="text-gray-500 dark:text-gray-400">{{ t('settings.integrations.lastUsed') }}</div>
+                    <div class="font-medium">{{ integrationLastUsed(selectedIntegration) || '—' }}</div>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-sm font-medium text-gray-900 dark:text-gray-50 mb-2">
+                    {{ t('settings.integrations.scopesHeading') }}
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <UBadge
+                      v-for="scope in integrationScopes(selectedIntegration)"
+                      :key="scope"
+                      variant="subtle"
+                      color="neutral"
+                      :label="scope"
+                    />
+                  </div>
+                </div>
+              </div>
+            </template>
+            <template #footer>
+              <div class="flex justify-end gap-3">
+                <UButton
+                  type="button"
+                  variant="ghost"
+                  color="neutral"
+                  :label="t('common.close')"
+                  @click="selectedIntegration = null"
+                />
+                <UButton
+                  v-if="selectedIntegration && integrationStatus(selectedIntegration) === 'CONNECTED'"
+                  type="button"
+                  variant="outline"
+                  color="error"
+                  icon="i-heroicons-x-mark"
+                  :label="t('settings.integrations.disconnect')"
+                  :loading="selectedIntegration ? integrationBusy(selectedIntegration) : false"
+                  @click="selectedIntegration && handleDisconnectIntegration(selectedIntegration)"
                 />
               </div>
             </template>

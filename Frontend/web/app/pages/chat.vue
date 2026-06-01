@@ -44,11 +44,18 @@ const {
 } = useChatStore()
 const { checkAuth } = useAuth()
 const { settings } = useUserSettings()
-const { exportRunbook, uploadDocument } = useChatApi()
+const { exportRunbook, uploadDocument, fetchGoogleDrivePickerToken, importGoogleDriveFile } = useChatApi()
 
 const input = ref('')
 const initializing = ref(true)
 const exportingRunbook = ref(false)
+const spreadsheetInput = ref<HTMLInputElement | null>(null)
+const driveImportOpen = ref(false)
+const driveImporting = ref(false)
+const drivePickerLoading = ref(false)
+const driveFileId = ref('')
+const driveFilename = ref('')
+const driveMimeType = ref('')
 const toast = useToast()
 const {
   attachments,
@@ -404,6 +411,162 @@ const applyAndSubmit = (prompt: string) => {
   handleSubmit()
 }
 
+const startWebResearch = () => {
+  webSearchEnabled.value = true
+  if (!input.value.trim()) {
+    input.value = t('chat.researchWebPrompt')
+  }
+}
+
+const handleSpreadsheetPicked = async (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  target.value = ''
+  if (!file) return
+  try {
+    const lower = file.name.toLowerCase()
+    const payload = lower.endsWith('.xlsx')
+      ? await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onerror = () => reject(reader.error)
+          reader.onload = () => {
+            const result = String(reader.result || '')
+            resolve(result.includes(',') ? result.split(',')[1] || '' : result)
+          }
+          reader.readAsDataURL(file)
+        })
+      : await file.text()
+    input.value = lower.endsWith('.xlsx')
+      ? t('chat.analyzeSpreadsheetXlsxPrompt', { name: file.name, data: payload.slice(0, 200000) })
+      : t('chat.analyzeSpreadsheetPrompt', { name: file.name, data: payload.slice(0, 200000) })
+  } catch (err) {
+    toast.add({
+      title: t('chat.fileReadFailed', { name: file.name }),
+      description: tt(err),
+      color: 'error'
+    })
+  }
+}
+
+const performDriveImport = async (payload: { fileId: string; filename?: string | null; mimeType?: string | null }) => {
+  const conversation = activeConversation.value
+  if (!conversation || conversation.local) {
+    toast.add({
+      title: t('chat.uploadFailedTitle'),
+      description: t('chat.documentUploadRequiresLogin'),
+      color: 'error'
+    })
+    return
+  }
+  driveImporting.value = true
+  try {
+    const document = await importGoogleDriveFile(conversation.session.chatId, payload)
+    driveImportOpen.value = false
+    driveFileId.value = ''
+    driveFilename.value = ''
+    driveMimeType.value = ''
+    input.value = t('chat.driveImportedPrompt', { name: document.filename })
+  } catch (err) {
+    toast.add({
+      title: t('chat.uploadFailedTitle'),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    driveImporting.value = false
+  }
+}
+
+const importDriveFile = async () => {
+  const fileId = driveFileId.value.trim()
+  if (!fileId) return
+  await performDriveImport({
+    fileId,
+    filename: driveFilename.value.trim() || null,
+    mimeType: driveMimeType.value.trim() || null
+  })
+}
+
+const loadGooglePicker = () =>
+  new Promise<void>((resolve, reject) => {
+    if (!import.meta.client) {
+      reject(new Error('Google Picker is only available in the browser'))
+      return
+    }
+    const win = window as typeof window & { gapi?: any; google?: any }
+    const loadPicker = () => {
+      win.gapi.load('picker', {
+        callback: () => resolve(),
+        onerror: () => reject(new Error('Google Picker could not be loaded'))
+      })
+    }
+    if (win.google?.picker && win.gapi?.load) {
+      resolve()
+      return
+    }
+    if (win.gapi?.load) {
+      loadPicker()
+      return
+    }
+    const existing = document.querySelector<HTMLScriptElement>('script[data-google-api]')
+    if (existing) {
+      existing.addEventListener('load', loadPicker, { once: true })
+      existing.addEventListener('error', () => reject(new Error('Google API script could not be loaded')), { once: true })
+      return
+    }
+    const script = document.createElement('script')
+    script.src = 'https://apis.google.com/js/api.js'
+    script.async = true
+    script.dataset.googleApi = 'true'
+    script.onload = loadPicker
+    script.onerror = () => reject(new Error('Google API script could not be loaded'))
+    document.head.appendChild(script)
+  })
+
+const openDrivePicker = async () => {
+  if (drivePickerLoading.value || driveImporting.value) return
+  drivePickerLoading.value = true
+  try {
+    const token = await fetchGoogleDrivePickerToken()
+    if (!token.developerKey) {
+      driveImportOpen.value = true
+      return
+    }
+    await loadGooglePicker()
+    const win = window as typeof window & { google?: any }
+    const docsView = new win.google.picker.DocsView()
+      .setIncludeFolders(false)
+      .setSelectFolderEnabled(false)
+    const builder = new win.google.picker.PickerBuilder()
+      .addView(docsView)
+      .setOAuthToken(token.accessToken)
+      .setDeveloperKey(token.developerKey)
+      .setCallback(async (data: any) => {
+        if (data.action !== win.google.picker.Action.PICKED) return
+        const doc = data.docs?.[0]
+        if (!doc?.id) return
+        await performDriveImport({
+          fileId: doc.id,
+          filename: doc.name || null,
+          mimeType: doc.mimeType || null
+        })
+      })
+    if (token.appId) {
+      builder.setAppId(token.appId)
+    }
+    builder.build().setVisible(true)
+  } catch (err) {
+    toast.add({
+      title: t('chat.drivePickerUnavailableTitle'),
+      description: tt(err),
+      color: 'warning'
+    })
+    driveImportOpen.value = true
+  } finally {
+    drivePickerLoading.value = false
+  }
+}
+
 async function handleSubmit() {
   if (status.value !== 'ready') return
   if (!input.value.trim() && pendingAttachmentCount.value === 0) return
@@ -705,6 +868,13 @@ const handleReload = async () => {
             multiple
             @change="handleFiles"
           >
+          <input
+            ref="spreadsheetInput"
+            type="file"
+            class="hidden"
+            accept=".csv,.tsv,.xlsx,text/csv,text/tab-separated-values,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            @change="handleSpreadsheetPicked"
+          >
 
           <div v-if="pendingAttachmentCount" class="flex flex-wrap gap-2">
             <div
@@ -749,6 +919,39 @@ const handleReload = async () => {
             @submit="handleSubmit"
           >
             <template #header>
+              <div v-if="!isGuestMode" class="flex items-center gap-1.5 pb-1">
+                <UButton
+                  type="button"
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  icon="i-heroicons-folder-open"
+                  :label="isMobile ? '' : t('chat.attachFromDrive')"
+                  :aria-label="t('chat.attachFromDrive')"
+                  :loading="drivePickerLoading"
+                  @click="openDrivePicker"
+                />
+                <UButton
+                  type="button"
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  icon="i-heroicons-table-cells"
+                  :label="isMobile ? '' : t('chat.analyzeSpreadsheet')"
+                  :aria-label="t('chat.analyzeSpreadsheet')"
+                  @click="spreadsheetInput?.click()"
+                />
+                <UButton
+                  type="button"
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  icon="i-heroicons-globe-alt"
+                  :label="isMobile ? '' : t('chat.researchWeb')"
+                  :aria-label="t('chat.researchWeb')"
+                  @click="startWebResearch"
+                />
+              </div>
               <div class="flex items-center gap-1.5 sm:gap-2">
               <UTooltip :text="t('chat.addAttachments')">
                 <UButton
@@ -891,6 +1094,46 @@ const handleReload = async () => {
       </div>
     </template>
   </UDashboardPanel>
+  <UModal
+    v-model:open="driveImportOpen"
+    :title="t('chat.driveImportTitle')"
+    :description="t('chat.driveImportDescription')"
+  >
+    <template #body>
+      <div class="space-y-4">
+        <UFormField :label="t('chat.driveFileIdLabel')" name="drive-file-id">
+          <UInput v-model="driveFileId" placeholder="1abc..." autocomplete="off" />
+        </UFormField>
+        <UFormField :label="t('chat.driveFilenameLabel')" name="drive-filename">
+          <UInput v-model="driveFilename" placeholder="document.txt" autocomplete="off" />
+        </UFormField>
+        <UFormField :label="t('chat.driveMimeTypeLabel')" name="drive-mime-type">
+          <UInput v-model="driveMimeType" placeholder="application/vnd.google-apps.document" autocomplete="off" />
+        </UFormField>
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex justify-end gap-3">
+        <UButton
+          type="button"
+          color="neutral"
+          variant="ghost"
+          :label="t('common.cancel')"
+          :disabled="driveImporting"
+          @click="driveImportOpen = false"
+        />
+        <UButton
+          type="button"
+          color="primary"
+          icon="i-heroicons-arrow-down-tray"
+          :label="t('chat.driveImportAction')"
+          :loading="driveImporting"
+          :disabled="!driveFileId.trim()"
+          @click="importDriveFile"
+        />
+      </div>
+    </template>
+  </UModal>
 
   <Transition name="drag-overlay">
     <div

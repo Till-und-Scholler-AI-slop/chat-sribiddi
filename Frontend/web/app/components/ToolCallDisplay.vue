@@ -10,19 +10,16 @@ const props = defineProps<{
   error: string | null
 }>()
 
-const expanded = ref(false)
+const expanded = ref(true)
 const filterQuery = ref('')
-const showRawJson = ref(false)
 
 const filteredToolCalls = computed(() => filterToolCallLogs(props.toolCalls, filterQuery.value))
 
-const formattedToolCallsJson = computed(() => JSON.stringify(props.toolCalls, null, 2))
-
 const toolTriggerLabel = computed(() => {
-  if (props.loading) return t('tools.running')
+  if (props.loading && props.toolCalls.length === 0) return t('tools.running')
   const count = props.toolCalls.length
   if (count === 0) return t('tools.activity')
-  if (count === 1) return formatToolNameForDisplay(props.toolCalls[0].toolName)
+  if (count === 1) return displayName(props.toolCalls[0])
   return t('tools.callsCount', { count })
 })
 
@@ -30,43 +27,116 @@ function toggle() {
   expanded.value = !expanded.value
 }
 
-function formatToolNameForDisplay(toolName: string) {
-  const raw = toolName.split('.').pop() ?? toolName
-  return raw
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ')
-    .trim()
-    .replace(/^\w/, character => character.toUpperCase())
+function displayType(tc: ToolCallLog) {
+  if (tc.displayType) return tc.displayType
+  const name = tc.toolName.toLowerCase()
+  if (name.includes('bravesearch') || name.includes('searchweb')) return 'web-search'
+  if (name.includes('python')) return 'python'
+  if (name.includes('image')) return 'image'
+  if (name.includes('github')) return 'github'
+  if (name.includes('googledrive')) return 'google-drive'
+  if (name.includes('gmail')) return 'gmail'
+  if (name.includes('calendar')) return 'calendar'
+  if (name.includes('spreadsheet')) return 'spreadsheet'
+  if (name.includes('webresearch')) return 'web-research'
+  if (name.includes('chart')) return 'chart'
+  if (name.includes('document')) return 'document'
+  if (name.includes('agentplan')) return 'agent-plan'
+  if (name.includes('urlfetch')) return 'url-fetcher'
+  if (name.includes('datetime')) return 'date-time'
+  if (name.includes('calculator')) return 'calculator'
+  return 'generic'
+}
+
+function displayName(tc: ToolCallLog) {
+  const key = `tools.display.${displayType(tc)}`
+  const translated = t(key)
+  if (translated !== key) return translated
+  const raw = tc.toolName.split('.').pop() ?? tc.toolName
+  return raw.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ')
+}
+
+function status(tc: ToolCallLog) {
+  if (tc.status) return tc.status
+  if (tc.errorMessage) return 'FAILED'
+  if (tc.outputPayload || tc.durationMs != null) return 'SUCCESS'
+  return 'RUNNING'
+}
+
+function statusIcon(tc: ToolCallLog) {
+  const current = status(tc)
+  if (current === 'FAILED') return 'i-heroicons-x-circle'
+  if (current === 'RUNNING') return 'i-heroicons-arrow-path'
+  return 'i-heroicons-check-circle'
+}
+
+function toolIcon(tc: ToolCallLog) {
+  switch (displayType(tc)) {
+    case 'web-search': return 'i-heroicons-magnifying-glass'
+    case 'python': return 'i-heroicons-command-line'
+    case 'image': return 'i-heroicons-photo'
+    case 'github': return 'i-heroicons-code-bracket-square'
+    case 'google-drive': return 'i-heroicons-folder-open'
+    case 'gmail': return 'i-heroicons-envelope'
+    case 'calendar': return 'i-heroicons-calendar-days'
+    case 'spreadsheet': return 'i-heroicons-table-cells'
+    case 'web-research': return 'i-heroicons-globe-alt'
+    case 'chart': return 'i-heroicons-chart-bar'
+    case 'document': return 'i-heroicons-document-magnifying-glass'
+    case 'agent-plan': return 'i-heroicons-list-bullet'
+    case 'url-fetcher': return 'i-heroicons-link'
+    case 'date-time': return 'i-heroicons-clock'
+    case 'calculator': return 'i-heroicons-calculator'
+    default: return 'i-heroicons-wrench-screwdriver'
+  }
+}
+
+function parsePayload(payload?: string | null): unknown {
+  if (!payload) return null
+  try {
+    return JSON.parse(payload)
+  } catch {
+    return payload
+  }
+}
+
+function inputSubject(tc: ToolCallLog) {
+  const input = parsePayload(tc.inputPayload)
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    const record = input as Record<string, unknown>
+    const value =
+      record.query ?? record.prompt ?? record.code ?? record.url ?? record.expression ?? record.currentStep
+    if (value != null) return String(value).slice(0, 120)
+  }
+  return tc.toolName
 }
 
 function formatTimestamp(value?: string | null) {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 function formatPayload(payload?: string | null) {
-  if (!payload) return '—'
-
-  try {
-    return JSON.stringify(JSON.parse(payload), null, 2)
-  } catch (error) {
-    if (import.meta.dev) {
-      console.debug('Failed to parse tool payload as JSON', error)
-    }
-    return payload
-  }
+  const parsed = parsePayload(payload)
+  if (parsed == null) return ''
+  return typeof parsed === 'string' ? parsed : JSON.stringify(parsed, null, 2)
 }
 
-function statusIcon(tc: ToolCallLog) {
-  if (tc.outputPayload) return 'i-heroicons-check-circle'
-  if (tc.durationMs != null) return 'i-heroicons-check-circle'
-  return 'i-heroicons-arrow-path'
+function parsedOutput(tc: ToolCallLog) {
+  return parsePayload(tc.outputPayload)
+}
+
+function outputRecord(tc: ToolCallLog) {
+  const parsed = parsedOutput(tc)
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null
+}
+
+function listValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
 }
 </script>
 
@@ -79,14 +149,11 @@ function statusIcon(tc: ToolCallLog) {
       @click="toggle"
     >
       <UIcon
-        :name="loading ? 'i-heroicons-arrow-path' : 'i-heroicons-wrench-screwdriver'"
+        :name="props.loading ? 'i-heroicons-arrow-path' : 'i-heroicons-wrench-screwdriver'"
         class="size-3 trigger-icon-inline"
-        :class="{ 'animate-spin': loading }"
+        :class="{ 'animate-spin': props.loading }"
       />
       <span class="trigger-label">{{ toolTriggerLabel }}</span>
-      <span v-if="!loading && toolCalls.length > 1" class="tool-call-count">
-        ({{ toolCalls.length }})
-      </span>
       <UIcon
         :name="expanded ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
         class="size-3 trigger-chevron"
@@ -96,18 +163,18 @@ function statusIcon(tc: ToolCallLog) {
     <div class="collapsible-content" :class="{ 'is-expanded': expanded }">
       <div class="collapsible-inner">
         <div class="tool-call-panel">
-          <div v-if="error" class="tool-call-alert is-error">
+          <div v-if="props.error" class="tool-call-alert is-error">
             <UIcon name="i-heroicons-exclamation-circle" class="size-4 shrink-0" />
-            <span>{{ error }}</span>
+            <span>{{ props.error }}</span>
           </div>
 
-          <div v-else-if="loading && toolCalls.length === 0" class="tool-call-alert">
+          <div v-else-if="props.loading && props.toolCalls.length === 0" class="tool-call-alert">
             <UIcon name="i-heroicons-arrow-path" class="size-4 shrink-0 animate-spin" />
             <span>{{ t('tools.waitingResults') }}</span>
           </div>
 
           <template v-else>
-            <div v-if="toolCalls.length > 1" class="panel-toolbar">
+            <div v-if="props.toolCalls.length > 2" class="panel-toolbar">
               <label class="search-field">
                 <UIcon name="i-heroicons-magnifying-glass" class="size-3.5" />
                 <input
@@ -124,75 +191,191 @@ function statusIcon(tc: ToolCallLog) {
             </div>
 
             <div v-else class="tool-call-list">
-              <details
+              <section
                 v-for="(tc, index) in filteredToolCalls"
-                :key="tc.id ?? `${tc.messageId}-${tc.toolName}-${tc.startedAt ?? 'unknown'}-${index}`"
+                :key="tc.id ?? tc.clientId ?? `${tc.toolName}-${index}`"
                 class="tool-call-entry"
-                :open="filteredToolCalls.length === 1"
+                :class="[`is-${status(tc).toLowerCase()}`, `type-${displayType(tc)}`]"
               >
-                <summary class="tool-call-entry-summary">
-                  <span class="entry-status">
-                    <UIcon :name="statusIcon(tc)" class="size-4" />
+                <header class="tool-call-entry-header">
+                  <span class="entry-icon">
+                    <UIcon :name="toolIcon(tc)" class="size-4" />
                   </span>
                   <span class="entry-titles">
-                    <span class="entry-title">
-                      {{ formatToolNameForDisplay(tc.toolName) }}
-                    </span>
-                    <span class="entry-subtitle">
-                      {{ tc.toolName }}
-                    </span>
+                    <span class="entry-title">{{ displayName(tc) }}</span>
+                    <span class="entry-subtitle">{{ inputSubject(tc) }}</span>
                   </span>
                   <span class="tool-call-meta">
-                    <span v-if="tc.durationMs != null" class="meta-pill">
-                      <UIcon name="i-heroicons-clock" class="size-3" />
-                      {{ tc.durationMs }}ms
+                    <span class="status-chip">
+                      <UIcon
+                        :name="statusIcon(tc)"
+                        class="size-3.5"
+                        :class="{ 'animate-spin': status(tc) === 'RUNNING' }"
+                      />
+                      {{ t(`tools.status.${status(tc).toLowerCase()}`) }}
                     </span>
-                    <span v-if="formatTimestamp(tc.startedAt)" class="meta-time">
+                    <span v-if="tc.durationMs != null" class="meta-pill">{{ tc.durationMs }}ms</span>
+                    <span v-else-if="formatTimestamp(tc.startedAt)" class="meta-time">
                       {{ formatTimestamp(tc.startedAt) }}
                     </span>
                   </span>
-                  <UIcon
-                    name="i-heroicons-chevron-down"
-                    class="size-3.5 entry-chevron"
-                  />
-                </summary>
+                </header>
 
                 <div class="tool-call-entry-body">
-                  <div class="payload-block">
-                    <div class="payload-label">
-                      <UIcon name="i-heroicons-arrow-up-tray" class="size-3" />
-                      {{ t('tools.input') }}
+                  <template v-if="status(tc) === 'FAILED'">
+                    <div class="error-block">
+                      {{ tc.errorMessage || formatPayload(tc.outputPayload) || t('tools.errorFallback') }}
                     </div>
-                    <pre>{{ formatPayload(tc.inputPayload) }}</pre>
-                  </div>
+                  </template>
 
-                  <div class="payload-block">
-                    <div class="payload-label">
-                      <UIcon name="i-heroicons-arrow-down-tray" class="size-3" />
-                      {{ t('tools.output') }}
+                  <template v-else-if="displayType(tc) === 'image'">
+                    <div class="image-result">
+                      <img
+                        v-if="typeof outputRecord(tc)?.url === 'string'"
+                        :src="outputRecord(tc)?.url as string"
+                        :alt="inputSubject(tc)"
+                      >
+                      <div v-else class="artifact-summary">
+                        {{ outputRecord(tc)?.message || t('tools.imagePending') }}
+                      </div>
+                      <div class="artifact-meta">
+                        <span>{{ outputRecord(tc)?.model }}</span>
+                        <span>{{ outputRecord(tc)?.size }}</span>
+                      </div>
                     </div>
-                    <pre>{{ formatPayload(tc.outputPayload) }}</pre>
-                  </div>
+                  </template>
 
-                  <div v-if="tc.contextExcerpt" class="payload-block">
-                    <div class="payload-label">
-                      <UIcon name="i-heroicons-document-text" class="size-3" />
-                      {{ t('tools.contextExcerpt') }}
+                  <template v-else-if="displayType(tc) === 'github'">
+                    <div class="result-list">
+                      <a
+                        v-for="item in listValue(outputRecord(tc)?.items).slice(0, 5)"
+                        :key="(item as Record<string, unknown>).url as string"
+                        class="result-row"
+                        :href="(item as Record<string, unknown>).url as string"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <span>{{ (item as Record<string, unknown>).title }}</span>
+                        <small>#{{ (item as Record<string, unknown>).number }} · {{ (item as Record<string, unknown>).state }}</small>
+                      </a>
                     </div>
-                    <pre>{{ formatPayload(tc.contextExcerpt) }}</pre>
-                  </div>
+                  </template>
+
+                  <template v-else-if="displayType(tc) === 'google-drive'">
+                    <div class="artifact-summary">
+                      <strong>{{ outputRecord(tc)?.filename || inputSubject(tc) }}</strong>
+                      <span>{{ outputRecord(tc)?.mimeType }}</span>
+                      <span v-if="outputRecord(tc)?.chunkCount != null">
+                        {{ outputRecord(tc)?.chunkCount }} chunks
+                      </span>
+                    </div>
+                  </template>
+
+                  <template v-else-if="displayType(tc) === 'gmail'">
+                    <div class="result-list">
+                      <div
+                        v-for="item in listValue(outputRecord(tc)?.messages).slice(0, 5)"
+                        :key="(item as Record<string, unknown>).id as string"
+                        class="result-row is-static"
+                      >
+                        <span>{{ (item as Record<string, unknown>).subject || t('common.unknown') }}</span>
+                        <small>{{ (item as Record<string, unknown>).from }} · {{ (item as Record<string, unknown>).date }}</small>
+                      </div>
+                    </div>
+                  </template>
+
+                  <template v-else-if="displayType(tc) === 'calendar'">
+                    <div class="result-list">
+                      <div
+                        v-for="item in listValue(outputRecord(tc)?.events ?? outputRecord(tc)?.busy).slice(0, 6)"
+                        :key="JSON.stringify(item)"
+                        class="result-row is-static"
+                      >
+                        <span>{{ (item as Record<string, unknown>).summary || (item as Record<string, unknown>).start }}</span>
+                        <small>{{ (item as Record<string, unknown>).start }} – {{ (item as Record<string, unknown>).end }}</small>
+                      </div>
+                    </div>
+                  </template>
+
+                  <template v-else-if="displayType(tc) === 'spreadsheet'">
+                    <div class="plan-result">
+                      <strong>{{ outputRecord(tc)?.filename }}</strong>
+                      <div class="artifact-meta">
+                        <span>{{ outputRecord(tc)?.rows }} rows</span>
+                        <span>{{ outputRecord(tc)?.columns }} columns</span>
+                      </div>
+                      <ul>
+                        <li
+                          v-for="column in listValue(outputRecord(tc)?.schema).slice(0, 8)"
+                          :key="(column as Record<string, unknown>).name as string"
+                        >
+                          {{ (column as Record<string, unknown>).name }} · {{ (column as Record<string, unknown>).type }}
+                        </li>
+                      </ul>
+                    </div>
+                  </template>
+
+                  <template v-else-if="displayType(tc) === 'web-research'">
+                    <div class="result-list">
+                      <a
+                        v-for="source in listValue(outputRecord(tc)?.sources).slice(0, 5)"
+                        :key="(source as Record<string, unknown>).url as string"
+                        class="result-row"
+                        :href="(source as Record<string, unknown>).url as string"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <span>{{ (source as Record<string, unknown>).title }}</span>
+                        <small>{{ (source as Record<string, unknown>).url }}</small>
+                      </a>
+                    </div>
+                  </template>
+
+                  <template v-else-if="displayType(tc) === 'chart'">
+                    <div class="chart-result">
+                      <div
+                        v-if="typeof outputRecord(tc)?.svg === 'string'"
+                        class="chart-svg"
+                        v-html="outputRecord(tc)?.svg"
+                      />
+                      <p>{{ outputRecord(tc)?.summary }}</p>
+                    </div>
+                  </template>
+
+                  <template v-else-if="displayType(tc) === 'document'">
+                    <div class="result-list">
+                      <div
+                        v-for="chunk in listValue(outputRecord(tc)?.chunks)"
+                        :key="`${(chunk as Record<string, unknown>).documentId}-${(chunk as Record<string, unknown>).chunkIndex}`"
+                        class="result-row is-static"
+                      >
+                        <span>{{ (chunk as Record<string, unknown>).excerpt }}</span>
+                        <small>
+                          {{ t('tools.documentChunk', { chunk: (chunk as Record<string, unknown>).chunkIndex }) }}
+                        </small>
+                      </div>
+                    </div>
+                  </template>
+
+                  <template v-else-if="displayType(tc) === 'agent-plan'">
+                    <div class="plan-result">
+                      <div class="plan-progress">
+                        {{ outputRecord(tc)?.step }} / {{ outputRecord(tc)?.totalSteps }}
+                      </div>
+                      <strong>{{ outputRecord(tc)?.currentStep }}</strong>
+                      <ul>
+                        <li v-for="step in listValue(outputRecord(tc)?.completedSteps)" :key="String(step)">
+                          {{ step }}
+                        </li>
+                      </ul>
+                    </div>
+                  </template>
+
+                  <template v-else>
+                    <pre class="text-output">{{ formatPayload(tc.outputPayload || tc.inputPayload) }}</pre>
+                  </template>
                 </div>
-              </details>
-            </div>
-
-            <div class="raw-json-toggle">
-              <button type="button" class="raw-json-button" @click="showRawJson = !showRawJson">
-                <UIcon :name="showRawJson ? 'i-heroicons-eye-slash' : 'i-heroicons-code-bracket'" class="size-3" />
-                {{ showRawJson ? t('tools.hideRawJson') : t('tools.showRawJson') }}
-              </button>
-              <div v-if="showRawJson" class="payload-block raw-json-block">
-                <pre>{{ formattedToolCallsJson }}</pre>
-              </div>
+              </section>
             </div>
           </template>
         </div>
@@ -206,7 +389,6 @@ function statusIcon(tc: ToolCallLog) {
   margin-bottom: 0.75rem;
 }
 
-/* ── Trigger text link ─────────────────────────────────────────────── */
 .tool-call-trigger {
   display: inline-flex;
   align-items: center;
@@ -214,47 +396,25 @@ function statusIcon(tc: ToolCallLog) {
   padding: 0.125rem 0;
   border: none;
   background: transparent;
-  border-radius: 0;
+  color: var(--ink-2);
   font-size: 0.75rem;
   line-height: 1rem;
-  color: var(--ink-2);
   cursor: pointer;
-  transition: color 150ms ease;
 }
 
 .tool-call-trigger:hover {
   color: var(--ink);
 }
 
-.trigger-icon-inline {
-  color: var(--ink-2);
+.trigger-icon-inline,
+.trigger-chevron {
   flex-shrink: 0;
 }
 
-.trigger-label {
-  font-weight: 400;
-}
-
-.trigger-chevron {
-  opacity: 0.5;
-  transition: transform 200ms ease;
-}
-
-.tool-call-trigger[aria-expanded="true"] .trigger-chevron {
-  transform: rotate(0deg);
-}
-
-.tool-call-count {
-  font-size: 0.6875rem;
-  color: var(--ink-2);
-  font-weight: 400;
-}
-
-/* ── Collapsible ───────────────────────────────────────────────────── */
 .collapsible-content {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 220ms ease;
+  transition: grid-template-rows 180ms ease;
 }
 
 .collapsible-content.is-expanded {
@@ -265,16 +425,12 @@ function statusIcon(tc: ToolCallLog) {
   overflow: hidden;
 }
 
-/* ── Panel ─────────────────────────────────────────────────────────── */
 .tool-call-panel {
   margin-top: 0.5rem;
-  border-radius: 0.875rem;
   border: 1px solid var(--hair);
+  border-radius: 0.5rem;
   background: var(--paper-2);
-  padding: 0.875rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  padding: 0.5rem;
 }
 
 .tool-call-alert,
@@ -282,229 +438,243 @@ function statusIcon(tc: ToolCallLog) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.8125rem;
   color: var(--ink-2);
+  font-size: 0.8125rem;
 }
 
-.tool-call-alert.is-error {
+.tool-call-alert.is-error,
+.error-block {
   color: oklch(55% 0.18 25);
   background: var(--danger-soft);
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
 }
 
-/* ── Search ───────────────────────────────────────────────────────── */
+.panel-toolbar {
+  margin-bottom: 0.5rem;
+}
+
 .search-field {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   width: 100%;
-  border-radius: 0.625rem;
   border: 1px solid var(--hair);
+  border-radius: 0.5rem;
   background: var(--paper);
-  padding: 0.4rem 0.625rem;
+  padding: 0.375rem 0.5rem;
   color: var(--ink-2);
 }
 
 .search-input {
   width: 100%;
-  background: transparent;
   border: 0;
   outline: 0;
-  font-size: 0.8125rem;
+  background: transparent;
   color: inherit;
+  font-size: 0.8125rem;
 }
 
-/* ── Entry list ───────────────────────────────────────────────────── */
 .tool-call-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.375rem;
 }
 
 .tool-call-entry {
-  border-radius: 0.75rem;
-  border: 1px solid var(--hair);
-  background: var(--paper);
   overflow: hidden;
-  transition: border-color 150ms ease;
+  border: 1px solid var(--hair);
+  border-radius: 0.5rem;
+  background: var(--paper);
 }
 
-.tool-call-entry[open] {
-  border-color: var(--accent-line);
-}
-
-.tool-call-entry-summary {
-  list-style: none;
+.tool-call-entry-header {
   display: flex;
   align-items: center;
   gap: 0.625rem;
-  padding: 0.625rem 0.75rem;
-  cursor: pointer;
-  user-select: none;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.625rem;
 }
 
-.tool-call-entry-summary::-webkit-details-marker {
-  display: none;
-}
-
-.entry-status {
+.entry-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: 0.5rem;
-  background: color-mix(in oklab, var(--accent) 18%, transparent);
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
   color: var(--accent-ink);
   flex-shrink: 0;
 }
 
 .entry-titles {
-  flex: 1;
   min-width: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 0.0625rem;
 }
 
 .entry-title {
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--ink);
-  white-space: nowrap;
   overflow: hidden;
+  color: var(--ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .entry-subtitle {
-  font-size: 0.6875rem;
-  color: var(--ink-2);
-  font-family: var(--font-mono, monospace);
-  white-space: nowrap;
   overflow: hidden;
+  color: var(--ink-2);
+  font-size: 0.71875rem;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tool-call-meta {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.375rem;
   flex-shrink: 0;
 }
 
-.meta-pill {
+.status-chip,
+.meta-pill,
+.meta-time {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.125rem 0.4rem;
+  border: 1px solid var(--hair);
   border-radius: 999px;
-  background: color-mix(in oklab, var(--ink) 8%, transparent);
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
   color: var(--ink-2);
+  padding: 0.125rem 0.375rem;
   font-size: 0.6875rem;
   font-variant-numeric: tabular-nums;
 }
 
-.meta-time {
-  font-size: 0.6875rem;
-  color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
+.is-success .status-chip {
+  color: var(--accent-ink);
+  border-color: var(--accent-line);
 }
 
-.entry-chevron {
-  color: var(--ink-2);
-  flex-shrink: 0;
-  transition: transform 200ms ease;
+.is-failed .status-chip {
+  color: oklch(55% 0.18 25);
 }
 
-.tool-call-entry[open] .entry-chevron {
-  transform: rotate(180deg);
-}
-
-/* ── Entry body ───────────────────────────────────────────────────── */
 .tool-call-entry-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0 0.75rem 0.75rem;
+  border-top: 1px solid var(--hair);
+  padding: 0.625rem;
 }
 
-.payload-block {
-  border-radius: 0.625rem;
-  background: color-mix(in oklab, var(--ink) 5%, transparent);
-  padding: 0.5rem 0.625rem;
-}
-
-.payload-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  margin-bottom: 0.375rem;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-2);
-}
-
-.payload-block pre {
+.text-output,
+.error-block,
+.artifact-summary {
   margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 0.75rem;
-  line-height: 1.25rem;
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--ink) 5%, transparent);
+  padding: 0.5rem;
   color: var(--ink);
   font-family: var(--font-mono, monospace);
-  max-height: 18rem;
-  overflow: auto;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-/* ── Raw JSON toggle ──────────────────────────────────────────────── */
-.raw-json-toggle {
-  display: flex;
-  flex-direction: column;
+.result-list {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.result-row {
+  display: grid;
+  gap: 0.125rem;
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  padding: 0.5rem;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.result-row:hover:not(.is-static) {
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
+}
+
+.result-row small,
+.artifact-meta {
+  color: var(--ink-2);
+  font-size: 0.6875rem;
+}
+
+.image-result {
+  display: grid;
   gap: 0.5rem;
 }
 
-.raw-json-button {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.25rem 0.5rem;
+.image-result img {
+  max-width: min(100%, 22rem);
   border-radius: 0.5rem;
-  background: transparent;
+  border: 1px solid var(--hair);
+}
+
+.artifact-meta {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chart-result {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.chart-svg {
+  overflow: hidden;
+  max-width: 100%;
+  border: 1px solid var(--hair);
+  border-radius: 0.5rem;
+  background: white;
+}
+
+.chart-svg :deep(svg) {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart-result p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+}
+
+.plan-result {
+  display: grid;
+  gap: 0.375rem;
+  color: var(--ink);
+  font-size: 0.8125rem;
+}
+
+.plan-progress {
   color: var(--ink-2);
   font-size: 0.6875rem;
-  font-weight: 500;
-  transition: background-color 150ms ease;
 }
 
-.raw-json-button:hover {
-  background: color-mix(in oklab, var(--ink) 6%, transparent);
-  color: var(--ink);
-}
-
-.raw-json-block pre {
-  max-height: 20rem;
+.plan-result ul {
+  margin: 0;
+  padding-left: 1rem;
 }
 
 @media (max-width: 768px) {
-  .tool-call-entry-summary {
+  .tool-call-entry-header {
+    align-items: flex-start;
     flex-wrap: wrap;
-    padding: 0.75rem;
   }
 
   .tool-call-meta {
+    width: 100%;
+    padding-left: 2.375rem;
     flex-wrap: wrap;
-    gap: 0.375rem;
-  }
-
-  .tool-call-panel {
-    padding: 0.75rem;
-  }
-
-  .payload-block pre {
-    font-size: 0.6875rem;
   }
 }
 </style>

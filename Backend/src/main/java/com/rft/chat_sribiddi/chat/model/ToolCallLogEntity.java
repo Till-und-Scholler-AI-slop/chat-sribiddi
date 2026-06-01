@@ -1,7 +1,10 @@
 package com.rft.chat_sribiddi.chat.model;
 
+import com.rft.chat_sribiddi.chat.toolcall.ToolCallStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -27,11 +30,21 @@ public class ToolCallLogEntity {
   @Column(nullable = false, length = 255)
   private String toolName;
 
+  @Column(length = 64)
+  private String clientId;
+
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false, length = 32)
+  private ToolCallStatus status;
+
   @Column(columnDefinition = "TEXT", nullable = false)
   private String inputPayload;
 
   @Column(columnDefinition = "TEXT")
   private String outputPayload;
+
+  @Column(columnDefinition = "TEXT")
+  private String errorMessage;
 
   @Column(nullable = false)
   private Instant startedAt;
@@ -42,6 +55,9 @@ public class ToolCallLogEntity {
   @Column(columnDefinition = "TEXT")
   private String contextExcerpt;
 
+  @Column(length = 64)
+  private String displayType;
+
   @Column(nullable = false)
   private Instant createdAt;
 
@@ -49,6 +65,9 @@ public class ToolCallLogEntity {
   void onCreate() {
     if (createdAt == null) {
       createdAt = Instant.now();
+    }
+    if (status == null) {
+      status = ToolCallStatus.SUCCESS;
     }
   }
 }

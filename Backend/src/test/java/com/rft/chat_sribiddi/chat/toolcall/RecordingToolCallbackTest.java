@@ -24,9 +24,27 @@ class RecordingToolCallbackTest {
         .satisfies(
             record -> {
               assertThat(record.toolName()).isEqualTo("EchoTool.echo");
+              assertThat(record.clientId()).isNotBlank();
+              assertThat(record.status()).isEqualTo(ToolCallStatus.SUCCESS);
               assertThat(record.inputPayload()).isEqualTo("{\"value\":\"hello\"}");
               assertThat(record.outputPayload()).isEqualTo("echo:{\"value\":\"hello\"}");
             });
+  }
+
+  @Test
+  void call_emitsRunningAndCompletedEvents() {
+    ToolExecutionCollector collector = new ToolExecutionCollector();
+    java.util.List<ToolExecutionCollector.Event> events = new java.util.ArrayList<>();
+    collector.setEventSink(events::add);
+    RecordingToolCallback callback =
+        new RecordingToolCallback(new EchoToolCallback(), "EchoTool.echo", collector, "generic");
+
+    callback.call("{\"value\":\"hello\"}");
+
+    assertThat(events).hasSize(2);
+    assertThat(events.get(0).status()).isEqualTo(ToolCallStatus.RUNNING);
+    assertThat(events.get(1).status()).isEqualTo(ToolCallStatus.SUCCESS);
+    assertThat(events.get(1).displayType()).isEqualTo("generic");
   }
 
   @Test

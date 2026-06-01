@@ -9,13 +9,25 @@ import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.chat.toolcall.RecordingToolCallback;
 import com.rft.chat_sribiddi.chat.toolcall.ToolConsentContext;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
+import com.rft.chat_sribiddi.connectors.ConnectorAccountService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import com.rft.chat_sribiddi.tools.AgentPlanTool;
+import com.rft.chat_sribiddi.tools.CalendarFreeBusyTool;
+import com.rft.chat_sribiddi.tools.CalendarListEventsTool;
 import com.rft.chat_sribiddi.tools.CalculatorTool;
+import com.rft.chat_sribiddi.tools.ChartGeneratorTool;
 import com.rft.chat_sribiddi.tools.CurrentDateTimeTool;
+import com.rft.chat_sribiddi.tools.GmailSearchTool;
+import com.rft.chat_sribiddi.tools.GithubIssueSearchTool;
+import com.rft.chat_sribiddi.tools.ImageGenerationTool;
 import com.rft.chat_sribiddi.tools.PythonInterpreterTool;
+import com.rft.chat_sribiddi.tools.SpreadsheetAnalysisTool;
 import com.rft.chat_sribiddi.tools.UrlFetcherTool;
+import com.rft.chat_sribiddi.tools.WebResearchTool;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
+import com.rft.chat_sribiddi.tools.credentials.ToolCredentialProperties;
+import com.rft.chat_sribiddi.tools.credentials.ToolCredentialResolver;
 import com.rft.chat_sribiddi.websearch.BraveSearchTool;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.net.http.HttpClient;
@@ -52,7 +64,12 @@ public class PromptToolBinder {
   private final UrlFetcherTool urlFetcherTool;
   private final PythonInterpreterTool pythonInterpreterTool;
   private final CurrentDateTimeTool currentDateTimeTool;
+  private final ChartGeneratorTool chartGeneratorTool;
+  private final AgentPlanTool agentPlanTool;
+  private final ToolCredentialResolver toolCredentialResolver;
+  private final ToolCredentialProperties toolCredentialProperties;
   private final EntitlementService entitlementService;
+  private final ConnectorAccountService connectorAccountService;
 
   /**
    * Binds the currently enabled chat tools to a Spring AI prompt request.
@@ -161,6 +178,35 @@ public class PromptToolBinder {
       case "url-fetcher" -> toolCallbacks(urlFetcherTool, collector);
       case "python-interpreter" ->
           toolCallbacks(pythonInterpreterTool, collector);
+      case "image-generation" ->
+          toolCallbacks(
+              new ImageGenerationTool(userId, toolCredentialResolver, toolCredentialProperties),
+              collector);
+      case "github-issue-search" ->
+          toolCallbacks(
+              new GithubIssueSearchTool(userId, toolCredentialResolver, webSearchHttpClient),
+              collector);
+      case "gmail-search" ->
+          toolCallbacks(
+              new GmailSearchTool(userId, connectorAccountService, webSearchHttpClient),
+              collector);
+      case "calendar-list-events" ->
+          toolCallbacks(
+              new CalendarListEventsTool(userId, connectorAccountService, webSearchHttpClient),
+              collector);
+      case "calendar-freebusy" ->
+          toolCallbacks(
+              new CalendarFreeBusyTool(userId, connectorAccountService, webSearchHttpClient),
+              collector);
+      case "spreadsheet-analysis" -> toolCallbacks(new SpreadsheetAnalysisTool(), collector);
+      case "web-research" ->
+          toolCallbacks(
+              new WebResearchTool(userId, apiKeyService, webSearchProperties, webSearchHttpClient),
+              collector);
+      case "chart-generator" -> toolCallbacks(chartGeneratorTool, collector);
+      case "agent-plan" -> toolCallbacks(agentPlanTool, collector);
+      case "google-drive" -> List.of();
+      case "document-analysis" -> List.of();
       default -> toolCallbacks(tool, collector);
     };
   }
@@ -180,7 +226,27 @@ public class PromptToolBinder {
       Object toolObject, ToolCallback callback, ToolExecutionCollector collector) {
     String recordedToolName =
         toolObject.getClass().getSimpleName() + "." + callback.getToolDefinition().name();
-    return new RecordingToolCallback(callback, recordedToolName, collector);
+    return new RecordingToolCallback(callback, recordedToolName, collector, displayType(toolObject));
+  }
+
+  private String displayType(Object toolObject) {
+    return switch (toolObject.getClass().getSimpleName()) {
+      case "BraveSearchTool" -> "web-search";
+      case "PythonInterpreterTool" -> "python";
+      case "ImageGenerationTool" -> "image";
+      case "GithubIssueSearchTool" -> "github";
+      case "GmailSearchTool" -> "gmail";
+      case "CalendarListEventsTool", "CalendarFreeBusyTool" -> "calendar";
+      case "SpreadsheetAnalysisTool" -> "spreadsheet";
+      case "WebResearchTool" -> "web-research";
+      case "GoogleDriveTool" -> "google-drive";
+      case "ChartGeneratorTool" -> "chart";
+      case "AgentPlanTool" -> "agent-plan";
+      case "UrlFetcherTool" -> "url-fetcher";
+      case "CurrentDateTimeTool" -> "date-time";
+      case "CalculatorTool" -> "calculator";
+      default -> null;
+    };
   }
 
   private Optional<BraveSearchTool> resolveWebSearchTool(String userId) {

@@ -17,12 +17,22 @@ public final class RecordingToolCallback implements ToolCallback {
   private final ToolCallback delegate;
   private final String recordedToolName;
   private final ToolExecutionCollector collector;
+  private final String displayType;
 
   public RecordingToolCallback(
       ToolCallback delegate, String recordedToolName, ToolExecutionCollector collector) {
+    this(delegate, recordedToolName, collector, null);
+  }
+
+  public RecordingToolCallback(
+      ToolCallback delegate,
+      String recordedToolName,
+      ToolExecutionCollector collector,
+      String displayType) {
     this.delegate = delegate;
     this.recordedToolName = recordedToolName;
     this.collector = collector;
+    this.displayType = displayType;
   }
 
   @Override
@@ -46,7 +56,7 @@ public final class RecordingToolCallback implements ToolCallback {
   }
 
   private String record(String toolInput, Supplier<String> invocation) {
-    return collector.record(recordedToolName, inputPayload(toolInput), invocation);
+    return collector.record(recordedToolName, displayType, inputPayload(toolInput), invocation);
   }
 
   private Map<String, Object> inputPayload(String toolInput) {

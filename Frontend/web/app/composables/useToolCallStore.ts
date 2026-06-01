@@ -1,5 +1,6 @@
 import type { ToolCallLog } from '~/composables/useChatApi'
 import { useChatApi } from '~/composables/useChatApi'
+import type { StreamEvent } from '~/composables/chat-stream'
 import { parsePersistedMessageId } from '~/composables/chat-helpers'
 import { rekeyStateEntry } from '~/utils/model-utils'
 
@@ -44,17 +45,42 @@ export function useToolCallStore() {
 
   const isToolCallLoading = (messageId: string) => toolCallLoadingMap.value[messageId] === true
 
+  const applyToolCallEvent = (messageId: string, event: StreamEvent) => {
+    if (!event.toolName || !event.clientId) return
+    const current = toolCallLogMap.value[messageId] ?? []
+    const nextLog: ToolCallLog = {
+      messageId: parsePersistedMessageId(messageId),
+      clientId: event.clientId,
+      toolName: event.toolName,
+      status: event.toolCallStatus ?? statusFromEventType(event.type),
+      inputPayload: event.inputPayload ?? '{}',
+      outputPayload: event.outputPayload ?? null,
+      errorMessage: event.errorMessage ?? null,
+      startedAt: event.startedAt ?? new Date().toISOString(),
+      durationMs: event.durationMs ?? null,
+      contextExcerpt: null,
+      displayType: event.displayType ?? null
+    }
+    const index = current.findIndex(log => log.clientId === event.clientId)
+    toolCallLogMap.value[messageId] =
+      index >= 0
+        ? current.map((log, currentIndex) => currentIndex === index ? { ...log, ...nextLog } : log)
+        : [...current, nextLog]
+    toolCallAvailabilityMap.value[messageId] = true
+  }
+
   const ensureToolCalls = async (messageId: string) => {
     if (!hasToolCalls(messageId)) {
       toolCallLogMap.value[messageId] = []
       return []
     }
 
-    if (toolCallLogMap.value[messageId]) {
-      return toolCallLogMap.value[messageId]
-    }
+    const existing = toolCallLogMap.value[messageId]
 
     const backendId = parsePersistedMessageId(messageId)
+    if (existing && (backendId == null || existing.every(log => log.id != null))) {
+      return existing
+    }
     if (backendId == null) {
       throw new Error('Tool call logs are only available for persisted messages.')
     }
@@ -64,7 +90,10 @@ export function useToolCallStore() {
 
     try {
       const logs = await fetchMessageToolCalls(backendId)
-      toolCallLogMap.value[messageId] = logs
+      toolCallLogMap.value[messageId] = mergePersistedToolCalls(
+        toolCallLogMap.value[messageId] ?? [],
+        logs
+      )
       return logs
     } catch (err) {
       toolCallErrorMap.value[messageId] =
@@ -88,6 +117,26 @@ export function useToolCallStore() {
     getToolCalls,
     getToolCallError,
     isToolCallLoading,
+    applyToolCallEvent,
     ensureToolCalls
   }
+}
+
+function statusFromEventType(type: StreamEvent['type']): ToolCallLog['status'] {
+  if (type === 'tool_call_started') return 'RUNNING'
+  if (type === 'tool_call_failed') return 'FAILED'
+  if (type === 'tool_call_completed') return 'SUCCESS'
+  return null
+}
+
+function mergePersistedToolCalls(live: ToolCallLog[], persisted: ToolCallLog[]) {
+  if (live.length === 0) return persisted
+  const byClientId = new Map(live.map(log => [log.clientId, log]))
+  for (const log of persisted) {
+    if (log.clientId) {
+      byClientId.set(log.clientId, log)
+    }
+  }
+  const persistedWithoutClientId = persisted.filter(log => !log.clientId)
+  return [...byClientId.values(), ...persistedWithoutClientId]
 }

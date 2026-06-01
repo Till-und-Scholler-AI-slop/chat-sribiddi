@@ -61,6 +61,32 @@ spring:
             clientId: ${GOOGLE_CLIENT_ID}
             clientSecret: ${GOOGLE_CLIENT_SECRET}
             scope: openid, email, profile
+          google-drive:
+            provider: google
+            client-id: ${GOOGLE_CONNECTOR_CLIENT_ID:${GOOGLE_CLIENT_ID}}
+            client-secret: ${GOOGLE_CONNECTOR_CLIENT_SECRET:${GOOGLE_CLIENT_SECRET}}
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope:
+              - https://www.googleapis.com/auth/drive.file
+          google-gmail:
+            provider: google
+            client-id: ${GOOGLE_CONNECTOR_CLIENT_ID:${GOOGLE_CLIENT_ID}}
+            client-secret: ${GOOGLE_CONNECTOR_CLIENT_SECRET:${GOOGLE_CLIENT_SECRET}}
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope:
+              - https://www.googleapis.com/auth/gmail.readonly
+          google-calendar:
+            provider: google
+            client-id: ${GOOGLE_CONNECTOR_CLIENT_ID:${GOOGLE_CLIENT_ID}}
+            client-secret: ${GOOGLE_CONNECTOR_CLIENT_SECRET:${GOOGLE_CLIENT_SECRET}}
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope:
+              - https://www.googleapis.com/auth/calendar.calendarlist.readonly
+              - https://www.googleapis.com/auth/calendar.events.readonly
+              - https://www.googleapis.com/auth/calendar.freebusy
 
   docker:
     compose:
@@ -204,6 +230,13 @@ app:
   tools:
     user-agent: ${TOOLS_USER_AGENT:ChatSribiddi/1.0 (Tool)}
     python-enabled: ${TOOLS_PYTHON_ENABLED:false}
+    credentials:
+      openai-image-api-key: ${OPENAI_IMAGE_API_KEY:${OPENAI_API_KEY:}}
+      openai-image-model: ${OPENAI_IMAGE_MODEL:gpt-image-1}
+      github-token: ${GITHUB_TOOL_TOKEN:}
+      github-client-id: ${GITHUB_TOOL_CLIENT_ID:}
+      github-client-secret: ${GITHUB_TOOL_CLIENT_SECRET:}
+      github-redirect-uri: ${GITHUB_TOOL_REDIRECT_URI:http://localhost:8080/tool-credentials/github/oauth/callback}
     python-sandbox:
       docker-binary: ${TOOLS_PYTHON_DOCKER_BINARY:docker}
       image: ${TOOLS_PYTHON_IMAGE:python:3.13-alpine}
@@ -219,6 +252,11 @@ app:
     max-results: ${WEB_SEARCH_MAX_RESULTS:5}
     request-timeout: ${WEB_SEARCH_REQUEST_TIMEOUT:10s}
     user-agent: ${WEB_SEARCH_USER_AGENT:ChatSribiddi/1.0 (WebSearch)}
+  connectors:
+    google:
+      picker-developer-key: ${GOOGLE_PICKER_DEVELOPER_KEY:}
+      picker-app-id: ${GOOGLE_PICKER_APP_ID:}
+      gmail-enabled: ${GOOGLE_GMAIL_CONNECTOR_ENABLED:false}
   billing:
     guest-daily-cap: ${BILLING_GUEST_DAILY_CAP:20}
     # Per-tier entitlements. Values are consumed by BillingProperties / EntitlementService.
@@ -280,6 +318,17 @@ app:
         context-message-limit: 20
         tools:
           - brave-search
+          - image-generation
+          - github-issue-search
+          - chart-generator
+          - document-analysis
+          - agent-plan
+          - google-drive
+          - gmail-search
+          - calendar-list-events
+          - calendar-freebusy
+          - spreadsheet-analysis
+          - web-research
         daily-cap: 500
         parallel-streams: 2
       max:

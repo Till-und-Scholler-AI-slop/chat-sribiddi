@@ -1,9 +1,13 @@
 package com.rft.chat_sribiddi.chat.dto;
 
+import com.rft.chat_sribiddi.chat.toolcall.ToolCallStatus;
+import java.time.Instant;
+
 /**
  * Server-Sent Event payload for streaming chat responses.
  *
- * @param type one of {@code text}, {@code reasoning}, {@code done}, {@code error}
+ * @param type one of {@code text}, {@code reasoning}, {@code done}, {@code error}, or tool call
+ *     event types
  * @param content text chunk (for {@code text}/{@code reasoning}/{@code error})
  * @param promptTokens token count (only on {@code done})
  * @param generationTokens token count (only on {@code done})
@@ -32,4 +36,55 @@ public record StreamEventDTO(
     Integer statusCode,
     String errorType,
     Long receivedBytes,
-    Boolean incomplete) {}
+    Boolean incomplete,
+    String clientId,
+    String toolName,
+    ToolCallStatus toolCallStatus,
+    String inputPayload,
+    String outputPayload,
+    Instant startedAt,
+    Long durationMs,
+    String errorMessage,
+    String displayType) {
+
+  public StreamEventDTO(
+      String type,
+      String content,
+      Long promptTokens,
+      Long generationTokens,
+      Long totalTokens,
+      String chatTitle,
+      Long messageId,
+      Boolean hasToolCalls,
+      String provider,
+      String modelId,
+      Integer statusCode,
+      String errorType,
+      Long receivedBytes,
+      Boolean incomplete) {
+    this(
+        type,
+        content,
+        promptTokens,
+        generationTokens,
+        totalTokens,
+        chatTitle,
+        messageId,
+        hasToolCalls,
+        provider,
+        modelId,
+        statusCode,
+        errorType,
+        receivedBytes,
+        incomplete,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null);
+  }
+}

@@ -14,10 +14,12 @@ import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
+import com.rft.chat_sribiddi.connectors.ConnectorAccountService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.tools.ToolProperties;
+import com.rft.chat_sribiddi.tools.credentials.ToolCredentialResolver;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.util.List;
 import java.util.Optional;
@@ -37,6 +39,8 @@ class ChatToolServiceTest {
   @Mock private ToolRegistry toolRegistry;
   @Mock private ApiKeyService apiKeyService;
   @Mock private EntitlementService entitlementService;
+  @Mock private ToolCredentialResolver toolCredentialResolver;
+  @Mock private ConnectorAccountService connectorAccountService;
   @Mock private ChatTool tool;
 
   private ChatToolService service;
@@ -55,7 +59,9 @@ class ChatToolServiceTest {
             apiKeyService,
             entitlementService,
             webSearchProperties,
-            new ToolProperties());
+            new ToolProperties(),
+            toolCredentialResolver,
+            connectorAccountService);
     chatId = UUID.randomUUID();
     userId = "user-123";
 

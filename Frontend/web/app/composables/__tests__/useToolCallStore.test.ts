@@ -41,6 +41,7 @@ describe('useToolCallStore', () => {
 
   it('loads and caches persisted tool call logs', async () => {
     const logs = [{
+      id: 1,
       messageId: 42,
       toolName: 'calculator',
       inputPayload: '{}',
@@ -58,6 +59,39 @@ describe('useToolCallStore', () => {
     expect(apiMock.fetchMessageToolCalls).toHaveBeenCalledWith(42)
     expect(store.isToolCallLoading('msg-42')).toBe(false)
     expect(store.getToolCallError('msg-42')).toBeNull()
+  })
+
+  it('merges live tool call events with persisted logs by client id', async () => {
+    const persisted = [{
+      id: 7,
+      messageId: 42,
+      clientId: 'live-1',
+      status: 'SUCCESS' as const,
+      toolName: 'ImageGenerationTool.generateImage',
+      inputPayload: '{"prompt":"city"}',
+      outputPayload: '{"type":"image","url":"https://example.com/image.png"}',
+      displayType: 'image'
+    }]
+    apiMock.fetchMessageToolCalls.mockResolvedValue(persisted)
+
+    const store = useToolCallStore()
+    store.applyToolCallEvent('msg-42', {
+      type: 'tool_call_started',
+      clientId: 'live-1',
+      toolName: 'ImageGenerationTool.generateImage',
+      toolCallStatus: 'RUNNING',
+      inputPayload: '{"prompt":"city"}',
+      displayType: 'image'
+    })
+
+    expect(store.hasToolCalls('msg-42')).toBe(true)
+    expect(store.getToolCalls('msg-42')).toEqual([
+      expect.objectContaining({ clientId: 'live-1', status: 'RUNNING' })
+    ])
+
+    await store.ensureToolCalls('msg-42')
+
+    expect(store.getToolCalls('msg-42')).toEqual(persisted)
   })
 
   it('rekeys tool-call metadata when a streamed message receives a backend id', async () => {

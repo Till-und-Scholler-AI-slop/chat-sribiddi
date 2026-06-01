@@ -57,7 +57,28 @@ public class ChatDocumentService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document could not be read", e);
     }
 
-    List<Document> chunks = chunker.apply(textExtractor.extract(mimeType, data));
+    return importDocument(chatId, userId, filename, mimeType, data);
+  }
+
+  @Transactional
+  public ChatDocumentDTO importDocument(
+      UUID chatId, String userId, String filename, String mimeType, byte[] data) {
+    requireChat(chatId, userId);
+    if (data == null || data.length == 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document file is required");
+    }
+    long maxBytes = chatProperties.getMaxMediaAttachmentBytes();
+    if (data.length > maxBytes) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "Document exceeds %d bytes".formatted(maxBytes));
+    }
+    String safeFilename = safeFilename(filename);
+    String resolvedMimeType = resolveMimeType(mimeType, safeFilename);
+    if (!textExtractor.supports(resolvedMimeType)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported document type");
+    }
+
+    List<Document> chunks = chunker.apply(textExtractor.extract(resolvedMimeType, data));
     if (chunks.isEmpty()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document contains no extractable text");
     }
@@ -65,8 +86,8 @@ public class ChatDocumentService {
     ChatDocumentEntity document = new ChatDocumentEntity();
     document.setChatId(chatId);
     document.setUserId(userId);
-    document.setFilename(filename);
-    document.setMimeType(mimeType);
+    document.setFilename(safeFilename);
+    document.setMimeType(resolvedMimeType);
     document.setByteSize((long) data.length);
     document.setSha256(sha256(data));
     document.setStatus(DocumentStatus.READY);

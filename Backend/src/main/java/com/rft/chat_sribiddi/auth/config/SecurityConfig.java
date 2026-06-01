@@ -106,6 +106,10 @@ public class SecurityConfig {
                     .userInfoEndpoint(
                         userInfo -> userInfo.oidcUserService(customOAuth2UserService))
                     .successHandler(new SimpleUrlAuthenticationSuccessHandler(frontendUrl)))
+        .oauth2Client(
+            oauth2 ->
+                oauth2.authorizationCodeGrant(
+                    grant -> grant.authorizationRequestResolver(authorizationRequestResolver)))
         .logout(
             logout ->
                 logout

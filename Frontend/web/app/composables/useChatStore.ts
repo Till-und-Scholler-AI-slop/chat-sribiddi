@@ -1,5 +1,6 @@
 import type { ChatStatus, UIMessage } from 'ai'
 import type { StreamEvent } from '~/composables/chat-stream'
+import { isToolCallStreamEvent } from '~/composables/chat-stream'
 import type { BackendMessage, ChatSession, ImportChat, MediaAttachment, ModelOption, TokenUsage } from '~/composables/useChatApi'
 import type { MessagePricing } from '~/composables/chat-helpers'
 import { useChatApi } from '~/composables/useChatApi'
@@ -70,6 +71,7 @@ export function useChatStore() {
     resetToolCallState,
     rekeyToolCallMetadata,
     setToolCallAvailability,
+    applyToolCallEvent,
     hasToolCalls,
     getToolCalls,
     getToolCallError,
@@ -545,6 +547,11 @@ export function useChatStore() {
     let currentMessage = deps.assistantMessage
 
     const handler = (event: StreamEvent) => {
+      if (isToolCallStreamEvent(event)) {
+        applyToolCallEvent(currentMessage.id, event)
+        deps.conversation.status = 'streaming'
+        return
+      }
       switch (event.type) {
         case 'text':
           if (event.content) {

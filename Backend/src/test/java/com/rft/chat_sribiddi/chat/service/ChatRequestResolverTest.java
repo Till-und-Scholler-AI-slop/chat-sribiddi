@@ -20,6 +20,7 @@ import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
+import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.chat.service.MediaValidationService.ValidatedMediaAttachment;
 import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.DocumentRetrievalContext;
 import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.PromptMessageBatch;
@@ -48,6 +49,7 @@ class ChatRequestResolverTest {
   @Mock private MediaValidationService mediaValidationService;
   @Mock private UserSettingsService userSettingsService;
   @Mock private ChatMessageService chatMessageService;
+  @Mock private ChatToolRepository chatToolRepository;
 
   private ChatRequestResolver chatRequestResolver;
 
@@ -64,7 +66,8 @@ class ChatRequestResolverTest {
             promptMessageBuilder,
             mediaValidationService,
             userSettingsService,
-            chatMessageService);
+            chatMessageService,
+            chatToolRepository);
   }
 
   // ---------------------------------------------------------------------------

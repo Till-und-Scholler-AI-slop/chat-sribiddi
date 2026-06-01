@@ -106,6 +106,20 @@ describe('parseSseEvents', () => {
     }])
   })
 
+  it('parses live tool call metadata fields', () => {
+    const raw = 'event: tool_call_started\ndata: {"type":"tool_call_started","clientId":"live-1","toolName":"ImageGenerationTool.generateImage","toolCallStatus":"RUNNING","inputPayload":"{}","durationMs":"12","displayType":"image"}\n\n'
+    const events = parseSseEvents(raw)
+    expect(events).toEqual([{
+      type: 'tool_call_started',
+      clientId: 'live-1',
+      toolName: 'ImageGenerationTool.generateImage',
+      toolCallStatus: 'RUNNING',
+      inputPayload: '{}',
+      durationMs: 12,
+      displayType: 'image'
+    }])
+  })
+
   it('parses string boolean metadata for incomplete strictly', () => {
     const raw = 'event: error\ndata: {"type":"error","incomplete":"false"}\n\n'
     const events = parseSseEvents(raw)
@@ -178,6 +192,12 @@ describe('isTerminalStreamEvent', () => {
   it('keeps text and reasoning events non-terminal', () => {
     expect(isTerminalStreamEvent({ type: 'text', content: 'Hello' })).toBe(false)
     expect(isTerminalStreamEvent({ type: 'reasoning', content: 'Thinking' })).toBe(false)
+  })
+
+  it('keeps tool call events non-terminal', () => {
+    expect(isTerminalStreamEvent({ type: 'tool_call_started' })).toBe(false)
+    expect(isTerminalStreamEvent({ type: 'tool_call_completed' })).toBe(false)
+    expect(isTerminalStreamEvent({ type: 'tool_call_failed' })).toBe(false)
   })
 })
 

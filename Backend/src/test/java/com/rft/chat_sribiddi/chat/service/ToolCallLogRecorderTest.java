@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.ToolCallLogEntity;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
+import com.rft.chat_sribiddi.chat.toolcall.ToolCallStatus;
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +52,8 @@ class ToolCallLogRecorderTest {
     ToolCallLogEntity log = logsCaptor.getValue().getFirst();
     assertThat(log.getMessageId()).isEqualTo(42L);
     assertThat(log.getToolName()).isEqualTo("BraveSearchTool.searchWeb");
+    assertThat(log.getClientId()).isNotBlank();
+    assertThat(log.getStatus()).isEqualTo(ToolCallStatus.SUCCESS);
     assertThat(log.getInputPayload()).contains("\"query\":\"weather\"");
     assertThat(log.getContextExcerpt()).isEqualTo("Berlin weather is sunny today.");
   }

@@ -1,5 +1,7 @@
 package com.rft.chat_sribiddi.chat.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.billing.BillingModeResolver;
 import com.rft.chat_sribiddi.billing.EntitlementService;
@@ -7,7 +9,9 @@ import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.billing.ManagedQuotaReservation;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
+import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
+import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.chat.service.MediaValidationService.ValidatedMediaAttachment;
 import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.DocumentRetrievalContext;
 import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.PromptMessageBatch;
@@ -15,6 +19,7 @@ import com.rft.chat_sribiddi.chat.service.PromptMessageBuilder.PromptMessageRequ
 import com.rft.chat_sribiddi.chat.toolcall.ToolExecutionCollector;
 import com.rft.chat_sribiddi.auth.UserSettingsService;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +33,7 @@ import org.springframework.stereotype.Service;
 public class ChatRequestResolver {
 
   private static final String ATTACHMENTS_PREFIX = "attachments:";
+  private static final ObjectMapper MAPPER = new ObjectMapper();
 
   private final BillingModeResolver billingModeResolver;
   private final EntitlementService entitlementService;
@@ -39,6 +45,7 @@ public class ChatRequestResolver {
   private final MediaValidationService mediaValidationService;
   private final UserSettingsService userSettingsService;
   private final ChatMessageService chatMessageService;
+  private final ChatToolRepository chatToolRepository;
 
   public ResolvedCall resolveCall(String userId, RequestDTO requestDTO) {
     BillingMode requestedMode = entitlementService.resolveBillingMode(userId);
@@ -145,6 +152,7 @@ public class ChatRequestResolver {
         clientHolder.client().prompt().options(options.mutate()).messages(promptBatch.requestMessages());
     PromptAdvisors.bind(promptSpec, promptBatch, documentRetrievalService, documentContextFormatter);
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
+    recordDocumentAnalysisArtifact(chatId, userId, requestDTO.content(), toolExecutionCollector);
     promptToolBinder.bindTools(
         chatId,
         userId,
@@ -155,5 +163,74 @@ public class ChatRequestResolver {
         toolExecutionCollector,
         promptSpec);
     return new PreparedPrompt(promptSpec, toolExecutionCollector);
+  }
+
+  private void recordDocumentAnalysisArtifact(
+      UUID chatId, String userId, String query, ToolExecutionCollector collector) {
+    if (!isDocumentAnalysisEnabled(chatId, userId)) {
+      return;
+    }
+    try {
+      List<org.springframework.ai.document.Document> documents =
+          documentRetrievalService.retrieveDocuments(chatId, userId, query);
+      if (documents.isEmpty()) {
+        return;
+      }
+      List<Map<String, Object>> chunks =
+          documents.stream()
+              .limit(5)
+              .map(
+                  document ->
+                      Map.<String, Object>of(
+                          "documentId",
+                          String.valueOf(document.getMetadata().get("document_id")),
+                          "chunkIndex",
+                          String.valueOf(document.getMetadata().get("chunk_index")),
+                          "pageStart",
+                          String.valueOf(document.getMetadata().getOrDefault("page_start", "")),
+                          "pageEnd",
+                          String.valueOf(document.getMetadata().getOrDefault("page_end", "")),
+                          "excerpt",
+                          excerpt(document.getText())))
+              .toList();
+      collector.recordSynthetic(
+          "DocumentAnalysis.retrieve",
+          "document",
+          Map.of("query", query == null ? "" : query),
+          MAPPER.writeValueAsString(
+              Map.of(
+                  "type",
+                  "document",
+                  "chunkCount",
+                  documents.size(),
+                  "chunks",
+                  chunks)));
+    } catch (RuntimeException | JsonProcessingException ex) {
+      log.debug("Unable to record document analysis tool artifact", ex);
+    }
+  }
+
+  private boolean isDocumentAnalysisEnabled(UUID chatId, String userId) {
+    try {
+      if (!entitlementService.get(userId).allowsTool("document-analysis")) {
+        return false;
+      }
+      return chatToolRepository.findByChatId(chatId).stream()
+          .filter(tool -> "document-analysis".equals(tool.getToolName()))
+          .findFirst()
+          .map(ChatToolEntity::isEnabled)
+          .orElse(false);
+    } catch (RuntimeException ex) {
+      log.debug("Unable to resolve document-analysis tool gate", ex);
+      return false;
+    }
+  }
+
+  private String excerpt(String text) {
+    if (text == null || text.isBlank()) {
+      return "";
+    }
+    String normalized = text.trim().replaceAll("\\s+", " ");
+    return normalized.length() > 240 ? normalized.substring(0, 240) : normalized;
   }
 }

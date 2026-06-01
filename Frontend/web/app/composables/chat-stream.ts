@@ -1,7 +1,14 @@
 import type { Provider } from '~/composables/useChatApi'
 
 export type StreamEvent = {
-  type: 'text' | 'reasoning' | 'done' | 'error'
+  type:
+    | 'text'
+    | 'reasoning'
+    | 'done'
+    | 'error'
+    | 'tool_call_started'
+    | 'tool_call_completed'
+    | 'tool_call_failed'
   content?: string | null
   promptTokens?: number | null
   generationTokens?: number | null
@@ -15,6 +22,15 @@ export type StreamEvent = {
   errorType?: string | null
   receivedBytes?: number | null
   incomplete?: boolean | null
+  clientId?: string | null
+  toolName?: string | null
+  toolCallStatus?: 'RUNNING' | 'SUCCESS' | 'FAILED' | null
+  inputPayload?: string | null
+  outputPayload?: string | null
+  startedAt?: string | null
+  durationMs?: number | null
+  errorMessage?: string | null
+  displayType?: string | null
 }
 
 function parseOptionalBoolean(value: unknown): boolean | null {
@@ -52,6 +68,14 @@ function normalizeParsedStreamEvent(event: StreamEvent): StreamEvent {
 
   if (event.incomplete != null) {
     event.incomplete = parseOptionalBoolean(event.incomplete)
+  }
+
+  if (event.durationMs != null) {
+    const parsed =
+      typeof event.durationMs === 'number'
+        ? event.durationMs
+        : Number.parseInt(String(event.durationMs), 10)
+    event.durationMs = Number.isFinite(parsed) ? parsed : null
   }
 
   return event
@@ -103,4 +127,12 @@ export function parseSseEvents(raw: string): StreamEvent[] {
  */
 export function isTerminalStreamEvent(event: StreamEvent) {
   return event.type === 'done' || event.type === 'error'
+}
+
+export function isToolCallStreamEvent(event: StreamEvent) {
+  return (
+    event.type === 'tool_call_started' ||
+    event.type === 'tool_call_completed' ||
+    event.type === 'tool_call_failed'
+  )
 }

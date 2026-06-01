@@ -26,6 +26,7 @@ import com.rft.chat_sribiddi.chat.model.ToolCallLogEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.chat.repository.ToolCallLogRepository;
+import com.rft.chat_sribiddi.connectors.ConnectorAccountService;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.observability.ChatMetrics;
@@ -83,6 +84,10 @@ class ChatServiceTest {
   @Mock private CalculatorTool calculatorTool;
   @Mock private UrlFetcherTool urlFetcherTool;
   @Mock private PythonInterpreterTool pythonInterpreterTool;
+  @Mock private com.rft.chat_sribiddi.tools.ChartGeneratorTool chartGeneratorTool;
+  @Mock private com.rft.chat_sribiddi.tools.AgentPlanTool agentPlanTool;
+  @Mock private com.rft.chat_sribiddi.tools.credentials.ToolCredentialResolver toolCredentialResolver;
+  @Mock private ConnectorAccountService connectorAccountService;
 
   @Mock private ChatClient chatClient;
   @Mock private ChatClient.ChatClientRequestSpec requestSpec;
@@ -114,7 +119,12 @@ class ChatServiceTest {
             urlFetcherTool,
             pythonInterpreterTool,
             new com.rft.chat_sribiddi.tools.CurrentDateTimeTool(),
-            entitlementService);
+            chartGeneratorTool,
+            agentPlanTool,
+            toolCredentialResolver,
+            new com.rft.chat_sribiddi.tools.credentials.ToolCredentialProperties(),
+            entitlementService,
+            connectorAccountService);
     PromptMessageBuilder promptMessageBuilder =
         new PromptMessageBuilder(messageRepository, chatProperties);
     ChatUsageRecorder chatUsageRecorder =
@@ -140,7 +150,8 @@ class ChatServiceTest {
             promptMessageBuilder,
             mediaValidationService,
             userSettingsService,
-            chatMessageService);
+            chatMessageService,
+            chatToolRepository);
     return new ChatService(
         chatRepository,
         chatToolRepository,

@@ -11,10 +11,14 @@ import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.billing.EntitlementService;
 import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.billing.PlanRestrictionException;
+import com.rft.chat_sribiddi.connectors.ConnectorAccountService;
+import com.rft.chat_sribiddi.connectors.ConnectorProvider;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.tools.ToolProperties;
+import com.rft.chat_sribiddi.tools.credentials.ToolCredentialProvider;
+import com.rft.chat_sribiddi.tools.credentials.ToolCredentialResolver;
 import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.util.Collection;
 import java.util.List;
@@ -39,6 +43,8 @@ public class ChatToolService {
   private final EntitlementService entitlementService;
   private final WebSearchProperties webSearchProperties;
   private final ToolProperties toolProperties;
+  private final ToolCredentialResolver toolCredentialResolver;
+  private final ConnectorAccountService connectorAccountService;
 
   @Transactional(readOnly = true)
   public List<AvailableToolDTO> listAvailableTools(UUID chatId, String userId) {
@@ -61,6 +67,7 @@ public class ChatToolService {
                         tool,
                         entitlements,
                         enabledByToolName,
+                        userId,
                         userBraveSearchConfigured,
                         serverBraveSearchConfigured)))
         .toList();
@@ -98,6 +105,7 @@ public class ChatToolService {
       ChatTool tool,
       Entitlements entitlements,
       Map<String, Boolean> enabledByToolName,
+      String userId,
       boolean userBraveSearchConfigured,
       boolean serverBraveSearchConfigured) {
     String toolName = tool.getName();
@@ -108,6 +116,7 @@ public class ChatToolService {
         && isToolEnabledForUser(
             toolName,
             tool.requiresUserConfig(),
+            userId,
             userBraveSearchConfigured,
             serverBraveSearchConfigured)
         && isToolEnabledForChat(toolName, enabledByToolName);
@@ -116,6 +125,7 @@ public class ChatToolService {
   private boolean isToolEnabledForUser(
       String toolName,
       boolean requiresUserConfig,
+      String userId,
       boolean userBraveSearchConfigured,
       boolean serverBraveSearchConfigured) {
     if (!requiresUserConfig) {
@@ -123,6 +133,17 @@ public class ChatToolService {
     }
     return switch (toolName) {
       case "brave-search" -> userBraveSearchConfigured || serverBraveSearchConfigured;
+      case "image-generation" ->
+          toolCredentialResolver.hasUsableCredential(userId, ToolCredentialProvider.OPENAI_IMAGE);
+      case "github-issue-search" ->
+          toolCredentialResolver.hasUsableCredential(userId, ToolCredentialProvider.GITHUB);
+      case "google-drive" ->
+          connectorAccountService.isConnected(userId, ConnectorProvider.GOOGLE_DRIVE);
+      case "gmail-search" ->
+          connectorAccountService.isConnected(userId, ConnectorProvider.GOOGLE_GMAIL);
+      case "calendar-list-events", "calendar-freebusy" ->
+          connectorAccountService.isConnected(userId, ConnectorProvider.GOOGLE_CALENDAR);
+      case "web-research" -> userBraveSearchConfigured || serverBraveSearchConfigured;
       default -> false;
     };
   }
