@@ -13,7 +13,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.w3c.dom.NodeList;
@@ -21,6 +24,7 @@ import org.w3c.dom.NodeList;
 public class SpreadsheetAnalysisTool implements ChatTool {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final int MAX_XLSX_ENTRY_BYTES = 2_000_000;
 
   @Override
   public String getName() {
@@ -117,7 +121,7 @@ public class SpreadsheetAnalysisTool implements ChatTool {
         if (!entry.isDirectory()
             && (entry.getName().equals("xl/sharedStrings.xml")
                 || entry.getName().equals("xl/worksheets/sheet1.xml"))) {
-          entries.put(entry.getName(), zip.readAllBytes());
+          entries.put(entry.getName(), readEntry(zip, MAX_XLSX_ENTRY_BYTES));
         }
       }
     } catch (IOException e) {
@@ -127,14 +131,29 @@ public class SpreadsheetAnalysisTool implements ChatTool {
     return sheetRows(entries.get("xl/worksheets/sheet1.xml"), sharedStrings);
   }
 
+  private static byte[] readEntry(ZipInputStream zip, int maxBytes) throws IOException {
+    byte[] buffer = new byte[8192];
+    int total = 0;
+    try (var output = new java.io.ByteArrayOutputStream()) {
+      int read;
+      while ((read = zip.read(buffer)) != -1) {
+        total += read;
+        if (total > maxBytes) {
+          throw new IllegalArgumentException("XLSX entry is too large");
+        }
+        output.write(buffer, 0, read);
+      }
+      return output.toByteArray();
+    }
+  }
+
   private static List<String> sharedStrings(byte[] xml) {
     if (xml == null) {
       return List.of();
     }
     try {
       NodeList nodes =
-          DocumentBuilderFactory.newInstance()
-              .newDocumentBuilder()
+          secureDocumentBuilder()
               .parse(new ByteArrayInputStream(xml))
               .getElementsByTagName("t");
       List<String> values = new ArrayList<>();
@@ -153,8 +172,7 @@ public class SpreadsheetAnalysisTool implements ChatTool {
     }
     try {
       var doc =
-          DocumentBuilderFactory.newInstance()
-              .newDocumentBuilder()
+          secureDocumentBuilder()
               .parse(new ByteArrayInputStream(xml));
       NodeList rowNodes = doc.getElementsByTagName("row");
       List<List<String>> rows = new ArrayList<>();
@@ -186,6 +204,18 @@ public class SpreadsheetAnalysisTool implements ChatTool {
     } catch (Exception e) {
       throw new IllegalArgumentException("Could not read XLSX worksheet", e);
     }
+  }
+
+  private static DocumentBuilder secureDocumentBuilder() throws ParserConfigurationException {
+    DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+    factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+    factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+    factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+    factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+    factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+    factory.setXIncludeAware(false);
+    factory.setExpandEntityReferences(false);
+    return factory.newDocumentBuilder();
   }
 
   private static String attr(org.w3c.dom.Node node, String name) {

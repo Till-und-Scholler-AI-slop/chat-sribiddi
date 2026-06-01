@@ -152,7 +152,8 @@ public class ChatRequestResolver {
         clientHolder.client().prompt().options(options.mutate()).messages(promptBatch.requestMessages());
     PromptAdvisors.bind(promptSpec, promptBatch, documentRetrievalService, documentContextFormatter);
     ToolExecutionCollector toolExecutionCollector = new ToolExecutionCollector();
-    recordDocumentAnalysisArtifact(chatId, userId, requestDTO.content(), toolExecutionCollector);
+    recordDocumentAnalysisArtifact(
+        chatId, userId, requestDTO.content(), promptBatch.hasDocumentContext(), toolExecutionCollector);
     promptToolBinder.bindTools(
         chatId,
         userId,
@@ -166,11 +167,30 @@ public class ChatRequestResolver {
   }
 
   private void recordDocumentAnalysisArtifact(
-      UUID chatId, String userId, String query, ToolExecutionCollector collector) {
+      UUID chatId,
+      String userId,
+      String query,
+      boolean documentContextHandledByAdvisor,
+      ToolExecutionCollector collector) {
     if (!isDocumentAnalysisEnabled(chatId, userId)) {
       return;
     }
     try {
+      if (documentContextHandledByAdvisor) {
+        collector.recordSynthetic(
+            "DocumentAnalysis.retrieve",
+            "document",
+            Map.of("query", query == null ? "" : query),
+            MAPPER.writeValueAsString(
+                Map.of(
+                    "type",
+                    "document",
+                    "retrievalMode",
+                    "advisor",
+                    "message",
+                    "Document retrieval is handled by the RAG advisor for this request.")));
+        return;
+      }
       List<org.springframework.ai.document.Document> documents =
           documentRetrievalService.retrieveDocuments(chatId, userId, query);
       if (documents.isEmpty()) {

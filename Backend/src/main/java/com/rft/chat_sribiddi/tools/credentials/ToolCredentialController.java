@@ -117,6 +117,7 @@ public class ToolCredentialController {
     if (expectedState == null || !expectedState.equals(state)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid OAuth state");
     }
+    session.removeAttribute(GITHUB_STATE_SESSION_KEY);
     String token = exchangeGithubCode(code);
     credentialService.saveSecret(userId, ToolCredentialProvider.GITHUB, token);
     return ResponseEntity.status(HttpStatus.FOUND)

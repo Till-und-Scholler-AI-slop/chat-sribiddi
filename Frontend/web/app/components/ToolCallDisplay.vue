@@ -138,6 +138,15 @@ function outputRecord(tc: ToolCallLog) {
 function listValue(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
 }
+
+function safeChartSvg(value: unknown) {
+  if (typeof value !== 'string') return ''
+  const svg = value.trim()
+  if (svg.length > 50_000 || !svg.startsWith('<svg') || !svg.endsWith('</svg>')) return ''
+  const blocked = /<(script|foreignObject|iframe|object|embed|link|meta)\b|on[a-z]+\s*=|javascript:|data:/i
+  if (blocked.test(svg)) return ''
+  return svg
+}
 </script>
 
 <template>
@@ -334,9 +343,9 @@ function listValue(value: unknown): unknown[] {
                   <template v-else-if="displayType(tc) === 'chart'">
                     <div class="chart-result">
                       <div
-                        v-if="typeof outputRecord(tc)?.svg === 'string'"
+                        v-if="safeChartSvg(outputRecord(tc)?.svg)"
                         class="chart-svg"
-                        v-html="outputRecord(tc)?.svg"
+                        v-html="safeChartSvg(outputRecord(tc)?.svg)"
                       />
                       <p>{{ outputRecord(tc)?.summary }}</p>
                     </div>
