@@ -74,7 +74,6 @@ public class ChartGeneratorTool implements ChatTool {
     double max = values.stream().mapToDouble(Double::doubleValue).max().orElse(1.0);
     max = max <= 0 ? 1.0 : max;
     int width = 640;
-    int height = 360;
     int left = 48;
     int bottom = 310;
     int plotHeight = 220;
