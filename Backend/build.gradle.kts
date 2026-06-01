@@ -4,7 +4,7 @@ plugins {
     id("io.spring.dependency-management") version "1.1.7"
 }
 val springAiVersion by extra("2.0.0-M8")
-val bucket4jVersion by extra("8.18.0")
+val bucket4jVersion by extra("8.19.0")
 val dotenvJavaVersion by extra("3.2.0")
 val stripeJavaVersion by extra("32.1.0")
 

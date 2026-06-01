@@ -3,27 +3,18 @@ package com.rft.chat_sribiddi.config;
 import java.time.Clock;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
 @ConditionalOnProperty(name = "app.rate-limit.backend", havingValue = "memory")
+@RequiredArgsConstructor
 public class InMemoryRateLimiter implements RateLimiter {
 
   private final RateLimitProperties properties;
   private final Clock clock;
   private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
-
-  @Autowired
-  public InMemoryRateLimiter(RateLimitProperties properties) {
-    this(properties, Clock.systemUTC());
-  }
-
-  InMemoryRateLimiter(RateLimitProperties properties, Clock clock) {
-    this.properties = properties;
-    this.clock = clock;
-  }
 
   @Override
   public RateLimitDecision tryConsume(String key, int requestsPerMinute) {

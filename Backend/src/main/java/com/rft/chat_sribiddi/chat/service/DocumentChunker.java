@@ -1,51 +1,58 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import com.rft.chat_sribiddi.chat.service.DocumentTextExtractor.PageText;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.document.DocumentTransformer;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.stereotype.Component;
 
 @Component
-public class DocumentChunker {
+public class DocumentChunker implements DocumentTransformer {
 
-  private static final int TARGET_TOKENS = 1_200;
-  private static final int CHARS_PER_TOKEN = 4;
-  private static final String PAGE_METADATA = "page";
   static final String CHUNK_INDEX_METADATA = "chunk_index";
   static final String PAGE_START_METADATA = "page_start";
   static final String PAGE_END_METADATA = "page_end";
   static final String TOKEN_ESTIMATE_METADATA = "token_estimate";
 
-  private final TokenTextSplitter splitter =
-      TokenTextSplitter.builder()
-          .withChunkSize(TARGET_TOKENS)
-          .withMinChunkSizeChars(350)
-          .withMinChunkLengthToEmbed(5)
-          .withMaxNumChunks(10_000)
-          .withKeepSeparator(true)
-          .withPunctuationMarks(List.of('.', '?', '!', '\n', ';', ':'))
-          .build();
+  private final TokenTextSplitter splitter;
+  private final RagProperties ragProperties;
 
-  public List<DocumentChunk> chunk(List<PageText> pages) {
-    return chunkDocuments(pages).stream().map(DocumentChunker::toChunk).toList();
+  public DocumentChunker(RagProperties ragProperties) {
+    this.ragProperties = ragProperties;
+    this.splitter =
+        TokenTextSplitter.builder()
+            .withChunkSize(ragProperties.getTargetTokens())
+            .withMinChunkSizeChars(350)
+            .withMinChunkLengthToEmbed(5)
+            .withMaxNumChunks(10_000)
+            .withKeepSeparator(true)
+            .withPunctuationMarks(List.of('.', '?', '!', '\n', ';', ':'))
+            .build();
   }
 
-  public List<Document> chunkDocuments(List<PageText> pages) {
-    List<Document> documents =
-        pages.stream()
-            .filter(page -> page != null && page.text() != null && !page.text().isBlank())
-            .map(DocumentChunker::toDocument)
-            .toList();
-    if (documents.isEmpty()) {
+  public List<DocumentChunk> chunk(List<Document> documents) {
+    return apply(documents).stream().map(this::toChunk).toList();
+  }
+
+  @Override
+  public List<Document> apply(List<Document> documents) {
+    if (documents == null || documents.isEmpty()) {
       return List.of();
     }
 
     List<Document> chunks = new ArrayList<>();
-    for (Document document : splitter.apply(documents)) {
+    List<Document> sourceDocuments =
+        documents.stream()
+            .filter(
+                document ->
+                    document != null
+                        && document.getText() != null
+                        && !document.getText().isBlank())
+            .toList();
+    for (Document document : splitter.apply(sourceDocuments)) {
       String text = document.getText() == null ? "" : document.getText().trim();
       if (!text.isBlank()) {
         Integer page = page(document);
@@ -55,13 +62,7 @@ public class DocumentChunker {
     return chunks;
   }
 
-  private static Document toDocument(PageText page) {
-    Map<String, Object> metadata =
-        page.page() == null ? Map.of() : Map.of(PAGE_METADATA, page.page());
-    return new Document(page.text(), metadata);
-  }
-
-  private static Document toChunkDocument(int index, Integer page, String text) {
+  private Document toChunkDocument(int index, Integer page, String text) {
     Map<String, Object> metadata = new LinkedHashMap<>();
     metadata.put(CHUNK_INDEX_METADATA, index);
     if (page != null) {
@@ -72,7 +73,7 @@ public class DocumentChunker {
     return new Document(text, metadata);
   }
 
-  private static DocumentChunk toChunk(Document document) {
+  private DocumentChunk toChunk(Document document) {
     return new DocumentChunk(
         integerMetadata(document, CHUNK_INDEX_METADATA, 0),
         integerMetadata(document, PAGE_START_METADATA, null),
@@ -82,11 +83,7 @@ public class DocumentChunker {
   }
 
   private static Integer page(Document document) {
-    Object page = document.getMetadata().get(PAGE_METADATA);
-    if (page instanceof Integer integer) {
-      return integer;
-    }
-    return null;
+    return DocumentTextExtractor.pageMetadata(document);
   }
 
   static Integer integerMetadata(Document document, String key, Integer fallback) {
@@ -94,11 +91,11 @@ public class DocumentChunker {
     return value instanceof Number number ? number.intValue() : fallback;
   }
 
-  static int estimateTokens(String text) {
+  int estimateTokens(String text) {
     if (text == null || text.isBlank()) {
       return 0;
     }
-    return Math.max(1, (int) Math.ceil(text.trim().length() / (double) CHARS_PER_TOKEN));
+    return Math.max(1, (int) Math.ceil(text.trim().length() / (double) ragProperties.getCharsPerToken()));
   }
 
   public record DocumentChunk(

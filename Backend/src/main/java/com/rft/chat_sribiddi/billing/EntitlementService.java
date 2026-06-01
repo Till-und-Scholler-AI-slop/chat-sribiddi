@@ -254,35 +254,6 @@ public class EntitlementService {
   }
 
   /**
-   * Verifies that the user has not yet exhausted the daily managed-mode cap for their tier. A
-   * non-positive cap disables the limit entirely.
-   *
-   * @deprecated Prefer {@link #reserveManagedCall(String)} for atomic reserve-at-start semantics.
-   * @throws PlanRestrictionException with reason {@link
-   *     PlanRestrictionException.Reason#DAILY_CAP_EXCEEDED} when the user is over quota.
-   */
-  @Deprecated
-  public void assertWithinDailyCap(String userId) {
-    Optional<User> user = resolveUser(userId);
-    Entitlements entitlements = entitlementsFor(user.orElse(null));
-    long cap = entitlements.dailyCap();
-    if (cap <= 0) {
-      return;
-    }
-    if (user.isEmpty()) {
-      // No internal user record — treat as a fresh Free user at zero usage.
-      return;
-    }
-    long current = dailyQuotaCounterRepository.getCount(user.get().getId(), today());
-    if (current >= cap) {
-      throw new PlanRestrictionException(
-          PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED,
-          entitlements.plan(),
-          "Daily call cap (%d) reached for plan %s".formatted(cap, entitlements.plan()));
-    }
-  }
-
-  /**
    * Atomically increments the daily managed-call counter for the user. No-op when the user cannot
    * be resolved to a persistent record.
    */
@@ -417,16 +388,6 @@ public class EntitlementService {
     return annotateModelsForPlan(userId, provider, models, hasUserKey).stream()
         .filter(model -> model.getAvailability() == AvailabilityFlag.ALWAYS)
         .toList();
-  }
-
-  /**
-   * @deprecated Use {@link #filterUsableModelsForPlan(String, Provider, List, boolean)} instead.
-   *     Kept for backwards compatibility with the older OpenRouter-only filtering API.
-   */
-  @Deprecated
-  public List<ModelCatalogProperties.ModelOption> filterOpenRouterModelsForPlan(
-      String userId, List<ModelCatalogProperties.ModelOption> models) {
-    return filterUsableModelsForPlan(userId, Provider.OPENROUTER, models, false);
   }
 
   /**

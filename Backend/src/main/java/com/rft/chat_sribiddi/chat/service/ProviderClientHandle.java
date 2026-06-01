@@ -1,13 +1,11 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 
+@Slf4j
 public record ProviderClientHandle(ChatClient client, AutoCloseable closeable)
     implements AutoCloseable {
-
-  private static final Logger log = LoggerFactory.getLogger(ProviderClientHandle.class);
 
   @Override
   public void close() {

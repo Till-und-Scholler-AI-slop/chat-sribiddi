@@ -57,7 +57,7 @@ public class ChatDocumentService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document could not be read", e);
     }
 
-    List<Document> chunks = chunker.chunkDocuments(textExtractor.extract(mimeType, data));
+    List<Document> chunks = chunker.apply(textExtractor.extract(mimeType, data));
     if (chunks.isEmpty()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document contains no extractable text");
     }
@@ -104,7 +104,7 @@ public class ChatDocumentService {
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat not found"));
   }
 
-  private static DocumentChunkEntity toEntity(Long documentId, Document chunk) {
+  private DocumentChunkEntity toEntity(Long documentId, Document chunk) {
     DocumentChunkEntity entity = new DocumentChunkEntity();
     entity.setDocumentId(documentId);
     entity.setChunkIndex(
@@ -116,7 +116,7 @@ public class ChatDocumentService {
     entity.setText(chunk.getText());
     entity.setTokenEstimate(
         DocumentChunker.integerMetadata(
-            chunk, DocumentChunker.TOKEN_ESTIMATE_METADATA, DocumentChunker.estimateTokens(chunk.getText())));
+            chunk, DocumentChunker.TOKEN_ESTIMATE_METADATA, chunker.estimateTokens(chunk.getText())));
     return entity;
   }
 

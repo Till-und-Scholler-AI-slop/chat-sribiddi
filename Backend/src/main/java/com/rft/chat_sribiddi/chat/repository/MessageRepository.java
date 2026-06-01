@@ -27,6 +27,16 @@ public interface MessageRepository extends JpaRepository<MessageEntity, Long> {
 
   List<MessageEntity> findByChatIdOrderByCreatedAtDesc(UUID chatId, Pageable pageable);
 
+  @Query("SELECT m FROM MessageEntity m WHERE m.chatId = :chatId AND (:beforeMessageId IS NULL OR m.id < :beforeMessageId) ORDER BY m.createdAt DESC")
+  List<MessageEntity> findContextMessagesBefore(
+      @Param("chatId") UUID chatId,
+      @Param("beforeMessageId") Long beforeMessageId,
+      Pageable pageable);
+
+  @Query("SELECT COUNT(m) FROM MessageEntity m WHERE m.chatId = :chatId AND (:beforeMessageId IS NULL OR m.id < :beforeMessageId)")
+  long countContextMessagesBefore(
+      @Param("chatId") UUID chatId, @Param("beforeMessageId") Long beforeMessageId);
+
   List<MessageEntity> findByChatIdOrderByCreatedAtAsc(UUID chatId);
 
   Optional<MessageEntity> findByIdAndChatId(Long id, UUID chatId);

@@ -19,8 +19,8 @@ class DocumentTextExtractorTest {
             "line one\r\nline two\n".getBytes(StandardCharsets.UTF_8));
 
     assertThat(pages).hasSize(1);
-    assertThat(pages.getFirst().page()).isNull();
-    assertThat(pages.getFirst().text()).isEqualTo("line one\nline two");
+    assertThat(DocumentTextExtractor.pageMetadata(pages.getFirst())).isNull();
+    assertThat(pages.getFirst().getText()).isEqualTo("line one\nline two");
   }
 
   @Test
@@ -70,8 +70,8 @@ class DocumentTextExtractorTest {
     var pages = extractor.extract("application/pdf", pdf);
 
     assertThat(pages).hasSize(1);
-    assertThat(pages.getFirst().page()).isEqualTo(1);
-    assertThat(pages.getFirst().text()).contains("Spring AI PDF reader text");
+    assertThat(DocumentTextExtractor.pageMetadata(pages.getFirst())).isEqualTo(1);
+    assertThat(pages.getFirst().getText()).contains("Spring AI PDF reader text");
   }
 
   @Test

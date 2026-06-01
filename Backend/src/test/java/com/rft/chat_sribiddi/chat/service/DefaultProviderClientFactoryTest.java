@@ -73,7 +73,10 @@ class DefaultProviderClientFactoryTest {
     var options = factory.buildOptions(Provider.OPENROUTER, "openai/gpt-4o-mini", "or-key");
 
     assertThat(options).isInstanceOf(OpenAiChatOptions.class);
-    assertThat(((OpenAiChatOptions) options).getModel()).isEqualTo("openai/gpt-4o-mini");
+    OpenAiChatOptions openAiOptions = (OpenAiChatOptions) options;
+    assertThat(openAiOptions.getModel()).isEqualTo("openai/gpt-4o-mini");
+    assertThat(openAiOptions.getStreamOptions()).isNotNull();
+    assertThat(openAiOptions.getStreamOptions().includeUsage()).isTrue();
   }
 
   @Test
@@ -92,6 +95,40 @@ class DefaultProviderClientFactoryTest {
     assertThat(options.getFrequencyPenalty()).isEqualTo(-0.1);
     assertThat(options.getPresencePenalty()).isEqualTo(0.3);
     assertThat(options.getStopSequences()).containsExactly("END");
+    OpenAiChatOptions openAiOptions = (OpenAiChatOptions) options;
+    assertThat(openAiOptions.getStreamOptions()).isNotNull();
+    assertThat(openAiOptions.getStreamOptions().includeUsage()).isTrue();
+  }
+
+  @Test
+  void buildOptions_appliesOpenAiSpecificSpringAiRuntimeOptions() {
+    ChatRuntimeOptions runtimeOptions =
+        new ChatRuntimeOptions(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "medium",
+            "high",
+            "auto");
+
+    var options =
+        factory.buildOptions(Provider.OPENROUTER, "openai/gpt-5.2", "or-key", runtimeOptions);
+
+    assertThat(options).isInstanceOf(OpenAiChatOptions.class);
+    OpenAiChatOptions openAiOptions = (OpenAiChatOptions) options;
+    assertThat(openAiOptions.getReasoningEffort()).isEqualTo("medium");
+    assertThat(openAiOptions.getVerbosity()).isEqualTo("high");
+    assertThat(openAiOptions.getServiceTier()).isEqualTo("auto");
   }
 
   @Test
@@ -124,6 +161,7 @@ class DefaultProviderClientFactoryTest {
             null,
             true,
             true,
+            true,
             true);
 
     var options =
@@ -135,6 +173,7 @@ class DefaultProviderClientFactoryTest {
     assertThat(googleOptions.getIncludeThoughts()).isTrue();
     assertThat(googleOptions.getGoogleSearchRetrieval()).isTrue();
     assertThat(googleOptions.getIncludeServerSideToolInvocations()).isTrue();
+    assertThat(googleOptions.getIncludeExtendedUsageMetadata()).isTrue();
   }
 
   @Test

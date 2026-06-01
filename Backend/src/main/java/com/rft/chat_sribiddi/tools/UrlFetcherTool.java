@@ -1,5 +1,6 @@
 package com.rft.chat_sribiddi.tools;
 
+import com.rft.chat_sribiddi.chat.toolcall.ToolConsentContext;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolResult;
 import com.rft.chat_sribiddi.tools.api.ToolRiskLevel;
@@ -11,8 +12,8 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -22,22 +23,21 @@ import org.springframework.stereotype.Component;
  * URL fetcher tool that retrieves web page content, converts HTML to plain text,
  * and truncates to a maximum size. Includes SSRF protection.
  */
+@Slf4j
 @Component
 public class UrlFetcherTool implements ChatTool {
 
-  private static final Logger log = LoggerFactory.getLogger(UrlFetcherTool.class);
-
-  private static final int MAX_CONTENT_LENGTH = 50_000;
-  private static final Duration TIMEOUT = Duration.ofSeconds(10);
-
   private final HttpClient httpClient;
   private final String userAgent;
+  private final ToolProperties toolProperties;
 
   public UrlFetcherTool(
       HttpClient httpClient,
-      @Value("${app.tools.user-agent:ChatSribiddi/1.0 (Tool)}") String userAgent) {
+      @Value("${app.tools.user-agent:ChatSribiddi/1.0 (Tool)}") String userAgent,
+      ToolProperties toolProperties) {
     this.httpClient = httpClient;
     this.userAgent = userAgent;
+    this.toolProperties = toolProperties;
   }
 
   @Override
@@ -72,12 +72,17 @@ public class UrlFetcherTool implements ChatTool {
           "Fetch the content of a web page URL and return its text. "
               + "HTML is stripped; content is truncated at 50KB. Timeout: 10 seconds.")
   public String fetchUrl(
-      @ToolParam(description = "The HTTP URL to fetch, e.g. 'http://example.com' (HTTPS not supported)") String url) {
-    ToolResult result = fetch(url);
+      @ToolParam(description = "The HTTP URL to fetch, e.g. 'http://example.com' (HTTPS not supported)") String url,
+      ToolContext toolContext) {
+    ToolResult result = fetch(url, toolContext);
     return result.success() ? result.output() : result.error();
   }
 
   private ToolResult fetch(String url) {
+    return fetch(url, null);
+  }
+
+  private ToolResult fetch(String url, ToolContext toolContext) {
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
       url = "http://" + url;
     }
@@ -91,6 +96,7 @@ public class UrlFetcherTool implements ChatTool {
 
     try {
       URI uri = URI.create(url);
+      enforceConsentArgs(uri, toolContext);
       // Validate scheme and resolve DNS (blocks private IPs)
       validateUrlAndResolve(uri);
 
@@ -99,9 +105,9 @@ public class UrlFetcherTool implements ChatTool {
               .uri(uri)
               .header("User-Agent", userAgent)
               .header("Accept", "text/html,text/plain,application/json")
-              .timeout(TIMEOUT)
-              .GET()
-              .build();
+          .timeout(toolProperties.getUrlFetcherTimeout())
+          .GET()
+          .build();
 
       HttpResponse<String> response =
           httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -118,8 +124,8 @@ public class UrlFetcherTool implements ChatTool {
       String body = response.body();
       String text = htmlToText(body);
 
-      if (text.length() > MAX_CONTENT_LENGTH) {
-        text = text.substring(0, MAX_CONTENT_LENGTH) + "\n\n[Content truncated at 50KB]";
+      if (text.length() > toolProperties.getUrlFetcherMaxContentLength()) {
+        text = text.substring(0, toolProperties.getUrlFetcherMaxContentLength()) + "\n\n[Content truncated at 50KB]";
       }
 
       return ToolResult.success(text);
@@ -133,6 +139,20 @@ public class UrlFetcherTool implements ChatTool {
     } catch (Exception e) {
       log.warn("Failed to fetch URL: {}", url, e);
       return ToolResult.failure("Failed to fetch URL: " + e.getMessage());
+    }
+  }
+
+  private void enforceConsentArgs(URI uri, ToolContext toolContext) {
+    Map<String, Object> args = ToolConsentContext.argsFor(toolContext, getName());
+    Object approvedHost = args.get("approvedHost");
+    if (approvedHost == null || approvedHost.toString().isBlank()) {
+      return;
+    }
+    String host = uri.getHost();
+    if (host == null || !host.equalsIgnoreCase(approvedHost.toString().trim())) {
+      throw new SecurityException(
+          "URL host '%s' does not match the approved host '%s'."
+              .formatted(host == null ? "" : host, approvedHost.toString().trim()));
     }
   }
 

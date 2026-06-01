@@ -664,6 +664,18 @@ const handleReload = async () => {
                               @click="downloadRunbook"
                             />
                           </UTooltip>
+                          <UTooltip :text="t('chat.regenerateResponse')">
+                            <UButton
+                              icon="i-heroicons-arrow-path"
+                              color="neutral"
+                              variant="ghost"
+                              size="xs"
+                              :padded="false"
+                              :aria-label="t('chat.regenerateResponse')"
+                              class="btn-interactive"
+                              @click="handleReload"
+                            />
+                          </UTooltip>
                         </div>
                       </template>
                       <div
@@ -869,7 +881,7 @@ const handleReload = async () => {
                 icon="i-heroicons-arrow-path"
                 color="error"
                 variant="soft"
-                :aria-label="t('common.reload')"
+                :aria-label="t('chat.regenerateResponse')"
                 data-testid="chat-reload"
                 @click="handleReload"
               />

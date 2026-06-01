@@ -1,7 +1,5 @@
 package com.rft.chat_sribiddi.websearch;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -9,10 +7,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Spring AI tool that performs web searches via the Brave Search API.
@@ -20,15 +19,14 @@ import org.springframework.ai.tool.annotation.ToolParam;
  * <p>Instances are created per-request with the user's API key, adapted to Spring AI
  * {@code ToolCallback}s, and passed to the ChatClient for that single prompt.
  */
+@Slf4j
 public class BraveSearchTool {
 
-  private static final Logger log = LoggerFactory.getLogger(BraveSearchTool.class);
-
-  private static final String BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final JsonMapper MAPPER = new JsonMapper();
 
   private final String apiKey;
   private final HttpClient httpClient;
+  private final WebSearchProperties properties;
   private final int maxResults;
   private final Duration requestTimeout;
   private final String userAgent;
@@ -36,6 +34,7 @@ public class BraveSearchTool {
   public BraveSearchTool(String apiKey, HttpClient httpClient, WebSearchProperties properties) {
     this.apiKey = apiKey;
     this.httpClient = httpClient;
+    this.properties = properties;
     this.maxResults = properties.getMaxResults();
     this.requestTimeout = properties.getRequestTimeout();
     this.userAgent = properties.getUserAgent();
@@ -49,7 +48,7 @@ public class BraveSearchTool {
     try {
       String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
       URI uri =
-          URI.create(BRAVE_SEARCH_URL + "?q=" + encodedQuery + "&count=" + maxResults);
+          URI.create(properties.getSearchUrl() + "?q=" + encodedQuery + "&count=" + maxResults);
 
       HttpRequest request =
           HttpRequest.newBuilder()
@@ -95,9 +94,9 @@ public class BraveSearchTool {
         if (count >= maxResults) break;
         count++;
 
-        String title = result.path("title").asText("");
-        String url = result.path("url").asText("");
-        String description = result.path("description").asText("");
+        String title = result.path("title").asString("");
+        String url = result.path("url").asString("");
+        String description = result.path("description").asString("");
 
         sb.append("%d. **%s**\n".formatted(count, title));
         sb.append("   URL: %s\n".formatted(url));

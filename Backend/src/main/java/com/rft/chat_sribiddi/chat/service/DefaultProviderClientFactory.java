@@ -16,6 +16,10 @@ import com.rft.chat_sribiddi.auth.BillingMode;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.ChatRuntimeOptions;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import io.micrometer.observation.ObservationRegistry;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -90,7 +94,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
     }
     // Prefix the cache key with the billing mode so that user-supplied (BYOK) keys and
     // server-managed (MANAGED) keys never share cache entries, even if their raw values collide.
-    String cacheKey = billingMode.name() + ":" + apiKey;
+    String cacheKey = billingMode.name() + ":" + hashApiKey(apiKey);
 
     return switch (provider) {
       case OPENAI ->
@@ -170,16 +174,25 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
       Provider provider, String modelId, String apiKey, ChatRuntimeOptions runtimeOptions) {
     return switch (provider) {
       case OPENAI ->
-          applyRuntimeOptions(OpenAiChatOptions.builder().model(modelId), runtimeOptions).build();
+          openAiCompatibleOptions(modelId, runtimeOptions);
       case GOOGLE ->
           googleOptions(modelId, runtimeOptions);
       case CLAUDE ->
           anthropicOptions(modelId, runtimeOptions);
       case OPENROUTER ->
-          applyRuntimeOptions(OpenAiChatOptions.builder().model(modelId), runtimeOptions).build();
+          openAiCompatibleOptions(modelId, runtimeOptions);
       case BRAVE_SEARCH ->
           throw new UnsupportedOperationException("BRAVE_SEARCH is not a chat model provider");
     };
+  }
+
+  private OpenAiChatOptions openAiCompatibleOptions(
+      String modelId, ChatRuntimeOptions runtimeOptions) {
+    OpenAiChatOptions.Builder builder =
+        applyRuntimeOptions(
+            OpenAiChatOptions.builder().model(modelId).streamUsage(true), runtimeOptions);
+    applyOpenAiRuntimeOptions(builder, runtimeOptions);
+    return builder.build();
   }
 
   private <B extends ChatOptions.Builder<B>> B applyRuntimeOptions(
@@ -244,6 +257,27 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
     if (runtimeOptions.includeServerSideToolInvocations() != null) {
       builder.includeServerSideToolInvocations(
           runtimeOptions.includeServerSideToolInvocations());
+    }
+    if (runtimeOptions.includeExtendedUsageMetadata() != null) {
+      builder.includeExtendedUsageMetadata(runtimeOptions.includeExtendedUsageMetadata());
+    }
+  }
+
+  private void applyOpenAiRuntimeOptions(
+      OpenAiChatOptions.Builder builder, ChatRuntimeOptions runtimeOptions) {
+    if (runtimeOptions == null) {
+      return;
+    }
+    if (runtimeOptions.openAiReasoningEffort() != null
+        && !runtimeOptions.openAiReasoningEffort().isBlank()) {
+      builder.reasoningEffort(runtimeOptions.openAiReasoningEffort().trim());
+    }
+    if (runtimeOptions.openAiVerbosity() != null && !runtimeOptions.openAiVerbosity().isBlank()) {
+      builder.verbosity(runtimeOptions.openAiVerbosity().trim());
+    }
+    if (runtimeOptions.openAiServiceTier() != null
+        && !runtimeOptions.openAiServiceTier().isBlank()) {
+      builder.serviceTier(runtimeOptions.openAiServiceTier().trim());
     }
   }
 
@@ -344,5 +378,15 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
     buildOpenRouterAttributionHeaders()
         .forEach((name, values) -> headers.put(name, List.copyOf(values)));
     return headers;
+  }
+
+  private static String hashApiKey(String apiKey) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      byte[] hash = digest.digest(apiKey.getBytes(StandardCharsets.UTF_8));
+      return HexFormat.of().formatHex(hash);
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 not available", e);
+    }
   }
 }

@@ -100,7 +100,7 @@ class ChatServiceTest {
     managedKeys.setClaude("srv-claude");
     managedKeys.setOpenrouter("srv-openrouter");
     BillingModeResolver billingModeResolver =
-        new BillingModeResolver(apiKeyService, entitlementService, managedKeys);
+        new BillingModeResolver(apiKeyService, entitlementService, managedKeys, new org.springframework.mock.env.MockEnvironment());
     MediaValidationService mediaValidationService = new MediaValidationService(chatProperties);
     PromptToolBinder promptToolBinder =
         new PromptToolBinder(
@@ -119,7 +119,7 @@ class ChatServiceTest {
         new PromptMessageBuilder(messageRepository, chatProperties);
     ChatUsageRecorder chatUsageRecorder =
         new ChatUsageRecorder(entitlementService, usageEventService, chatMetrics);
-    ToolCallLogRecorder toolCallLogRecorder = new ToolCallLogRecorder(toolCallLogRepository);
+    ToolCallLogRecorder toolCallLogRecorder = new ToolCallLogRecorder(toolCallLogRepository, chatProperties);
     ChatStreamSubscriber chatStreamSubscriber =
         new ChatStreamSubscriber(
             chatRepository,
@@ -127,11 +127,31 @@ class ChatServiceTest {
             chatUsageRecorder,
             toolCallLogRecorder,
             chatMetrics);
-    return new ChatService(chatRepository, messageRepository, toolCallLogRepository, chatToolRepository,
-        providerClientFactory, chatProperties, mediaValidationService,
-        org.mockito.Mockito.mock(DocumentRetrievalService.class), userSettingsService,
-        promptToolBinder, promptMessageBuilder, chatUsageRecorder, toolCallLogRecorder,
-        chatStreamSubscriber, billingModeResolver, entitlementService, streamConcurrencyGate);
+    ChatMessageService chatMessageService =
+        new ChatMessageService(messageRepository, chatRepository, toolCallLogRepository, chatProperties);
+    ChatRequestResolver chatRequestResolver =
+        new ChatRequestResolver(
+            billingModeResolver,
+            entitlementService,
+            providerClientFactory,
+            org.mockito.Mockito.mock(DocumentRetrievalService.class),
+            new DocumentContextFormatter(new RagProperties()),
+            promptToolBinder,
+            promptMessageBuilder,
+            mediaValidationService,
+            userSettingsService,
+            chatMessageService);
+    return new ChatService(
+        chatRepository,
+        chatToolRepository,
+        providerClientFactory,
+        chatProperties,
+        chatMessageService,
+        chatRequestResolver,
+        chatUsageRecorder,
+        toolCallLogRecorder,
+        chatStreamSubscriber,
+        streamConcurrencyGate);
   }
 
   @BeforeEach
@@ -247,7 +267,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
@@ -300,7 +320,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
     when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "stored-key", BillingMode.BYOK))
@@ -322,7 +342,7 @@ class ChatServiceTest {
   }
 
   @Test
-  void sendMessage_usesTierContextLimitWhenBuildingPrompt() {
+  void sendMessage_bindsSpringAiMemoryAdvisorForPersistentHistory() {
     ChatEntity chat = new ChatEntity();
     chat.setChatId(chatId);
     chat.setUserId(userId);
@@ -337,9 +357,7 @@ class ChatServiceTest {
 
     chatService.sendMessage(chatId, userId, request);
 
-    ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
-    verify(messageRepository).findByChatIdOrderByCreatedAtDesc(eq(chatId), pageable.capture());
-    assertThat(pageable.getValue().getPageSize()).isEqualTo(1);
+    verify(requestSpec, atLeastOnce()).advisors(ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any());
   }
 
   @Test
@@ -369,7 +387,7 @@ class ChatServiceTest {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     MessageEntity newest = messageWithId(2L);
     MessageEntity oldest = messageWithId(1L);
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(eq(chatId), any()))
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(eq(chatId), any()))
         .thenReturn(List.of(newest, oldest));
 
     List<MessageEntity> result = chatService.listMessages(chatId, userId, 10, 3);
@@ -390,7 +408,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
         .thenReturn(List.of());
     when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key", BillingMode.BYOK))
         .thenReturn(new ProviderClientHandle(chatClient, closeable));
@@ -477,7 +495,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
@@ -550,7 +568,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key", BillingMode.BYOK))
         .thenReturn(new ProviderClientHandle(chatClient, null));
     when(providerClientFactory.buildOptions(RequestDTO.Provider.GOOGLE, "gemma-3-27b-it", "goog-key"))
@@ -577,7 +595,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key", BillingMode.BYOK))
         .thenReturn(new ProviderClientHandle(chatClient, null));
     when(providerClientFactory.buildOptions(RequestDTO.Provider.OPENAI, "gpt-5.2", "key"))
@@ -614,7 +632,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key", BillingMode.BYOK))
         .thenReturn(new ProviderClientHandle(chatClient, null));
     when(providerClientFactory.buildOptions(RequestDTO.Provider.OPENAI, "gpt-5.2", "key"))
@@ -657,7 +675,7 @@ class ChatServiceTest {
     latestUserMessage.setId(100L);
     latestUserMessage.setRole(Role.USER);
     latestUserMessage.setMessage("describe image");
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
         .thenReturn(List.of(latestUserMessage));
 
     when(providerClientFactory.getClient(RequestDTO.Provider.CLAUDE, "claude-key", BillingMode.BYOK))
@@ -701,7 +719,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
         .thenReturn(List.of());
 
     when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, "key", BillingMode.BYOK))
@@ -754,7 +772,7 @@ class ChatServiceTest {
     persistedCurrentUserMessage.setRole(Role.USER);
     persistedCurrentUserMessage.setMessage("my image");
 
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any()))
         .thenReturn(List.of(concurrentNewerUserMessage, persistedCurrentUserMessage));
 
     when(providerClientFactory.getClient(RequestDTO.Provider.CLAUDE, "claude-key", BillingMode.BYOK))
@@ -777,13 +795,10 @@ class ChatServiceTest {
 
     List<Message> prompt = messagesCaptor.getValue();
     UserMessage firstUser = (UserMessage) prompt.get(1);
-    UserMessage secondUser = (UserMessage) prompt.get(2);
 
     assertThat(firstUser.getText()).isEqualTo("my image");
     assertThat(firstUser.getMedia()).hasSize(1);
-    assertThat(secondUser.getText()).isEqualTo("other request text");
-    assertThat(secondUser.getMedia()).isEmpty();
-    verify(requestSpec, never()).advisors(ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any());
+    verify(requestSpec, atLeastOnce()).advisors(ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any());
   }
 
   @Test
@@ -909,7 +924,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
@@ -960,7 +975,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
 
     when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key", BillingMode.BYOK))
         .thenReturn(new ProviderClientHandle(chatClient, null));
@@ -995,7 +1010,7 @@ class ChatServiceTest {
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(chatRepository.existsById(chatId)).thenReturn(true);
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
@@ -1046,7 +1061,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
@@ -1089,7 +1104,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENROUTER)).thenReturn(Optional.empty());
 
@@ -1138,7 +1153,7 @@ class ChatServiceTest {
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(chatRepository.existsById(chatId)).thenReturn(true);
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(entitlementService.resolveBillingMode(userId)).thenReturn(BillingMode.MANAGED);
     when(entitlementService.reserveManagedCall(userId)).thenReturn(reservation);
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENROUTER)).thenReturn(Optional.empty());
@@ -1322,6 +1337,23 @@ class ChatServiceTest {
   }
 
   @Test
+  void extractProviderErrorMessage_formatsSpringAiToolExecutionException() {
+    var ex =
+        new org.springframework.ai.tool.execution.ToolExecutionException(
+            org.springframework.ai.tool.definition.ToolDefinition.builder()
+                .name("url_fetcher")
+                .description("Fetch a URL")
+                .inputSchema("{}")
+                .build(),
+            new IllegalArgumentException("host was not approved"));
+
+    String result = StreamErrorHandler.extractProviderMessage(ex);
+
+    assertThat(result)
+        .isEqualTo("Tool 'url_fetcher' failed while processing the request: host was not approved");
+  }
+
+  @Test
   void classifyStreamError_detectsTimeoutWithoutHttpStatus() {
     String result =
         StreamErrorHandler.classify(
@@ -1352,6 +1384,20 @@ class ChatServiceTest {
   }
 
   @Test
+  void classifyStreamError_mapsSpringAiToolExecutionException() {
+    var ex =
+        new org.springframework.ai.tool.execution.ToolExecutionException(
+            org.springframework.ai.tool.definition.ToolDefinition.builder()
+                .name("calculator")
+                .description("Calculate")
+                .inputSchema("{}")
+                .build(),
+            new IllegalStateException("boom"));
+
+    assertThat(StreamErrorHandler.classify(ex, null)).isEqualTo("TOOL_ERROR");
+  }
+
+  @Test
   void buildClientStreamErrorMessage_includesProviderModelStatusAndPartialHint() {
     String message =
         StreamErrorHandler.buildClientMessage(
@@ -1371,6 +1417,7 @@ class ChatServiceTest {
   void expectedStreamFailures_includeProviderAndTimeoutKinds() {
     assertThat(StreamErrorHandler.isExpectedFailure("TIMEOUT")).isTrue();
     assertThat(StreamErrorHandler.isExpectedFailure("PROVIDER_ERROR")).isTrue();
+    assertThat(StreamErrorHandler.isExpectedFailure("TOOL_ERROR")).isTrue();
     assertThat(StreamErrorHandler.isExpectedFailure("UNKNOWN")).isFalse();
   }
 
@@ -1378,7 +1425,7 @@ class ChatServiceTest {
 
   private void setupSendMessageMocks(ChatEntity chat, String apiKey) {
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of(apiKey));
     when(providerClientFactory.getClient(RequestDTO.Provider.OPENAI, apiKey, BillingMode.BYOK))
@@ -1506,7 +1553,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
@@ -1551,7 +1598,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
@@ -1602,7 +1649,7 @@ class ChatServiceTest {
     userMessage.setRole(Role.USER);
     userMessage.setMessage("original content");
     when(messageRepository.findByIdAndChatId(messageId, chatId)).thenReturn(Optional.of(userMessage));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
     when(apiKeyService.getKey(userId, RequestDTO.Provider.OPENAI))
         .thenReturn(Optional.of("stored-key"));
 
@@ -1697,7 +1744,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
 
     when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key", BillingMode.BYOK))
         .thenReturn(new ProviderClientHandle(chatClient, null));
@@ -1742,7 +1789,7 @@ class ChatServiceTest {
     chat.setChatId(chatId);
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
 
     when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key", BillingMode.BYOK))
         .thenReturn(new ProviderClientHandle(chatClient, null));
@@ -1775,7 +1822,7 @@ class ChatServiceTest {
     chat.setUserId(userId);
     when(chatRepository.findByChatIdAndUserId(chatId, userId)).thenReturn(Optional.of(chat));
     when(chatRepository.existsById(chatId)).thenReturn(true);
-    when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
+    lenient().when(messageRepository.findByChatIdOrderByCreatedAtDesc(any(), any())).thenReturn(List.of());
 
     when(providerClientFactory.getClient(RequestDTO.Provider.GOOGLE, "goog-key", BillingMode.BYOK))
         .thenReturn(new ProviderClientHandle(chatClient, null));

@@ -38,7 +38,7 @@ class BillingModeResolverTest {
     props.setGoogle(googleServerKey);
     props.setClaude(claudeServerKey);
     props.setOpenrouter(openRouterServerKey);
-    return new BillingModeResolver(apiKeyService, entitlementService, props);
+    return new BillingModeResolver(apiKeyService, entitlementService, props, new MockEnvironment());
   }
 
   private BillingModeResolver newResolverWithAllServerKeys() {

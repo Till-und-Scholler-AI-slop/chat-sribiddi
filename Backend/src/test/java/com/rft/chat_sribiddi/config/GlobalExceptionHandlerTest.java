@@ -25,9 +25,8 @@ class GlobalExceptionHandlerTest {
     var response = handler.handlePlanRestriction(ex);
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-    assertThat(response.getBody())
-        .containsEntry("reason", "MANAGED_PROVIDER_UNCONFIGURED")
-        .containsEntry("plan", "FREE");
+    assertThat(response.getBody().code()).isEqualTo("MANAGED_PROVIDER_UNCONFIGURED");
+    assertThat(response.getBody().details()).containsEntry("plan", "FREE");
   }
 
   @Test
@@ -43,7 +42,7 @@ class GlobalExceptionHandlerTest {
     var response = handler.handleWebClientResponse(ex);
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
-    assertThat(response.getBody()).containsEntry("message", "Rate limit exceeded");
+    assertThat(response.getBody().message()).isEqualTo("Rate limit exceeded");
   }
 
   @Test
@@ -60,7 +59,7 @@ class GlobalExceptionHandlerTest {
     var response = handler.handleProviderResponse(ex);
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-    assertThat(response.getBody()).containsEntry("message", "Invalid model");
+    assertThat(response.getBody().message()).isEqualTo("Invalid model");
   }
 
   @Test
@@ -80,7 +79,7 @@ class GlobalExceptionHandlerTest {
     var response = handler.handleOpenAiService(ex);
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
-    assertThat(response.getBody()).containsEntry("message", "Rate limit exceeded");
+    assertThat(response.getBody().message()).isEqualTo("Rate limit exceeded");
   }
 
   @Test
@@ -99,7 +98,7 @@ class GlobalExceptionHandlerTest {
     var response = handler.handleTransientAi(ex);
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
-    assertThat(response.getBody()).containsEntry("message", "Provider rate limit");
+    assertThat(response.getBody().message()).isEqualTo("Provider rate limit");
   }
 
   @Test
@@ -109,6 +108,25 @@ class GlobalExceptionHandlerTest {
     var response = handler.handleNonTransientAi(ex);
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-    assertThat(response.getBody()).containsEntry("message", "Invalid AI request");
+    assertThat(response.getBody().message()).isEqualTo("Invalid AI request");
+  }
+
+  @Test
+  void handleToolExecution_mapsSpringAiToolFailureToBadGateway() {
+    var ex =
+        new org.springframework.ai.tool.execution.ToolExecutionException(
+            org.springframework.ai.tool.definition.ToolDefinition.builder()
+                .name("url_fetcher")
+                .description("Fetch a URL")
+                .inputSchema("{}")
+                .build(),
+            new IllegalArgumentException("host was not approved"));
+
+    var response = handler.handleToolExecution(ex);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+    assertThat(response.getBody().message())
+        .isEqualTo(
+            "Tool 'url_fetcher' failed while processing the request: host was not approved");
   }
 }

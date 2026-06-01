@@ -13,7 +13,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class DocumentTextExtractor {
 
-  public List<PageText> extract(String mimeType, byte[] data) {
+  static final String PAGE_METADATA = "page";
+
+  public List<Document> extract(String mimeType, byte[] data) {
     String normalized = normalizeMimeType(mimeType);
     if ("application/pdf".equals(normalized)) {
       return extractPdf(data);
@@ -29,7 +31,7 @@ public class DocumentTextExtractor {
     return "application/pdf".equals(normalized) || isTextMimeType(normalized);
   }
 
-  private List<PageText> extractPdf(byte[] data) {
+  private List<Document> extractPdf(byte[] data) {
     try {
       PdfDocumentReaderConfig config =
           PdfDocumentReaderConfig.builder()
@@ -44,16 +46,20 @@ public class DocumentTextExtractor {
       PagePdfDocumentReader reader =
           new PagePdfDocumentReader(new ByteArrayResource(data), config);
       return reader.read().stream()
-          .map(
-              document ->
-                  new PageText(
-                      pageMetadata(document, PagePdfDocumentReader.METADATA_START_PAGE_NUMBER),
-                      normalizePdfText(document.getText())))
-          .filter(page -> !page.text().isBlank())
+          .map(document -> normalizeDocument(document, normalizePdfText(document.getText())))
+          .filter(document -> !document.getText().isBlank())
           .toList();
     } catch (RuntimeException e) {
       throw new IllegalArgumentException("PDF could not be read", e);
     }
+  }
+
+  static Integer pageMetadata(Document document) {
+    Integer page = pageMetadata(document, PAGE_METADATA);
+    if (page != null) {
+      return page;
+    }
+    return pageMetadata(document, PagePdfDocumentReader.METADATA_START_PAGE_NUMBER);
   }
 
   private static Integer pageMetadata(Document document, String key) {
@@ -71,15 +77,17 @@ public class DocumentTextExtractor {
     return null;
   }
 
-  private List<PageText> extractText(byte[] data) {
+  private List<Document> extractText(byte[] data) {
     TextReader reader = new TextReader(new ByteArrayResource(data));
     reader.setCharset(StandardCharsets.UTF_8);
-    return reader.get().stream()
-        .map(Document::getText)
-        .map(DocumentTextExtractor::normalizeText)
-        .filter(text -> !text.isBlank())
-        .map(text -> new PageText(null, text))
+    return reader.read().stream()
+        .map(document -> normalizeDocument(document, normalizeText(document.getText())))
+        .filter(document -> !document.getText().isBlank())
         .toList();
+  }
+
+  private static Document normalizeDocument(Document document, String text) {
+    return new Document(text, document.getMetadata());
   }
 
   private static boolean isTextMimeType(String mimeType) {
@@ -105,6 +113,4 @@ public class DocumentTextExtractor {
   private static String normalizePdfText(String text) {
     return normalizeText(text).replaceAll("[ \\t\\x0B\\f]{2,}", " ");
   }
-
-  public record PageText(Integer page, String text) {}
 }

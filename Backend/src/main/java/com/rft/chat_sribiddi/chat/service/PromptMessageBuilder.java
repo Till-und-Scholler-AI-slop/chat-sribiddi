@@ -2,7 +2,6 @@ package com.rft.chat_sribiddi.chat.service;
 
 import com.rft.chat_sribiddi.billing.Entitlements;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
-import com.rft.chat_sribiddi.chat.model.MessageEntity;
 import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import java.util.ArrayList;
@@ -15,20 +14,11 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.document.Document;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
 public class PromptMessageBuilder {
-
-  private static final String SYSTEM_PROMPT =
-      """
-      You are a helpful assistant. Format every answer as clean, renderer-friendly Markdown.
-      Use paragraphs, lists, tables, blockquotes, and fenced code blocks with language identifiers when helpful.
-      Do not wrap the whole answer in a single code block or use raw HTML unless the user explicitly asks for it.
-      """;
 
   private static final String USER_INSTRUCTION_PREFIX =
       "System instructions for this conversation. Follow them when responding.\n\n";
@@ -37,28 +27,33 @@ public class PromptMessageBuilder {
   private final ChatProperties chatProperties;
 
   List<Message> build(PromptMessageRequest request) {
-    return buildMessages(request, true);
+    return requestMessages(request);
   }
 
   PromptMessageBatch buildBatch(PromptMessageRequest request) {
-    List<Message> advisorMessages = buildMessages(request, false);
-    if (PromptMessageBatch.canUseAdvisors(advisorMessages, request.targetUserMessageId())) {
-      return PromptMessageBatch.from(
-          advisorMessages, request.targetUserMessageId(), request.retrievedDocuments());
+    List<Message> requestMessages = requestMessages(request);
+    int memoryLimit = memoryMessageLimit(request.entitlements());
+    if (memoryLimit <= 0) {
+      // Context limit leaves no room for prior history beyond the current message.
+      return PromptMessageBatch.withSpringAiMemory(
+          requestMessages, null, null, 0, request.documentRetrievalContext());
     }
-    List<Message> combinedMessages =
-        hasDocumentContext(request.retrievedDocuments())
-            ? buildMessages(request, true)
-            : advisorMessages;
-    return PromptMessageBatch.combined(combinedMessages);
+    long priorMessageCount =
+        messageRepository.countContextMessagesBefore(
+            request.chatId(), request.targetUserMessageId());
+    int historyMessageCount = (int) Math.min(priorMessageCount, memoryLimit);
+    String conversationId =
+        RepositoryBackedChatMemory.conversationId(
+            request.chatId(), request.targetUserMessageId(), memoryLimit);
+    return PromptMessageBatch.withSpringAiMemory(
+        requestMessages,
+        RepositoryBackedChatMemory.chatMemory(messageRepository, memoryLimit),
+        conversationId,
+        historyMessageCount,
+        request.documentRetrievalContext());
   }
 
-  private List<Message> buildMessages(PromptMessageRequest request, boolean inlineDocumentContext) {
-    List<MessageEntity> latestMessages =
-        new ArrayList<>(
-            messageRepository.findByChatIdOrderByCreatedAtDesc(
-                request.chatId(), PageRequest.of(0, contextMessageLimit(request.entitlements()))));
-
+  private List<Message> requestMessages(PromptMessageRequest request) {
     List<Message> messages = new ArrayList<>();
     String instructionContent = instructionContent(request.customInstructions());
     if (supportsSystemInstruction(request.provider(), request.modelId())) {
@@ -67,42 +62,25 @@ public class PromptMessageBuilder {
       messages.add(new UserMessage(USER_INSTRUCTION_PREFIX + instructionContent));
     }
 
-    List<MessageEntity> ordered = latestMessages.reversed();
-    for (MessageEntity entity : ordered) {
-      if ((!request.media().isEmpty()
-              || (inlineDocumentContext && hasDocumentContext(request.retrievedDocuments())))
-          && request.targetUserMessageId() != null
-          && entity.getRole() == Role.USER
-          && request.targetUserMessageId().equals(entity.getId())) {
-        String text =
-            inlineDocumentContext
-                ? DocumentContextFormatter.withDocumentContext(
-                    entity.getMessage(), request.retrievedDocuments())
-                : entity.getMessage();
-        messages.add(
-            toUserMessage(
-                text,
-                request.media(),
-                request.entitlements(),
-                entity.getId()));
-        continue;
-      }
-      messages.add(toChatMessage(entity));
-    }
+    messages.add(
+        toUserMessage(
+            request.currentContent(),
+            request.media(),
+            request.entitlements(),
+            request.targetUserMessageId()));
     return messages;
   }
 
   List<Message> buildStateless(StatelessPromptMessageRequest request) {
-    return buildStatelessMessages(request, true);
+    return buildStatelessMessages(request);
   }
 
   PromptMessageBatch buildStatelessBatch(StatelessPromptMessageRequest request) {
-    List<Message> advisorMessages = buildStatelessMessages(request, false);
-    return PromptMessageBatch.from(advisorMessages, null, request.retrievedDocuments());
+    List<Message> advisorMessages = buildStatelessMessages(request);
+    return PromptMessageBatch.from(advisorMessages, null, null);
   }
 
-  private List<Message> buildStatelessMessages(
-      StatelessPromptMessageRequest request, boolean inlineDocumentContext) {
+  private List<Message> buildStatelessMessages(StatelessPromptMessageRequest request) {
     List<Message> messages = new ArrayList<>();
     String instructionContent = instructionContent(request.customInstructions());
     if (supportsSystemInstruction(request.provider(), request.modelId())) {
@@ -120,7 +98,7 @@ public class PromptMessageBuilder {
     }
     allMessages.add(new StatelessChatMessage(Role.USER, request.currentContent()));
 
-    int limit = contextMessageLimit(request.entitlements());
+    int limit = totalContextMessageLimit(request.entitlements());
     int from = Math.max(0, allMessages.size() - limit);
     List<StatelessChatMessage> limited = allMessages.subList(from, allMessages.size());
     for (int i = 0; i < limited.size(); i++) {
@@ -128,16 +106,10 @@ public class PromptMessageBuilder {
       boolean isCurrent = i == limited.size() - 1;
       if (isCurrent
           && item.role() == Role.USER
-          && (!request.media().isEmpty()
-              || (inlineDocumentContext && hasDocumentContext(request.retrievedDocuments())))) {
-        String text =
-            inlineDocumentContext
-                ? DocumentContextFormatter.withDocumentContext(
-                    item.content(), request.retrievedDocuments())
-                : item.content();
+          && !request.media().isEmpty()) {
         messages.add(
             toUserMessage(
-                text,
+                item.content(),
                 request.media(),
                 request.entitlements()));
       } else {
@@ -161,12 +133,13 @@ public class PromptMessageBuilder {
   }
 
   private String instructionContent(String customInstructions) {
+    String systemPrompt = chatProperties.getSystemPrompt();
     return customInstructions != null && !customInstructions.isBlank()
-        ? SYSTEM_PROMPT + "\n\n" + customInstructions
-        : SYSTEM_PROMPT;
+        ? systemPrompt + "\n\n" + customInstructions
+        : systemPrompt;
   }
 
-  private int contextMessageLimit(Entitlements entitlements) {
+  private int totalContextMessageLimit(Entitlements entitlements) {
     int configured = chatProperties.getContextMessageLimit();
     if (entitlements == null || entitlements.contextMessageLimit() <= 0) {
       return Math.max(1, configured);
@@ -174,20 +147,8 @@ public class PromptMessageBuilder {
     return Math.max(1, Math.min(configured, entitlements.contextMessageLimit()));
   }
 
-  private Message toChatMessage(MessageEntity entity) {
-    return switch (entity.getRole()) {
-      case ASSISTANT ->
-          AssistantMessage.builder()
-              .content(entity.getMessage())
-              .properties(sourceMessageMetadata(entity.getId()))
-              .build();
-      case SYSTEM ->
-          SystemMessage.builder()
-              .text(entity.getMessage())
-              .metadata(sourceMessageMetadata(entity.getId()))
-              .build();
-      default -> toUserMessage(entity);
-    };
+  private int memoryMessageLimit(Entitlements entitlements) {
+    return Math.max(0, totalContextMessageLimit(entitlements) - 1);
   }
 
   private Message toChatMessage(Role role, String text) {
@@ -196,15 +157,6 @@ public class PromptMessageBuilder {
       case SYSTEM -> new SystemMessage(text);
       default -> new UserMessage(text);
     };
-  }
-
-  private UserMessage toUserMessage(
-      MessageEntity entity, List<Media> media, Entitlements entitlements) {
-    return toUserMessage(entity.getMessage(), media, entitlements, entity.getId());
-  }
-
-  private UserMessage toUserMessage(MessageEntity entity) {
-    return toUserMessage(entity.getMessage(), List.of(), null, entity.getId());
   }
 
   private UserMessage toUserMessage(
@@ -228,25 +180,16 @@ public class PromptMessageBuilder {
     return sourceMessageId == null ? Map.of() : Map.of("sourceMessageId", sourceMessageId);
   }
 
-  private boolean hasDocumentContext(List<Document> retrievedDocuments) {
-    return retrievedDocuments != null
-        && retrievedDocuments.stream()
-            .anyMatch(
-                document ->
-                    document != null
-                        && document.getText() != null
-                        && !document.getText().isBlank());
-  }
-
   record PromptMessageRequest(
       UUID chatId,
+      String currentContent,
       List<Media> media,
       Long targetUserMessageId,
       String customInstructions,
       RequestDTO.Provider provider,
       String modelId,
       Entitlements entitlements,
-      List<Document> retrievedDocuments) {}
+      DocumentRetrievalContext documentRetrievalContext) {}
 
   record StatelessPromptMessageRequest(
       List<StatelessChatMessage> history,
@@ -256,23 +199,31 @@ public class PromptMessageBuilder {
       RequestDTO.Provider provider,
       String modelId,
       Entitlements entitlements,
-      List<Document> retrievedDocuments) {}
+      DocumentRetrievalContext documentRetrievalContext) {}
 
   record StatelessChatMessage(Role role, String content) {}
+
+  record DocumentRetrievalContext(UUID chatId, String userId) {}
 
   record PromptMessageBatch(
       List<Message> requestMessages,
       List<Message> historyMessages,
-      List<Document> retrievedDocuments,
+      org.springframework.ai.chat.memory.ChatMemory chatMemory,
+      String conversationId,
+      DocumentRetrievalContext documentRetrievalContext,
       int totalMessageCount) {
 
     private static PromptMessageBatch from(
-        List<Message> messages, Long targetUserMessageId, List<Document> retrievedDocuments) {
+        List<Message> messages,
+        Long targetUserMessageId,
+        DocumentRetrievalContext documentRetrievalContext) {
       if (messages.size() <= 2) {
         return new PromptMessageBatch(
             List.copyOf(messages),
             List.of(),
-            normalizedRetrievedDocuments(retrievedDocuments),
+            null,
+            null,
+            documentRetrievalContext,
             messages.size());
       }
       List<Message> requestMessages =
@@ -282,17 +233,25 @@ public class PromptMessageBuilder {
       return new PromptMessageBatch(
           requestMessages,
           historyMessages,
-          normalizedRetrievedDocuments(retrievedDocuments),
+          null,
+          null,
+          documentRetrievalContext,
           messages.size());
     }
 
-    private static PromptMessageBatch combined(List<Message> messages) {
-      return new PromptMessageBatch(List.copyOf(messages), List.of(), List.of(), messages.size());
-    }
-
-    private static boolean canUseAdvisors(List<Message> messages, Long targetUserMessageId) {
-      return targetUserMessageId == null
-          || (!messages.isEmpty() && isTargetUserMessageLast(messages, targetUserMessageId));
+    private static PromptMessageBatch withSpringAiMemory(
+        List<Message> requestMessages,
+        org.springframework.ai.chat.memory.ChatMemory chatMemory,
+        String conversationId,
+        int historyMessageCount,
+        DocumentRetrievalContext documentRetrievalContext) {
+      return new PromptMessageBatch(
+          List.copyOf(requestMessages),
+          List.of(),
+          chatMemory,
+          conversationId,
+          documentRetrievalContext,
+          requestMessages.size() + Math.max(0, historyMessageCount));
     }
 
     List<Message> combinedMessages() {
@@ -307,30 +266,10 @@ public class PromptMessageBuilder {
     }
 
     boolean hasDocumentContext() {
-      return !retrievedDocuments.isEmpty();
-    }
-
-    private static List<Document> normalizedRetrievedDocuments(List<Document> retrievedDocuments) {
-      if (retrievedDocuments == null || retrievedDocuments.isEmpty()) {
-        return List.of();
-      }
-      return List.copyOf(
-          retrievedDocuments.stream()
-              .filter(
-                  document ->
-                      document != null
-                          && document.getText() != null
-                          && !document.getText().isBlank())
-              .toList());
-    }
-
-    private static boolean isTargetUserMessageLast(List<Message> messages, Long targetUserMessageId) {
-      Message last = messages.getLast();
-      if (!(last instanceof UserMessage userMessage)) {
-        return false;
-      }
-      Object sourceMessageId = userMessage.getMetadata().get("sourceMessageId");
-      return targetUserMessageId.equals(sourceMessageId);
+      return documentRetrievalContext != null
+          && documentRetrievalContext.chatId() != null
+          && documentRetrievalContext.userId() != null
+          && !documentRetrievalContext.userId().isBlank();
     }
   }
 }

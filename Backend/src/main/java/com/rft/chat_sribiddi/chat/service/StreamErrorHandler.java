@@ -1,8 +1,6 @@
 package com.rft.chat_sribiddi.chat.service;
 
 import com.anthropic.errors.AnthropicServiceException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.errors.OpenAIServiceException;
 import com.openai.models.ErrorObject;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
@@ -10,14 +8,17 @@ import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.retry.NonTransientAiException;
 import org.springframework.ai.retry.TransientAiException;
+import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 @Slf4j
 public final class StreamErrorHandler {
 
-  private static final String EVENT_ERROR = "error";
-  private static final ObjectMapper ERROR_MAPPER = new ObjectMapper();
+  public static final String EVENT_ERROR = "error";
+  private static final JsonMapper ERROR_MAPPER = new JsonMapper();
 
   private StreamErrorHandler() {}
 
@@ -51,6 +52,9 @@ public final class StreamErrorHandler {
         }
         case AnthropicServiceException anthropicEx -> {
           return formatProviderError(anthropicEx);
+        }
+        case ToolExecutionException toolEx -> {
+          return formatToolExecutionError(toolEx);
         }
         case TransientAiException aiEx -> {
           if (springAiMessage == null
@@ -129,6 +133,9 @@ public final class StreamErrorHandler {
     if (isParseError(error)) {
       return "PARSE_ERROR";
     }
+    if (hasCause(error, ToolExecutionException.class)) {
+      return "TOOL_ERROR";
+    }
     if (hasCause(error, TransientAiException.class)) {
       return "SERVER_ERROR";
     }
@@ -140,7 +147,9 @@ public final class StreamErrorHandler {
 
   public static boolean isExpectedFailure(String errorType) {
     return switch (errorType) {
-      case "TIMEOUT", "PARSE_ERROR", "RATE_LIMIT", "SERVER_ERROR", "PROVIDER_ERROR" -> true;
+      case "TIMEOUT", "PARSE_ERROR", "RATE_LIMIT", "SERVER_ERROR", "PROVIDER_ERROR",
+              "TOOL_ERROR" ->
+          true;
       default -> false;
     };
   }
@@ -166,6 +175,7 @@ public final class StreamErrorHandler {
           case "RATE_LIMIT" -> "The provider rate limit was reached.";
           case "SERVER_ERROR" -> "The provider returned a server error.";
           case "PROVIDER_ERROR" -> "The provider rejected the request.";
+          case "TOOL_ERROR" -> "A tool failed while processing the request.";
           default -> "An unexpected streaming error occurred.";
         });
     if (details.receivedBytes() > 0) {
@@ -274,18 +284,29 @@ public final class StreamErrorHandler {
       JsonNode errorNode = root.path(EVENT_ERROR);
       if (!errorNode.isMissingNode()) {
         JsonNode messageNode = errorNode.path("message");
-        if (messageNode.isTextual() && !messageNode.asText().isBlank()) {
-          return messageNode.asText();
+        if (messageNode.isString() && !messageNode.asString().isBlank()) {
+          return messageNode.asString();
         }
       }
       JsonNode messageNode = root.path("message");
-      if (messageNode.isTextual() && !messageNode.asText().isBlank()) {
-        return messageNode.asText();
+      if (messageNode.isString() && !messageNode.asString().isBlank()) {
+        return messageNode.asString();
       }
     } catch (Exception e) {
       log.debug("Failed to parse provider error response as JSON", e);
     }
     return null;
+  }
+
+  private static String formatToolExecutionError(ToolExecutionException ex) {
+    String toolName =
+        ex.getToolDefinition() == null ? "tool" : ex.getToolDefinition().name();
+    Throwable cause = ex.getCause();
+    String detail = cause == null ? null : cause.getMessage();
+    if (detail == null || detail.isBlank()) {
+      return "Tool '%s' failed while processing the request.".formatted(toolName);
+    }
+    return "Tool '%s' failed while processing the request: %s".formatted(toolName, detail);
   }
 
   public record StreamErrorDetails(

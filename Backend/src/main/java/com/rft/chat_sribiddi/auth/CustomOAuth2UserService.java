@@ -2,8 +2,7 @@ package com.rft.chat_sribiddi.auth;
 
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
@@ -11,11 +10,10 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CustomOAuth2UserService extends OidcUserService {
-
-  private static final Logger log = LoggerFactory.getLogger(CustomOAuth2UserService.class);
   private final UserRepository userRepository;
 
   @Override

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.rft.chat_sribiddi.chat.model.DocumentChunkEntity;
 import com.rft.chat_sribiddi.chat.repository.DocumentChunkRepository;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.rag.Query;
 import org.springframework.data.domain.Pageable;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,7 +32,7 @@ class DocumentRetrievalServiceTest {
 
   @BeforeEach
   void setUp() {
-    service = new DocumentRetrievalService(chunkRepository);
+    service = new DocumentRetrievalService(chunkRepository, new RagProperties());
     chatId = UUID.randomUUID();
   }
 
@@ -82,16 +84,29 @@ class DocumentRetrievalServiceTest {
   }
 
   @Test
-  void retrieveContext_keepsLegacyFormattedContext() {
-    when(chunkRepository.findInitialChunks(eq(chatId), eq("user-1"), any()))
-        .thenReturn(List.of(chunk(42L, 0, 2, 2, "First chunk.")));
+  void retrieve_usesSpringAiQueryContextForChatScopedRetrieval() {
+    when(chunkRepository.search(eq(chatId), eq("user-1"), eq("deep question"), any()))
+        .thenReturn(List.of(chunk(42L, 0, null, null, "Context from query.")));
 
-    String context = service.retrieveContext(chatId, "user-1", "");
+    Query query =
+        Query.builder()
+            .text("deep question")
+            .context(
+                Map.of(
+                    DocumentRetrievalService.CHAT_ID_CONTEXT_KEY, chatId,
+                    DocumentRetrievalService.USER_ID_CONTEXT_KEY, "user-1"))
+            .build();
 
-    assertThat(context)
-        .contains("Relevant document excerpts for this chat:")
-        .contains("[document 42, chunk 1, pages 2]")
-        .contains("First chunk.");
+    List<Document> documents = service.retrieve(query);
+
+    assertThat(documents).singleElement().extracting(Document::getText).isEqualTo("Context from query.");
+  }
+
+  @Test
+  void retrieve_returnsEmptyWhenSpringAiQueryContextIsMissing() {
+    assertThat(service.retrieve(new Query("deep question"))).isEmpty();
+    verify(chunkRepository, never()).search(any(), any(), any(), any());
+    verify(chunkRepository, never()).findInitialChunks(any(), any(), any());
   }
 
   private static DocumentChunkEntity chunk(

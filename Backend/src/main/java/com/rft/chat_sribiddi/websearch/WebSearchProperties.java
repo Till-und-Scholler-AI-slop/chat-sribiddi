@@ -23,4 +23,6 @@ public class WebSearchProperties {
 
   /** Optional server-side Brave Search API key used when the user has no BYOK search key. */
   private String apiKey = "";
+
+  private String searchUrl = "https://api.search.brave.com/res/v1/web/search";
 }

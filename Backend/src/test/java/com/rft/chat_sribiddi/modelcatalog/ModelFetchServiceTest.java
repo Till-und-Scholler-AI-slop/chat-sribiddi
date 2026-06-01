@@ -8,7 +8,6 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rft.chat_sribiddi.chat.service.OpenRouterProviderProperties;
 import java.lang.reflect.Method;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +20,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.json.JsonMapper;
 
 class ModelFetchServiceTest {
 
@@ -33,7 +33,12 @@ class ModelFetchServiceTest {
   void setUp() throws Exception {
     openRouterProperties = new OpenRouterProviderProperties();
     httpProperties = new ModelCatalogHttpProperties();
-    service = new ModelFetchService(openRouterProperties, httpProperties);
+    service = new ModelFetchService(
+        RestClient.builder()
+            .requestFactory(new org.springframework.http.client.JdkClientHttpRequestFactory())
+            .build(),
+        new JsonMapper(),
+        openRouterProperties);
     isRelevantOpenAiModel =
         ModelFetchService.class.getDeclaredMethod("isRelevantOpenAiModel", String.class);
     isRelevantOpenAiModel.setAccessible(true);
@@ -79,11 +84,11 @@ class ModelFetchServiceTest {
   void toOpenRouterModelOption_mapsPricingAndContextFields() throws Exception {
     Method toOpenRouterModelOption =
         ModelFetchService.class.getDeclaredMethod(
-            "toOpenRouterModelOption", com.fasterxml.jackson.databind.JsonNode.class);
+            "toOpenRouterModelOption", tools.jackson.databind.JsonNode.class);
     toOpenRouterModelOption.setAccessible(true);
 
     var payload =
-        new ObjectMapper()
+        new JsonMapper()
             .readTree(
                 """
                 {
@@ -128,7 +133,7 @@ class ModelFetchServiceTest {
   void fetchGoogleModels_parsesJsonResponseFromStringBody() {
     RestClient.Builder builder = RestClient.builder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-    service = new ModelFetchService(builder.build(), new ObjectMapper(), openRouterProperties);
+    service = new ModelFetchService(builder.build(), new JsonMapper(), openRouterProperties);
 
     server
         .expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models"))
@@ -159,7 +164,7 @@ class ModelFetchServiceTest {
   void fetchOpenRouterModels_parsesCatalogResponseFromStringBody() {
     RestClient.Builder builder = RestClient.builder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-    service = new ModelFetchService(builder.build(), new ObjectMapper(), openRouterProperties);
+    service = new ModelFetchService(builder.build(), new JsonMapper(), openRouterProperties);
 
     server
         .expect(requestTo(openRouterProperties.getModelCatalogUrl()))
@@ -216,7 +221,7 @@ class ModelFetchServiceTest {
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     openRouterProperties.setAppName("");
     openRouterProperties.setReferrer("");
-    service = new ModelFetchService(builder.build(), new ObjectMapper(), openRouterProperties);
+    service = new ModelFetchService(builder.build(), new JsonMapper(), openRouterProperties);
 
     server
         .expect(requestTo(openRouterProperties.getModelCatalogUrl()))
@@ -242,6 +247,8 @@ class ModelFetchServiceTest {
   void springContextInstantiatesServiceUsingInjectedPropertiesConstructor() {
     try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
       context.register(OpenRouterProviderProperties.class, ModelCatalogHttpProperties.class, ModelFetchService.class);
+      context.getDefaultListableBeanFactory().registerSingleton("objectMapper", new tools.jackson.databind.json.JsonMapper());
+      context.getDefaultListableBeanFactory().registerSingleton("restClient", org.springframework.web.client.RestClient.create());
 
       context.refresh();
 
