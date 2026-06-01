@@ -25,11 +25,13 @@ public final class StreamErrorHandler {
   public static StreamErrorDetails describe(
       Provider provider, String modelId, long streamedTextUtf8Bytes, Throwable error) {
     Integer statusCode = extractStatusCode(error);
+    String providerMessage = extractProviderMessage(error);
     return new StreamErrorDetails(
         provider,
         modelId,
         statusCode,
         classify(error, statusCode),
+        providerMessage,
         streamedTextUtf8Bytes);
   }
 
@@ -84,6 +86,11 @@ public final class StreamErrorHandler {
   }
 
   public static String formatProviderError(OpenAIServiceException ex) {
+    String rawBody = ex.body() == null ? null : ex.body().toString();
+    if (rawBody != null && !rawBody.isBlank()) {
+      log.warn("Upstream OpenAI-compatible provider rejected request (HTTP {}): {}",
+          ex.statusCode(), rawBody);
+    }
     try {
       String message = ex.body().convert(ErrorObject.class).message();
       if (message != null && !message.isBlank()) {
@@ -96,6 +103,11 @@ public final class StreamErrorHandler {
   }
 
   public static String formatProviderError(AnthropicServiceException ex) {
+    String rawBody = ex.body() == null ? null : ex.body().toString();
+    if (rawBody != null && !rawBody.isBlank()) {
+      log.warn("Upstream Anthropic provider rejected request (HTTP {}): {}",
+          ex.statusCode(), rawBody);
+    }
     return formatProviderError(ex.body().toString(), ex.statusCode());
   }
 
@@ -178,6 +190,10 @@ public final class StreamErrorHandler {
           case "TOOL_ERROR" -> "A tool failed while processing the request.";
           default -> "An unexpected streaming error occurred.";
         });
+    String providerMessage = details.providerMessage();
+    if (providerMessage != null && !providerMessage.isBlank()) {
+      builder.append(": ").append(providerMessage.trim());
+    }
     if (details.receivedBytes() > 0) {
       builder.append(" Partial response shown.");
     }
@@ -314,5 +330,6 @@ public final class StreamErrorHandler {
       String modelId,
       Integer statusCode,
       String errorType,
+      String providerMessage,
       Long receivedBytes) {}
 }
