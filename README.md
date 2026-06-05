@@ -34,7 +34,7 @@ A lightweight, blazing-fast AI chat wrapper that supports multiple models with b
 - **🔑 BYOK Access** — Signed-in users chat with encrypted provider API keys; guests can use OpenRouter Free when configured.
 - **📱 Mobile + Web** — Fully responsive PWA. Chat on any device, any screen size.
 - **🔐 OAuth2 Auth** — Secure login via OAuth2. No passwords to manage, no accounts to remember.
-- **⚡ Lightning Fast** — Spring Boot backend with Redis caching keeps responses snappy.
+- **⚡ Lightning Fast** — Hono backend with PostgreSQL and Redis keeps responses snappy.
 - **🐳 Self-Hostable** — One `docker compose up` and you're live. Own your data.
 - **🔄 Active Development** — 201+ PRs merged. We ship daily.
 
@@ -44,7 +44,7 @@ A lightweight, blazing-fast AI chat wrapper that supports multiple models with b
 
 | Layer | Tech |
 |:---:|:---|
-| **Backend** | Java · Spring Boot |
+| **Backend** | TypeScript · Hono · Kysely |
 | **Frontend** | Vue 3 · Nuxt 3 · Nuxt UI · TypeScript |
 | **Cache** | Redis |
 | **Reverse Proxy** | Caddy |
@@ -93,7 +93,7 @@ We love contributions! chat-sribiddi moves fast and there's always room for more
 ### Getting Started
 
 1. **Fork** the repo and create your branch: `git checkout -b feat/my-feature`
-2. **Make your changes** and ensure tests pass: `./gradlew test`
+2. **Make your changes** and ensure tests pass: `cd Backend && npm test`
 3. **Commit** with a clear message: `git commit -m "feat: add my awesome feature"`
 4. **Push** and open a Pull Request
 

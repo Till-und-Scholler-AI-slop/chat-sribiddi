@@ -1,22 +1,31 @@
-FROM eclipse-temurin:25-jdk-noble AS build
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 
-COPY gradlew gradlew
-COPY gradle gradle
-COPY build.gradle.kts settings.gradle.kts ./
-COPY src src
+COPY package.json package-lock.json ./
+RUN npm ci
 
-RUN chmod +x gradlew && ./gradlew --no-daemon clean bootJar
+FROM deps AS build
+COPY tsconfig.json vitest.config.ts biome.json ./
+COPY src ./src
+RUN npm run build
 
-FROM eclipse-temurin:25-jre-noble
+FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
+ENV NODE_ENV=production
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl \
+  && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-COPY --from=build /app/build/libs/*.jar /app/app.jar
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY --from=build /app/dist ./dist
+COPY src/config/model-catalog.yaml ./src/config/model-catalog.yaml
+COPY src/main/resources ./src/main/resources
 
 RUN chown -R appuser:appuser /app
 
@@ -24,11 +33,7 @@ EXPOSE 8080
 
 USER appuser
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
 
-ENTRYPOINT ["java", \
-  "-XX:+UseG1GC", \
-  "-XX:MaxGCPauseMillis=200", \
-  "-XX:+UseStringDeduplication", \
-  "-jar", "/app/app.jar"]
+CMD ["node", "dist/index.js"]

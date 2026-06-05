@@ -12,7 +12,7 @@ the deployment `.env` files.
 - Public domain: `https://germinai.de`
 - Host reverse proxy: Caddy, configured by [`infra/caddy/Caddyfile`](../infra/caddy/Caddyfile)
 - Frontend: Nuxt container exposed only on `127.0.0.1:3000`
-- Backend: Spring Boot container exposed only on `127.0.0.1:8080`
+- Backend: TypeScript/Hono container exposed only on `127.0.0.1:8080`
 - Backend dependencies: Postgres and Redis from [`Backend/deploy/docker-compose.prod.yml`](../Backend/deploy/docker-compose.prod.yml)
 - Frontend deploy config: [`Frontend/web/deploy/docker-compose.prod.yml`](../Frontend/web/deploy/docker-compose.prod.yml)
 
@@ -20,8 +20,10 @@ Caddy routing conventions:
 
 - `/api/*` is routed to the backend with `handle_path`, so the backend receives
   paths without the `/api` prefix.
-- `/login/oauth2/*` is routed directly to the backend for the Google OAuth
-  callback. This path is used by Spring Security's default redirect endpoint.
+- `/login/oauth2/*` is routed directly to the backend for the Google login OAuth
+  callback. The Hono backend preserves this existing redirect endpoint.
+- `/provider-connections/*` is routed directly to the backend for model-provider
+  OAuth callbacks such as OpenRouter PKCE and Google provider OAuth.
 - `/oauth2/*` is routed directly to the backend as an optional non-`/api`
   authorization entrypoint.
 - Everything else is routed to the Nuxt frontend.
@@ -30,7 +32,7 @@ Frontend/backend URL conventions:
 
 - Production frontend must use `NUXT_PUBLIC_BACKEND_BASE_URL=/api` or the
   equivalent absolute same-origin value `https://germinai.de/api`.
-- Backend controllers are registered without an `/api` prefix. The `/api`
+- Backend routes are registered without an `/api` prefix. The `/api`
   prefix is a Caddy public-path concern.
 - OAuth login starts at `/api/oauth2/authorization/google` from the frontend and
   should redirect to Google with `redirect_uri=https://germinai.de/login/oauth2/code/google`.
@@ -72,7 +74,7 @@ Rate and quota defaults:
   anonymous `RATE_LIMIT_ANONYMOUS_PER_MINUTE=300` and authenticated
   `RATE_LIMIT_AUTHENTICATED_PER_MINUTE=600`.
 - Anonymous chat has a separate daily guest OpenRouter Free cap,
-  `ACCESS_GUEST_DAILY_CAP=20` by default. Production should keep Redis
+  `GUEST_OPENROUTER_FREE_DAILY_CAP=20` by default. Production should keep Redis
   available because Redis-backed rate limiting and guest quota checks fail
   closed when Redis is configured but unavailable.
 
@@ -82,21 +84,16 @@ Tool configuration:
   provider connection from Settings. There is no managed Brave Search key in
   production config.
 
-Provider Gateway:
+Provider execution:
 
-- Spring Boot remains the public control plane for auth, tenancy, encrypted
-  provider connections, quotas, and SSE. The TypeScript `ProviderGateway/`
-  service is internal-only and executes OpenAI-compatible/local provider calls
-  through the Vercel AI SDK.
-- Enable the backend adapter with `PROVIDER_GATEWAY_ENABLED=true` and set
-  `PROVIDER_GATEWAY_BASE_URL` to the internal gateway URL.
-- Start the gateway with `PROVIDER_GATEWAY_HOST` and `PROVIDER_GATEWAY_PORT`.
-  Private/local provider endpoint URLs are rejected unless
-  `PROVIDER_GATEWAY_ALLOW_PRIVATE_BASE_URLS=true` is set for a trusted local
-  deployment.
-- Do not expose the gateway to browsers or the public internet. Provider
-  secrets are decrypted only by the backend and forwarded to the gateway over
-  the private network for the current user request.
+- Hono is now the public control plane for auth, tenancy, encrypted provider
+  connections, quotas, and SSE.
+- Native providers use the Vercel AI SDK provider packages. Catalog providers
+  with OpenAI-compatible or local endpoint credentials execute through the AI
+  SDK OpenAI-compatible adapter.
+- OpenRouter PKCE and Google provider OAuth are enabled for model credentials.
+  Other provider-specific OAuth/device flows are cataloged but still require
+  explicit implementation before use.
 
 ## Repo-Owned Infra
 
@@ -121,16 +118,17 @@ where operational state exists.
 
 Backend deploy:
 
-1. `.github/workflows/deploy-backend.yml` validates `Backend` with Gradle.
-2. The workflow builds `Backend/app.jar` on GitHub Actions, then uploads the
-   backend bundle and `infra/caddy`.
+1. `.github/workflows/deploy-backend.yml` validates `Backend` with
+   `npm run lint`, `npm run build`, and `npm test`.
+2. The workflow uploads the backend source bundle and `infra/caddy`.
 3. On the VPS it writes `Backend/.env` from `BACKEND_ENV_FILE`.
 4. Optional single GitHub secret `OPENROUTER_API_KEY` overrides the matching
    key in `Backend/.env` when it is set, so rotating the guest OpenRouter Free
    key does not require editing the whole multiline `BACKEND_ENV_FILE` secret.
 5. It runs `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build --remove-orphans`.
-   The production compose file uses `Backend/Dockerfile.prod`, which copies the
-   prebuilt JAR instead of running Gradle on the VPS.
+   The production compose file uses `Backend/Dockerfile.prod`, runs the Flyway
+   service against `src/main/resources/db/migration`, then starts the Node/Hono
+   backend image.
 6. It validates and installs the Caddyfile:
    - `caddy validate --config "$APP_DIR/infra/caddy/Caddyfile"`
    - `cp "$APP_DIR/infra/caddy/Caddyfile" /etc/caddy/Caddyfile`
@@ -230,23 +228,21 @@ https://germinai.de/login/oauth2/code/google
 https://germinai.de/provider-connections/google/callback
 ```
 
-## Spring Boot Production Startup Pitfalls
+## Hono Production Startup Pitfalls
 
 Production startup must be validated through CI/deploy, not only focused unit
-tests. The following issues have previously broken the VPS:
+tests. Current Hono-specific checks:
 
-- Spring AI 2.0.0-M7 uses the official OpenAI Java SDK for OpenAI-compatible
-  chat requests. For OpenRouter, configure `OPENROUTER_BASE_URL` with the API
-  root such as `https://openrouter.ai/api/v1`; there is no separate
-  `OPENROUTER_COMPLETIONS_PATH` override.
-- Spring Boot 4 uses Jackson 3 under the `tools.jackson.*` package for its
-  auto-configured mapper. Services that inject the Boot-managed mapper should
-  use `tools.jackson.databind.ObjectMapper`, not `com.fasterxml.jackson.databind.ObjectMapper`.
-- With Spring 7, components that have more than one constructor should mark the
-  production constructor with `@Autowired`; otherwise Spring may try a default
-  constructor and fail at runtime.
-- If adding a package-private constructor for tests, keep the public production
-  constructor annotated.
+- `ENCRYPTION_SECRET` and, if separated, `SESSION_SECRET` must decode to
+  32-byte base64 values in production.
+- Flyway must finish before the backend starts. If `flyway` exits non-zero,
+  check SQL migrations before restarting the backend.
+- `POSTGRES_*` values are preferred over hand-written `DATABASE_URL` in Compose
+  so special characters in passwords are encoded by the backend config loader.
+- `OPENROUTER_BASE_URL` should be an API root such as
+  `https://openrouter.ai/api/v1`.
+- The old Java sources are still present for audit/fallback, but production
+  Dockerfiles and workflows target the TypeScript backend.
 
 ## Production Change Checklist
 
@@ -255,7 +251,7 @@ Before considering production work done:
 - [ ] Relevant source/config changes are committed to the repo, not only applied on the VPS.
 - [ ] Caddy, Docker Compose, env templates, and workflows are updated when their
       production behavior changes.
-- [ ] Backend tests pass after backend changes: `cd Backend && ./gradlew test`.
+- [ ] Backend checks pass after backend changes: `cd Backend && npm run lint && npm run build && npm test`.
 - [ ] Frontend tests/build pass after frontend changes: `cd Frontend/web && bun run test`, `bun run lint`, `bun run build`.
 - [ ] GitHub Actions for the pushed commit are green.
 - [ ] Live smoke checks in this runbook pass.

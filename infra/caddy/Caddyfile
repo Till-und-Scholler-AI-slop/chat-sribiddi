@@ -20,13 +20,18 @@ germinai.de {
     }
   }
 
-  # OAuth callback from Google (Spring Security default redirect endpoint).
+  # OAuth callback from Google login.
   handle /login/oauth2/* {
     reverse_proxy 127.0.0.1:8080
   }
 
   # Optional direct OAuth authorization entrypoint (without /api prefix).
   handle /oauth2/* {
+    reverse_proxy 127.0.0.1:8080
+  }
+
+  # Direct provider OAuth callbacks preserve previously configured redirect URIs.
+  handle /provider-connections/* {
     reverse_proxy 127.0.0.1:8080
   }
 

@@ -1,8 +1,5 @@
-.gradle
-build
-.idea
-.git
-.gitignore
-*.iml
+node_modules
+dist
+coverage
 .env
-compose.yaml
+*.log

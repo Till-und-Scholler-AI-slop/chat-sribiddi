@@ -1,67 +1,66 @@
-# Backend — Spring Boot 4 / Java 25 / Spring AI 2.0.0-M8
+# Backend — Hono / TypeScript / Kysely
 
-## OVERVIEW
-REST API for multi-model AI chat with BYOK credential access and guest OpenRouter Free. Feature-package architecture — each domain owns controllers, services, entities, repos, DTOs.
+## Overview
 
-## STRUCTURE
+TypeScript backend for multi-model AI chat with BYOK credential access, guest
+OpenRouter Free, SSE streaming, encrypted provider credentials, PostgreSQL, and
+Redis-backed quota/rate limiting. Hono is the active runtime.
+
+## Active Structure
+
 ```
-src/main/java/com/rft/chat_sribiddi/
-├── chat/           # Core chat (largest package, layered sub-packages)
-│   ├── controller/ # ChatController, AnonymousChatController, ChatToolController
-│   ├── service/    # 28 files: ChatService orchestrator, streaming, Spring AI integration
-│   ├── dto/        # Request/response records (RequestDTO, ChatResponseDTO, etc.)
-│   ├── model/      # JPA entities (ChatEntity, MessageEntity, etc.)
-│   ├── repository/ # Spring Data JPA repos
-│   ├── exception/  # ChatNotFoundException
-│   └── toolcall/   # RecordingToolCallback, ToolExecutionCollector
-├── access/         # Credential resolution, key-required checks, access limits
-├── billing/        # Usage events, model pricing lookup, guest quota (FLAT — no sub-packages)
-├── auth/           # OAuth2, security, user settings (flat except config/)
-├── keyring/        # Per-user API key encryption (flat, 7 files)
-├── modelcatalog/   # AI model catalog (flat, 6 files)
-├── tools/          # Chat tools: calculator, URL fetcher, Python sandbox
-│   └── api/        # ChatTool interface, ToolRegistry, ToolResult
-├── websearch/      # Brave Search (flat, 3 files)
-├── audit/          # Audit log (flat, 3 files)
-├── observability/  # ChatMetrics (Micrometer counters/timers)
-└── config/         # Cross-cutting: GlobalExceptionHandler, rate limiting, caching
+src/
+├── app.ts              # Hono app composition
+├── index.ts            # Node server entrypoint
+├── config/             # Env parsing and runtime config
+├── db/                 # Kysely/node-postgres setup and DB typings
+├── errors/             # HttpError and global error mapping
+├── middleware/         # Request id, CORS-adjacent auth checks, CSRF, rate limit
+├── repositories/       # Kysely queries only
+├── routes/             # Thin Hono request adapters
+├── services/           # Business/application logic
+├── use-cases/          # Cross-service orchestration
+├── test-utils/         # Test helpers
+└── main/resources/     # Flyway migrations only
 ```
 
-## CONVENTIONS
-- **Java 25**, Spring Boot 4.0.6, Gradle Kotlin DSL (9.5.1)
-- **Feature-package layout**: `chat/` uses layered sub-dirs; `billing/`, `auth/`, `keyring/` are FLAT (inconsistency is known)
-- **DTOs are `record` types** with static `from()` factories — never expose JPA entities in REST
-- **Lombok**: `@RequiredArgsConstructor` for DI, `@Slf4j` for logging, `@Getter @Setter` on entities (NOT `@Data`)
-- **`@ConfigurationProperties`** for all tuneable values — never hardcode limits in services
-- **Flyway only** for schema — `ddl-auto: none`, migrations in `db/migration/V{n}__*.sql`
-- **Tests**: JUnit 5 + Mockito + AssertJ. `@ExtendWith(MockitoExtension.class)`, no `@SpringBootTest` (disabled in CI). Manual service construction in tests.
+## Conventions
 
-## SPRING AI PATTERNS
-- **All auto-configs excluded** — provider clients built manually via `DefaultProviderClientFactory`
-- **Caffeine cache** (30min TTL, max 200) for `ChatClient` instances per provider+key+credentialSource
-- **Prompt pipeline**: `PromptMessageBuilder` → `PromptAdvisors` (memory+RAG) → `PromptToolBinder` (tools with `RecordingToolCallback`)
-- **`RepositoryBackedChatMemory.saveAll()` is a no-op** — app persists messages itself
-- **SSE streaming**: `ChatStreamSubscriber` has dual paths (auth + stateless), `SseEmitter` lifecycle
+- Node.js 22, ESM TypeScript.
+- Hono route handlers parse/authorize/delegate/respond only. Do not put business
+  logic in routes.
+- Use Kysely repositories for DB access. Services/use-cases should not contain
+  raw SQL unless there is a clear reason.
+- Flyway SQL remains the only schema source:
+  `src/main/resources/db/migration/V{n}__*.sql`.
+- Frontend DTO compatibility matters. Keep response fields camelCase unless the
+  frontend contract changes too.
+- Use `X-Chat-User-Id` only in `development`, `dev`, and `test`.
+- Keep `docs/operations.md` updated for deploy, env, auth/session, Caddy, and
+  container behavior changes.
 
-## ANTI-PATTERNS (THIS PROJECT)
-- **`MessageEntity.chatId`** is raw UUID, no `@ManyToOne` — do NOT add JPA relations without Flyway migration
-- **Static `CryptoService`** in `ApiKeyAttributeConverter` — intentional JPA limitation workaround
-- **`ChatRuntimeOptions`** has 4 overloaded compact constructors (backward compat smell)
-- **Inner records in controllers** — `ChatController.UpdateChatPayload` etc.
-- **`Dotenv`** loads `.env` before Spring startup — non-standard but intentional
-- **k6 load tests** in `src/test/k6/` — JavaScript inside Java source tree (should be at project root)
+## Provider And Tool Notes
 
-## KEY DESIGN DECISIONS
-- No JPA relationships (FK integrity via DB constraints, not `@ManyToOne`)
-- `spring.ai.chat.client.enabled: false` — custom ChatClient factory instead
-- Spring AI auto-configs for OpenAI/Google/Anthropic all excluded
-- Dual security profiles: `dev` (all open) vs `!dev` (OAuth2 + CSRF)
-- `RequestDTO.apiKey` field is `@Deprecated @JsonIgnore` — request-supplied keys silently ignored
+- Native chat providers use the Vercel AI SDK packages.
+- OpenAI-compatible/local endpoint provider connections execute through the AI
+  SDK OpenAI-compatible adapter.
+- OpenRouter PKCE and Google provider OAuth are implemented. Other cataloged
+  provider OAuth/device flows still need explicit implementation before they
+  should be advertised as enabled.
+- Brave Search is user-key only. There is no managed server Brave key.
+- Calculator, current date/time, and URL fetcher are AI SDK model-side tools.
+  Brave Search currently enriches the prompt and writes a tool-call log.
+- Document upload extracts text-like files and PDFs into `document_chunks`.
+  Unsupported binary formats are rejected unless a dedicated extractor is added.
 
-## COMMANDS
+## Commands
+
 ```bash
-./gradlew bootRun --args='--spring.profiles.active=dev'  # Local dev (no auth)
-./gradlew test                                            # All tests
-./gradlew test --tests "…ChatServiceTest"                 # Single test class
-docker compose up -d                                      # Postgres + Redis only
+npm ci
+npm run dev             # local Hono dev server
+npm run build           # TypeScript build
+npm run lint            # Biome check
+npm test                # Vitest + Testcontainers
+npm run db:migrate      # Docker Compose Flyway service
+docker compose up -d    # db, redis, flyway, backend
 ```
