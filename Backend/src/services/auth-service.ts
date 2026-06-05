@@ -62,7 +62,7 @@ export class AuthService {
     const state = randomUrlToken(32);
     const verifier = randomUrlToken(64);
     const challenge = base64Url(crypto.createHash("sha256").update(verifier).digest());
-    const redirectUri = this.googleRedirectUri(c);
+    const redirectUri = this.googleRedirectUri();
     const params = new URLSearchParams({
       client_id: env.GOOGLE_CLIENT_ID,
       redirect_uri: redirectUri,
@@ -107,7 +107,7 @@ export class AuthService {
         code,
         client_id: env.GOOGLE_CLIENT_ID ?? "",
         client_secret: env.GOOGLE_CLIENT_SECRET ?? "",
-        redirect_uri: this.googleRedirectUri(c),
+        redirect_uri: this.googleRedirectUri(),
         grant_type: "authorization_code",
         code_verifier: pending.verifier,
       }),
@@ -167,10 +167,13 @@ export class AuthService {
     setSignedCookie(c, SESSION_COOKIE, payload, Math.floor(env.sessionMaxAgeMs / 1000), true);
   }
 
-  private googleRedirectUri(c: Context) {
-    const url = new URL(c.req.url);
-    return `${url.origin}/login/oauth2/code/google`;
+  private googleRedirectUri() {
+    return googleLoginRedirectUri();
   }
+}
+
+export function googleLoginRedirectUri(publicOrigin = env.APP_FRONTEND_URL) {
+  return new URL("/login/oauth2/code/google", publicOrigin).toString();
 }
 
 function randomUrlToken(bytes: number) {

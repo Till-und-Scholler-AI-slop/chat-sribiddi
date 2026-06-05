@@ -36,6 +36,9 @@ Frontend/backend URL conventions:
   prefix is a Caddy public-path concern.
 - OAuth login starts at `/api/oauth2/authorization/google` from the frontend and
   should redirect to Google with `redirect_uri=https://germinai.de/login/oauth2/code/google`.
+- Hono builds the Google login `redirect_uri` from `APP_FRONTEND_URL`, not from
+  the internal HTTP connection between Caddy and the backend. Production must
+  set `APP_FRONTEND_URL=https://germinai.de`.
 
 Public/authenticated application paths:
 
@@ -221,7 +224,8 @@ Expected: HTTP `302` to `https://accounts.google.com/...`.
 If it returns `502`, check the backend container health and logs. If it returns
 `404`, check Caddy routing and whether `handle_path /api/*` is stripping the
 public `/api` prefix correctly. If Google later rejects the redirect, verify the
-OAuth client configuration includes:
+backend `.env` has `APP_FRONTEND_URL=https://germinai.de` and the OAuth client
+configuration includes:
 
 ```text
 https://germinai.de/login/oauth2/code/google
