@@ -41,6 +41,19 @@ public class ModelCatalogService {
     return List.copyOf(properties.getGoogle());
   }
 
+  public List<ModelCatalogProperties.ModelOption> listGoogleModelsWithBearer(
+      String accessToken, String quotaProjectId) {
+    if (accessToken != null && !accessToken.isBlank()) {
+      List<ModelCatalogProperties.ModelOption> live =
+          modelFetchService.fetchGoogleModelsWithBearer(accessToken, quotaProjectId);
+      if (!live.isEmpty()) {
+        modelPricingLookup.remember(Provider.GOOGLE, live);
+        return live;
+      }
+    }
+    return List.copyOf(properties.getGoogle());
+  }
+
   public List<ModelCatalogProperties.ModelOption> listClaudeModels(String apiKey) {
     if (apiKey != null && !apiKey.isBlank()) {
       List<ModelCatalogProperties.ModelOption> live = modelFetchService.fetchClaudeModels(apiKey);

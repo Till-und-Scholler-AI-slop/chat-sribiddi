@@ -3,6 +3,7 @@ import { PROVIDERS, useChatApi } from '~/composables/useChatApi'
 import { favoriteModelKey } from '~/utils/model-utils'
 import { fetchAllProviderModels } from '~/utils/model-fetch'
 import { useUserSettings } from '~/composables/useUserSettings'
+import { useKeyApi } from '~/composables/useKeyApi'
 
 const PROVIDER_RANK = new Map(PROVIDERS.map((provider, index) => [provider, index]))
 
@@ -10,7 +11,7 @@ const sameModel = (left: ModelOption, right: Pick<ModelOption, 'provider' | 'val
   left.provider === right.provider && left.value === right.value
 
 export const isSelectableModel = (model: Pick<ModelOption, 'availability'>): boolean =>
-  !model.availability || model.availability === 'ALWAYS'
+  !model.availability || model.availability === 'READY' || model.availability === 'ALWAYS'
 
 export const isOpenRouterFreeModel = (model: Pick<ModelOption, 'provider' | 'value'>): boolean =>
   model.provider === 'OPENROUTER' && model.value === 'openrouter/free'
@@ -41,6 +42,7 @@ export function chooseDefaultModel(
 
 export function useModelStore() {
   const { fetchModels } = useChatApi()
+  const { getProviders } = useKeyApi()
   const { settings } = useUserSettings()
 
   const models = useState<ModelOption[]>('chat-models', () => [])
@@ -91,7 +93,8 @@ export function useModelStore() {
         settings.value.expertMode
       )
 
-      models.value = loaded
+      const gatewayModels = await loadGatewayModels(getProviders)
+      models.value = [...loaded, ...gatewayModels]
       loadedExpertMode.value = settings.value.expertMode
       modelsError.value = loaded.length === 0 && errors.length > 0
         ? errors[0]
@@ -133,5 +136,48 @@ export function useModelStore() {
     saveLastUsedModel,
     resolveModel,
     resetModels
+  }
+}
+
+async function loadGatewayModels(
+  getProviders: () => Promise<Array<{
+    id: string
+    label: string
+    execution: string
+    chatProvider: boolean
+    experimental: boolean
+    status: string
+    connections: Array<{
+      id: number
+      status: string
+      defaultModelId?: string | null
+    }>
+  }>>
+): Promise<ModelOption[]> {
+  try {
+    const providers = await getProviders()
+    return providers.flatMap(provider => {
+      if (provider.execution !== 'gateway' || !provider.chatProvider || provider.experimental) {
+        return []
+      }
+      return provider.connections
+        .filter(connection => connection.status === 'READY' && !!connection.defaultModelId?.trim())
+        .map(connection => {
+          const modelId = connection.defaultModelId!.trim()
+          return {
+            label: `${provider.label}: ${modelId}`,
+            value: modelId,
+            provider: provider.id,
+            providerId: provider.id,
+            availability: 'READY' as const,
+            canonicalSlug: `${provider.id}/${modelId}`,
+            description: null,
+            connectionId: connection.id
+          } satisfies ModelOption
+        })
+    })
+  } catch (err) {
+    console.warn('Unable to load gateway provider models', err)
+    return []
   }
 }

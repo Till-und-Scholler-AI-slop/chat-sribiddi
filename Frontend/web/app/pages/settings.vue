@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import type {Provider} from '~/composables/useChatApi'
+import type {
+  ProviderAuthMethod,
+  ProviderCatalogItem,
+  ProviderConnectionStatus,
+  SaveProviderCredentialInput
+} from '~/composables/useKeyApi'
 import { providerLabel } from '~/utils/format'
 
 const { t, locale, locales, setLocale } = useI18n()
@@ -10,7 +16,7 @@ definePageMeta({
 })
 
 const { settings, hydrated } = useUserSettings()
-const {getStatus, saveKey, deleteKey} = useKeyApi()
+const {getProviders, saveKey, saveProviderCredential, deleteKey, startConnection} = useKeyApi()
 const {getCustomInstructions, saveCustomInstructions} = useInstructionsApi()
 const {deleteAccount} = useChatApi()
 const {models, ensureModels} = useChatStore()
@@ -77,10 +83,10 @@ const localeItems = computed(() =>
   }))
 )
 
-type SettingsTab = 'keys' | 'instructions' | 'interface' | 'account'
-const activeTab = ref<SettingsTab>('keys')
+type SettingsTab = 'connections' | 'instructions' | 'interface' | 'account'
+const activeTab = ref<SettingsTab>('connections')
 const tabItems = computed(() => [
-  { label: t('settings.tabs.keys'), value: 'keys', icon: 'i-heroicons-key' },
+  { label: t('settings.tabs.keys'), value: 'connections', icon: 'i-heroicons-key' },
   { label: t('settings.tabs.instructions'), value: 'instructions', icon: 'i-heroicons-document-text' },
   { label: t('settings.tabs.interface'), value: 'interface', icon: 'i-heroicons-paint-brush' },
   { label: t('settings.tabs.account'), value: 'account', icon: 'i-heroicons-user-circle' }
@@ -134,6 +140,29 @@ const handleExpertModeChange = async (next: boolean | 'indeterminate') => {
 
 const loadingStatus = ref(true)
 const status = ref<KeyProviderStatus | null>(null)
+const providerCatalog = ref<ProviderCatalogItem[]>([])
+const extraConnectionForms = reactive<Record<string, {
+  apiKey: string
+  baseUrl: string
+  modelId: string
+  reveal: boolean
+  saving: boolean
+}>>({})
+
+const legacyProviderIds: Record<Provider | 'BRAVE_SEARCH', string> = {
+  OPENAI: 'openai',
+  GOOGLE: 'google',
+  CLAUDE: 'anthropic',
+  OPENROUTER: 'openrouter',
+  BRAVE_SEARCH: 'brave-search'
+}
+
+const catalogById = computed(() => new Map(providerCatalog.value.map(provider => [provider.id, provider])))
+
+const extraProviderCatalog = computed(() => {
+  const hidden = new Set(Object.values(legacyProviderIds))
+  return providerCatalog.value.filter(provider => !hidden.has(provider.id))
+})
 
 const form = reactive<Record<Provider, string>>({
   OPENAI: '',
@@ -163,6 +192,13 @@ const deletingProvider = reactive<Record<Provider, boolean>>({
   OPENROUTER: false
 })
 
+const connectingProvider = reactive<Record<Provider, boolean>>({
+  OPENAI: false,
+  GOOGLE: false,
+  CLAUDE: false,
+  OPENROUTER: false
+})
+
 const braveSearchKey = ref('')
 const braveSearchReveal = ref(false)
 const savingBraveSearch = ref(false)
@@ -181,16 +217,79 @@ const statusByProvider = (provider: Provider) => {
             : status.value.openrouter
 }
 
+const providerCatalogEntry = (provider: Provider | 'BRAVE_SEARCH') =>
+  catalogById.value.get(legacyProviderIds[provider])
+
+const providerAuthMethods = (provider: Provider | 'BRAVE_SEARCH') =>
+  providerCatalogEntry(provider)?.authMethods ?? ['API_KEY']
+
+const authMethodLabel = (method: ProviderAuthMethod) => {
+  const key = `settings.authMethods.${method}`
+  const translated = t(key)
+  return translated === key ? method.replaceAll('_', ' ') : translated
+}
+
+const statusLabel = (value: ProviderConnectionStatus) => {
+  const key = `settings.connectionStatuses.${value}`
+  const translated = t(key)
+  return translated === key ? value.replaceAll('_', ' ') : translated
+}
+
+const statusColor = (value: ProviderConnectionStatus) => {
+  if (value === 'READY') return 'primary'
+  if (value === 'EXPERIMENTAL') return 'warning'
+  if (value === 'DISABLED' || value === 'ERROR') return 'error'
+  return 'neutral'
+}
+
+const extraForm = (providerId: string) => {
+  if (!extraConnectionForms[providerId]) {
+    extraConnectionForms[providerId] = {
+      apiKey: '',
+      baseUrl: '',
+      modelId: '',
+      reveal: false,
+      saving: false
+    }
+  }
+  return extraConnectionForms[providerId]
+}
+
+const extraProviderMethod = (provider: ProviderCatalogItem): ProviderAuthMethod => {
+  if (provider.authMethods.includes('LOCAL_ENDPOINT')) return 'LOCAL_ENDPOINT'
+  if (provider.authMethods.includes('OPENAI_COMPATIBLE')) return 'OPENAI_COMPATIBLE'
+  return 'API_KEY'
+}
+
+const canConfigureExtraProvider = (provider: ProviderCatalogItem) => {
+  if (provider.experimental || provider.status === 'DISABLED') return false
+  return provider.authMethods.some(method =>
+    ['API_KEY', 'OPENAI_COMPATIBLE', 'LOCAL_ENDPOINT'].includes(method)
+  )
+}
+
+const needsEndpoint = (provider: ProviderCatalogItem) =>
+  provider.authMethods.includes('OPENAI_COMPATIBLE') || provider.authMethods.includes('LOCAL_ENDPOINT')
+
 const keyPresent = (provider: Provider) => form[provider].trim().length > 0
 
 const isProviderBusy = (provider: Provider) => {
-  return savingProvider[provider] || deletingProvider[provider]
+  return savingProvider[provider] || deletingProvider[provider] || connectingProvider[provider]
 }
 
 const refreshStatus = async () => {
   loadingStatus.value = true
   try {
-    status.value = await getStatus()
+    const providers = await getProviders()
+    providerCatalog.value = providers
+    const ready = (id: string) => providers.find(provider => provider.id === id)?.status === 'READY'
+    status.value = {
+      openai: ready('openai'),
+      google: ready('google'),
+      claude: ready('anthropic'),
+      openrouter: ready('openrouter'),
+      brave_search: ready('brave-search')
+    }
   } finally {
     loadingStatus.value = false
   }
@@ -264,6 +363,30 @@ async function handleDelete(provider: Provider) {
   }
 }
 
+async function handleConnect(provider: Provider, authMethod: ProviderAuthMethod) {
+  connectingProvider[provider] = true
+  try {
+    const response = await startConnection(provider, authMethod)
+    if (response?.mode === 'REDIRECT' && response.authorizationUrl) {
+      window.location.assign(response.authorizationUrl)
+      return
+    }
+    toast.add({
+      title: t('settings.connectionUnavailableTitle'),
+      description: response?.message || t('settings.connectionUnavailableDescription'),
+      color: 'warning'
+    })
+  } catch (err) {
+    toast.add({
+      title: t('settings.connectionStartFailed'),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    connectingProvider[provider] = false
+  }
+}
+
 async function handleSaveBraveSearch() {
   const key = braveSearchKey.value.trim()
   if (!key) {
@@ -313,6 +436,66 @@ async function handleDeleteBraveSearch() {
     })
   } finally {
     deletingBraveSearch.value = false
+  }
+}
+
+async function handleSaveExtraProvider(provider: ProviderCatalogItem) {
+  const form = extraForm(provider.id)
+  const method = extraProviderMethod(provider)
+  const apiKey = form.apiKey.trim()
+  const baseUrl = form.baseUrl.trim()
+  const modelId = form.modelId.trim()
+  if (needsEndpoint(provider) && !baseUrl) {
+    toast.add({
+      title: t('settings.missingEndpointTitle'),
+      description: t('settings.missingEndpointDescription'),
+      color: 'warning'
+    })
+    return
+  }
+  if (method === 'API_KEY' && !apiKey) {
+    toast.add({
+      title: t('settings.missingKeyTitle'),
+      description: t('settings.missingKeyDescription', { provider: provider.label }),
+      color: 'warning'
+    })
+    return
+  }
+  if (!modelId) {
+    toast.add({
+      title: t('settings.missingModelIdTitle'),
+      description: t('settings.missingModelIdDescription'),
+      color: 'warning'
+    })
+    return
+  }
+
+  form.saving = true
+  try {
+    const payload: SaveProviderCredentialInput = {
+      authMethod: method,
+      apiKey: apiKey || undefined,
+      baseUrl: baseUrl || undefined,
+      defaultModelId: modelId,
+      displayName: provider.label
+    }
+    await saveProviderCredential(provider.id, payload)
+    form.apiKey = ''
+    form.modelId = ''
+    await refreshStatus()
+    toast.add({
+      title: t('settings.connectionSavedTitle', { provider: provider.label }),
+      description: t('settings.keySavedDescription'),
+      color: 'primary'
+    })
+  } catch (err) {
+    toast.add({
+      title: t('settings.connectionSaveFailed', { provider: provider.label }),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    form.saving = false
   }
 }
 
@@ -415,7 +598,7 @@ async function handleDeleteAccount() {
           </div>
 
           <div class="space-y-8 mt-8">
-            <template v-if="activeTab === 'keys'">
+            <template v-if="activeTab === 'connections'">
               <UCard class="card-elevated">
             <div class="flex items-start justify-between gap-4 mb-8 flex-wrap">
               <div class="space-y-1">
@@ -464,6 +647,16 @@ async function handleDeleteAccount() {
                     />
                   </UFormField>
 
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <UBadge
+                      v-for="method in providerAuthMethods(item.provider)"
+                      :key="`${item.provider}-${method}`"
+                      variant="soft"
+                      color="neutral"
+                      :label="authMethodLabel(method)"
+                    />
+                  </div>
+
                   <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
                     <div class="flex items-center justify-between gap-3 flex-wrap">
                       <div class="flex items-center gap-3 flex-wrap">
@@ -487,6 +680,30 @@ async function handleDeleteAccount() {
                             :disabled="!keyPresent(item.provider) || isProviderBusy(item.provider)"
                             @click="handleSave(item.provider)"
                         />
+                        <UButton
+                            v-if="item.provider === 'OPENROUTER'"
+                            type="button"
+                            variant="outline"
+                            color="neutral"
+                            size="sm"
+                            icon="i-heroicons-link"
+                            :label="t('settings.connectProvider')"
+                            :loading="connectingProvider[item.provider]"
+                            :disabled="isProviderBusy(item.provider)"
+                            @click="handleConnect(item.provider, 'OAUTH_PKCE')"
+                        />
+                        <UButton
+                            v-if="item.provider === 'GOOGLE'"
+                            type="button"
+                            variant="outline"
+                            color="neutral"
+                            size="sm"
+                            icon="i-heroicons-link"
+                            :label="t('settings.connectProvider')"
+                            :loading="connectingProvider[item.provider]"
+                            :disabled="isProviderBusy(item.provider)"
+                            @click="handleConnect(item.provider, 'OAUTH_AUTH_CODE')"
+                        />
                       </div>
                       <UButton
                           type="button"
@@ -503,6 +720,119 @@ async function handleDeleteAccount() {
                   </div>
                 </div>
               </UCard>
+            </div>
+          </UCard>
+
+          <UCard class="card-elevated">
+            <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+              <div class="space-y-1">
+                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.openClawCatalogHeading') }}</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-xl">
+                  {{ t('settings.openClawCatalogDescription') }}
+                </p>
+              </div>
+              <UBadge
+                color="neutral"
+                variant="soft"
+                :label="t('settings.providersCount', { count: providerCatalog.length })"
+              />
+            </div>
+
+            <div v-if="loadingStatus" class="space-y-3">
+              <div class="skeleton-shimmer h-12" />
+              <div class="skeleton-shimmer h-12" />
+              <div class="skeleton-shimmer h-12" />
+            </div>
+            <div v-else class="max-h-[32rem] overflow-y-auto divide-y divide-gray-200 dark:divide-gray-800 rounded-md border border-gray-200 dark:border-gray-800">
+              <div
+                v-for="provider in extraProviderCatalog"
+                :key="provider.id"
+                class="grid grid-cols-1 gap-3 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,28rem)] lg:items-start"
+              >
+                <div class="min-w-0 space-y-2">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-medium text-gray-900 dark:text-gray-50">{{ provider.label }}</span>
+                    <UBadge
+                      v-if="provider.experimental"
+                      color="warning"
+                      variant="soft"
+                      :label="t('settings.experimental')"
+                    />
+                    <UBadge
+                      v-if="provider.localOnly"
+                      color="neutral"
+                      variant="soft"
+                      :label="t('settings.localOnly')"
+                    />
+                    <UBadge
+                      :color="statusColor(provider.status)"
+                      variant="soft"
+                      :label="statusLabel(provider.status)"
+                    />
+                  </div>
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <UBadge
+                      v-for="method in provider.authMethods"
+                      :key="`${provider.id}-${method}`"
+                      color="neutral"
+                      variant="soft"
+                      :label="authMethodLabel(method)"
+                    />
+                  </div>
+                </div>
+
+                <div v-if="canConfigureExtraProvider(provider)" class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <div class="grid grid-cols-1 gap-2">
+                    <UInput
+                      v-if="needsEndpoint(provider)"
+                      v-model="extraForm(provider.id).baseUrl"
+                      :placeholder="provider.localOnly ? 'http://127.0.0.1:1234/v1' : 'https://api.provider.com/v1'"
+                      icon="i-heroicons-link"
+                      autocomplete="off"
+                      class="w-full"
+                      :aria-label="t('settings.endpointUrlLabel')"
+                    />
+                    <UInput
+                      v-model="extraForm(provider.id).modelId"
+                      :placeholder="t('settings.gatewayModelIdPlaceholder')"
+                      icon="i-heroicons-cpu-chip"
+                      autocomplete="off"
+                      class="w-full"
+                      :aria-label="t('settings.gatewayModelIdLabel')"
+                    />
+                    <UInput
+                      v-model="extraForm(provider.id).apiKey"
+                      :type="extraForm(provider.id).reveal ? 'text' : 'password'"
+                      :placeholder="t('settings.gatewayApiKeyPlaceholder')"
+                      icon="i-heroicons-lock-closed"
+                      autocomplete="off"
+                      class="w-full"
+                      :aria-label="t('settings.gatewayApiKeyLabel')"
+                    />
+                  </div>
+                  <div class="flex items-center gap-2 sm:flex-col sm:items-stretch">
+                    <UButton
+                      type="button"
+                      variant="ghost"
+                      color="neutral"
+                      size="sm"
+                      :icon="extraForm(provider.id).reveal ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
+                      :label="extraForm(provider.id).reveal ? t('common.hide') : t('common.show')"
+                      @click="extraForm(provider.id).reveal = !extraForm(provider.id).reveal"
+                    />
+                    <UButton
+                      type="button"
+                      color="primary"
+                      size="sm"
+                      icon="i-heroicons-check-circle"
+                      :label="t('settings.saveConnection')"
+                      :loading="extraForm(provider.id).saving"
+                      :disabled="extraForm(provider.id).saving"
+                      @click="handleSaveExtraProvider(provider)"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </UCard>
 

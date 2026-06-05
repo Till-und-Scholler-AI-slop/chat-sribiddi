@@ -2,11 +2,13 @@ package com.rft.chat_sribiddi.chat.service;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.AnthropicClientAsync;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.genai.Client;
 import com.google.genai.types.HttpOptions;
+import com.rft.chat_sribiddi.access.CredentialAccessService.ResolvedCredential;
 import com.openai.client.OpenAIClient;
 import com.openai.client.OpenAIClientAsync;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
@@ -23,6 +25,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.anthropic.AnthropicChatModel;
@@ -37,6 +40,7 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
 
 @Slf4j
 @Primary
@@ -47,6 +51,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
   private final GoogleProviderProperties googleProperties;
   private final OpenRouterProviderProperties openRouterProperties;
   private final ObservationRegistry observationRegistry;
+  private final ObjectMapper objectMapper;
   private final Cache<String, ProviderClientHandle> openAiCache;
   private final Cache<String, ProviderClientHandle> googleCache;
   private final Cache<String, ProviderClientHandle> claudeCache;
@@ -62,6 +67,7 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
     this.openRouterProperties = openRouterProperties;
     this.observationRegistry =
         observationRegistry == null ? ObservationRegistry.NOOP : observationRegistry;
+    this.objectMapper = new ObjectMapper();
     this.openAiCache = buildCache();
     this.googleCache = buildCache();
     this.claudeCache = buildCache();
@@ -150,6 +156,33 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
       case BRAVE_SEARCH ->
           throw new UnsupportedOperationException("BRAVE_SEARCH is not a chat model provider");
     };
+  }
+
+  @Override
+  public ProviderClientHandle getClient(Provider provider, ResolvedCredential credential) {
+    Objects.requireNonNull(credential, "credential must not be null");
+    if (provider == Provider.GOOGLE && credential.hasOAuthTokens()) {
+      if (credential.refreshToken() == null || credential.refreshToken().isBlank()) {
+        throw new IllegalArgumentException("Google OAuth refresh token is required");
+      }
+      if (credential.clientId() == null
+          || credential.clientId().isBlank()
+          || credential.clientSecret() == null
+          || credential.clientSecret().isBlank()) {
+        throw new IllegalArgumentException("Google OAuth client credentials are required");
+      }
+      String cacheKey = credential.credentialSource().name() + ":" + hashApiKey(credential.cacheMaterial());
+      return googleCache.get(
+          cacheKey,
+          _ -> {
+            GoogleOAuthChatModel model =
+                new GoogleOAuthChatModel(
+                    credential, RestClient.builder().build(), objectMapper);
+            ChatClient chatClient = ChatClient.create(model, observationRegistry);
+            return new ProviderClientHandle(chatClient, null);
+          });
+    }
+    return getClient(provider, credential.apiKey(), credential.credentialSource());
   }
 
   private ChatClient chatClient(OpenAiChatModel.Builder builder) {

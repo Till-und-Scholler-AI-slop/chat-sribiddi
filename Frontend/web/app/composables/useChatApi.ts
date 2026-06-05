@@ -14,7 +14,9 @@ export const REQUEST_USER_ID_HEADER = 'X-Chat-User-Id'
 export type ModelOption = {
   label: string
   value: string
-  provider: Provider
+  provider: Provider | string
+  providerId?: string | null
+  connectionId?: number | null
   canonicalSlug?: string | null
   created?: number | null
   description?: string | null
@@ -118,8 +120,10 @@ type UpdateChatInput = {
 
 type SendMessageInput = {
   content: string
-  provider: Provider
+  provider?: Provider
+  providerId?: string
   modelId: string
+  connectionId?: number
   media?: Array<Pick<MediaAttachment, 'mimeType' | 'data'>>
   webSearchEnabled?: boolean
   toolConsents?: ToolConsent[]
@@ -626,7 +630,7 @@ export function useChatApi() {
       outputModalities?: string[] | null
       supportedParameters?: string[] | null
       availability?: string | null
-    }>>(`${modelEndpointPath(provider)}?expert=${expert ? 'true' : 'false'}`, {
+    }>>(`${modelEndpointPath(provider)}&expert=${expert ? 'true' : 'false'}`, {
       method: 'GET'
     })
 

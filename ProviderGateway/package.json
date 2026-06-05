@@ -1,0 +1,20 @@
+{
+  "name": "chat-sribiddi-provider-gateway",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "PROVIDER_GATEWAY_ALLOW_PRIVATE_BASE_URLS=true node --import tsx --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^2.0.48",
+    "ai": "^6.0.197"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.6",
+    "typescript": "^6.0.3"
+  }
+}

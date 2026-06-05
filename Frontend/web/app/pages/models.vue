@@ -422,7 +422,7 @@ onMounted(async () => {
   box-shadow: 0 4px 14px color-mix(in oklab, black 30%, transparent);
 }
 
-/* BYOK-only model cards: mute the card while keeping catalog information visible. */
+/* Connection-required model cards: mute the card while keeping catalog information visible. */
 .model-card-locked {
   opacity: 0.7;
 }

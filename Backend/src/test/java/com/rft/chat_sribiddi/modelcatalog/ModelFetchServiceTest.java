@@ -161,6 +161,34 @@ class ModelFetchServiceTest {
   }
 
   @Test
+  void fetchGoogleModelsWithBearer_sendsAuthorizationAndQuotaProjectHeaders() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    service = new ModelFetchService(builder.build(), new ObjectMapper(), openRouterProperties);
+
+    server
+        .expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models"))
+        .andExpect(method(GET))
+        .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+        .andExpect(header("x-goog-user-project", "quota-project"))
+        .andRespond(
+            withSuccess(
+                """
+                {
+                  "models": [
+                    { "name": "models/gemini-3.1-pro-preview", "displayName": "Gemini 3.1 Pro" }
+                  ]
+                }
+                """,
+                MediaType.APPLICATION_JSON));
+
+    var models = service.fetchGoogleModelsWithBearer("access-token", "quota-project");
+
+    assertThat(models).extracting(ModelCatalogProperties.ModelOption::getId)
+        .containsExactly("gemini-3.1-pro-preview");
+  }
+
+  @Test
   void fetchOpenRouterModels_parsesCatalogResponseFromStringBody() {
     RestClient.Builder builder = RestClient.builder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

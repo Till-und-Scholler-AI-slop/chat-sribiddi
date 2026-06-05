@@ -14,7 +14,8 @@ const settingsMock = vi.hoisted(() => ({ value: { expertMode: false } }))
 
 vi.mock('~/composables/useChatApi', () => ({
   PROVIDERS: ['OPENAI', 'GOOGLE', 'CLAUDE', 'OPENROUTER'],
-  isModelLocked: (model: { availability?: string | null }) => model.availability === 'BYOK_ONLY',
+  isModelLocked: (model: { availability?: string | null }) =>
+    model.availability === 'NEEDS_CONNECTION' || model.availability === 'BYOK_ONLY',
   useChatApi: () => apiMock
 }))
 
@@ -29,7 +30,7 @@ const makeModel = (provider: Provider, value: string, label: string): ModelOptio
   promptPrice: '0.000001',
   completionPrice: '0.000002',
   requestPrice: null,
-  availability: 'ALWAYS'
+  availability: 'READY'
 })
 
 function installNuxtState() {

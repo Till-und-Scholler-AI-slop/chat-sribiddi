@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import com.rft.chat_sribiddi.chat.dto.RunbookExportDTO;
 import com.rft.chat_sribiddi.chat.service.ChatDocumentService;
 import com.rft.chat_sribiddi.chat.service.ChatService;
+import com.rft.chat_sribiddi.chat.service.GatewayChatService;
 import com.rft.chat_sribiddi.chat.service.RunbookExportService;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,7 @@ class ChatControllerTest {
 
   @Mock private ChatService chatService;
   @Mock private ChatDocumentService chatDocumentService;
+  @Mock private GatewayChatService gatewayChatService;
   @Mock private RunbookExportService runbookExportService;
   @Mock private OidcUser principal;
 
@@ -28,7 +30,7 @@ class ChatControllerTest {
     UUID chatId = UUID.randomUUID();
     RunbookExportDTO export = new RunbookExportDTO("incident.md", "# Incident");
     ChatController controller =
-        new ChatController(chatService, chatDocumentService, runbookExportService);
+        new ChatController(chatService, chatDocumentService, gatewayChatService, runbookExportService);
     when(principal.getSubject()).thenReturn("user-123");
     when(runbookExportService.generateRunbook(chatId, "user-123")).thenReturn(export);
 

@@ -67,26 +67,28 @@ public class ModelFetchService {
                   .get()
                   .uri("https://generativelanguage.googleapis.com/v1beta/models")
                   .header("x-goog-api-key", apiKey));
-
-      if (response == null || !response.has("models")) {
-        return List.of();
-      }
-
-      List<ModelOption> models = new ArrayList<>();
-      for (JsonNode model : response.get("models")) {
-        String fullName = model.get("name").asText();
-        String id = fullName.startsWith("models/") ? fullName.substring(7) : fullName;
-        String displayName =
-            model.has("displayName") ? model.get("displayName").asText() : id;
-
-        if (isRelevantGoogleModel(id)) {
-          models.add(new ModelOption(id, displayName));
-        }
-      }
-      models.sort(Comparator.comparing(ModelOption::getId));
-      return models;
+      return parseGoogleModels(response);
     } catch (Exception e) {
       log.warn("Failed to fetch Google models: {}", e.getMessage());
+      return List.of();
+    }
+  }
+
+  @Cacheable(value = "model-catalog", keyGenerator = "modelCatalogKeyGenerator")
+  public List<ModelOption> fetchGoogleModelsWithBearer(String accessToken, String quotaProjectId) {
+    try {
+      RestClient.RequestHeadersSpec<?> request =
+          restClient
+              .get()
+              .uri("https://generativelanguage.googleapis.com/v1beta/models")
+              .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken);
+      if (quotaProjectId != null && !quotaProjectId.isBlank()) {
+        request = request.header("x-goog-user-project", quotaProjectId);
+      }
+      JsonNode response = getJson(request);
+      return parseGoogleModels(response);
+    } catch (Exception e) {
+      log.warn("Failed to fetch Google models with OAuth: {}", e.getMessage());
       return List.of();
     }
   }
@@ -187,6 +189,25 @@ public class ModelFetchService {
 
   private boolean isRelevantGoogleModel(String id) {
     return id.startsWith("gemini-") || id.startsWith("gemma-");
+  }
+
+  private List<ModelOption> parseGoogleModels(JsonNode response) {
+    if (response == null || !response.has("models")) {
+      return List.of();
+    }
+
+    List<ModelOption> models = new ArrayList<>();
+    for (JsonNode model : response.get("models")) {
+      String fullName = model.get("name").asText();
+      String id = fullName.startsWith("models/") ? fullName.substring(7) : fullName;
+      String displayName = model.has("displayName") ? model.get("displayName").asText() : id;
+
+      if (isRelevantGoogleModel(id)) {
+        models.add(new ModelOption(id, displayName));
+      }
+    }
+    models.sort(Comparator.comparing(ModelOption::getId));
+    return models;
   }
 
   /**

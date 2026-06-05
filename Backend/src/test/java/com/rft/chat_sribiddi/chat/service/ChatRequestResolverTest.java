@@ -62,7 +62,8 @@ class ChatRequestResolverTest {
     AccessLimits limits = accessLimits();
     RequestDTO request =
         new RequestDTO("hello", RequestDTO.Provider.OPENAI, "gpt-5.5", null, null, false);
-    when(credentialAccessService.resolveUserCredential("user-1", RequestDTO.Provider.OPENAI, "gpt-5.5"))
+    when(credentialAccessService.resolveUserCredential(
+            "user-1", RequestDTO.Provider.OPENAI, "gpt-5.5", null))
         .thenReturn(
             new CredentialAccessService.ResolvedCredential(
                 "sk-user", CredentialSource.USER_KEY, limits));

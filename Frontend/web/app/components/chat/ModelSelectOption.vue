@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ModelOption } from '~/composables/useChatApi'
 import { isModelLocked } from '~/utils/model-utils'
-import { optionPriceLabel, PROVIDER_LABELS } from '~/utils/format'
+import { optionPriceLabel, providerLabel } from '~/utils/format'
 
 const { t } = useI18n()
 
@@ -36,7 +36,7 @@ defineProps<{
           :aria-label="t('models.keyRequired')"
         />
       </UTooltip>
-      <UBadge :label="PROVIDER_LABELS[option.provider]" variant="soft" color="neutral" />
+      <UBadge :label="providerLabel(option.provider)" variant="soft" color="neutral" />
     </div>
   </div>
 </template>

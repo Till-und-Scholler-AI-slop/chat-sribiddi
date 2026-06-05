@@ -216,6 +216,18 @@ app:
     max-results: ${WEB_SEARCH_MAX_RESULTS:5}
     request-timeout: ${WEB_SEARCH_REQUEST_TIMEOUT:10s}
     user-agent: ${WEB_SEARCH_USER_AGENT:ChatSribiddi/1.0 (WebSearch)}
+  provider-gateway:
+    enabled: ${PROVIDER_GATEWAY_ENABLED:false}
+    base-url: ${PROVIDER_GATEWAY_BASE_URL:http://127.0.0.1:8095}
+  provider-oauth:
+    google:
+      enabled: ${GOOGLE_PROVIDER_OAUTH_ENABLED:true}
+      client-id: ${GOOGLE_PROVIDER_OAUTH_CLIENT_ID:${GOOGLE_CLIENT_ID:}}
+      client-secret: ${GOOGLE_PROVIDER_OAUTH_CLIENT_SECRET:${GOOGLE_CLIENT_SECRET:}}
+      user-project: ${GOOGLE_PROVIDER_OAUTH_USER_PROJECT:${GOOGLE_PROJECT_ID:}}
+      scopes:
+        - https://www.googleapis.com/auth/cloud-platform
+        - https://www.googleapis.com/auth/generative-language.retriever
   access:
     guest-daily-cap: ${GUEST_OPENROUTER_FREE_DAILY_CAP:20}
     authenticated:

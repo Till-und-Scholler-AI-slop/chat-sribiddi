@@ -18,7 +18,7 @@ public class AccessProperties {
   /** Maximum server-managed OpenRouter Free calls per anonymous browser/IP per UTC day. */
   private long guestDailyCap = 20L;
 
-  /** Limits for authenticated BYOK chats. */
+  /** Limits for authenticated chats using user-owned provider connections. */
   private Limits authenticated = new Limits();
 
   /** Limits for anonymous OpenRouter Free chats. */

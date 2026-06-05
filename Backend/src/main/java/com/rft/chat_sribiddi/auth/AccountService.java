@@ -3,6 +3,7 @@ package com.rft.chat_sribiddi.auth;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyRepository;
+import com.rft.chat_sribiddi.providerconnection.ProviderConnectionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
@@ -20,6 +21,7 @@ public class AccountService {
   private final ChatRepository chatRepository;
   private final MessageRepository messageRepository;
   private final ApiKeyRepository apiKeyRepository;
+  private final ProviderConnectionService providerConnectionService;
   private final OAuth2AuthorizedClientService authorizedClientService;
 
   @Transactional
@@ -31,6 +33,7 @@ public class AccountService {
                 () -> new IllegalStateException("No account found for the current user"));
 
     apiKeyRepository.deleteByUserId(providerId);
+    providerConnectionService.deleteByUserId(providerId);
 
     messageRepository.deleteAllByUserId(providerId);
     chatRepository.deleteByUserId(providerId);

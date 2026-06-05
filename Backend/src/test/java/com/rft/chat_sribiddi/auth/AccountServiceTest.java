@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyRepository;
+import com.rft.chat_sribiddi.providerconnection.ProviderConnectionService;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ class AccountServiceTest {
   @Mock private ChatRepository chatRepository;
   @Mock private MessageRepository messageRepository;
   @Mock private ApiKeyRepository apiKeyRepository;
+  @Mock private ProviderConnectionService providerConnectionService;
   @Mock private OAuth2AuthorizedClientService authorizedClientService;
 
   private AccountService accountService;
@@ -34,6 +36,7 @@ class AccountServiceTest {
             chatRepository,
             messageRepository,
             apiKeyRepository,
+            providerConnectionService,
             authorizedClientService);
   }
 
@@ -48,8 +51,9 @@ class AccountServiceTest {
     accountService.deleteAccount(providerId);
 
     InOrder inOrder =
-        inOrder(apiKeyRepository, messageRepository, chatRepository, userRepository);
+        inOrder(apiKeyRepository, providerConnectionService, messageRepository, chatRepository, userRepository);
     inOrder.verify(apiKeyRepository).deleteByUserId(providerId);
+    inOrder.verify(providerConnectionService).deleteByUserId(providerId);
     inOrder.verify(messageRepository).deleteAllByUserId(providerId);
     inOrder.verify(chatRepository).deleteByUserId(providerId);
     inOrder.verify(userRepository).delete(user);
@@ -67,6 +71,7 @@ class AccountServiceTest {
     accountService.deleteAccount(providerId);
 
     verify(apiKeyRepository).deleteByUserId(providerId);
+    verify(providerConnectionService).deleteByUserId(providerId);
     verify(messageRepository).deleteAllByUserId(providerId);
     verify(chatRepository).deleteByUserId(providerId);
     verify(userRepository).delete(user);
@@ -82,7 +87,7 @@ class AccountServiceTest {
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("No account found");
 
-    verifyNoInteractions(apiKeyRepository, chatRepository, messageRepository);
+    verifyNoInteractions(apiKeyRepository, providerConnectionService, chatRepository, messageRepository);
     verifyNoInteractions(authorizedClientService);
   }
 }

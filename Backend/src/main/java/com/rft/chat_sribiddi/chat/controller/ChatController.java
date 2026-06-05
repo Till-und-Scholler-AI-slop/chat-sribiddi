@@ -11,6 +11,7 @@ import com.rft.chat_sribiddi.chat.dto.SendMessageResponseDTO;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.service.ChatService;
 import com.rft.chat_sribiddi.chat.service.ChatDocumentService;
+import com.rft.chat_sribiddi.chat.service.GatewayChatService;
 import com.rft.chat_sribiddi.chat.service.RunbookExportService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -42,6 +43,7 @@ public class ChatController {
 
   private final ChatService chatService;
   private final ChatDocumentService chatDocumentService;
+  private final GatewayChatService gatewayChatService;
   private final RunbookExportService runbookExportService;
 
   @PostMapping
@@ -133,6 +135,10 @@ public class ChatController {
 
     validatePrincipal(principal);
 
+    if (request.provider() == null) {
+      return ResponseEntity.ok(
+          gatewayChatService.sendMessage(chatId, principal.getSubject(), request));
+    }
     return ResponseEntity.ok(chatService.sendMessage(chatId, principal.getSubject(), request));
   }
 
@@ -146,6 +152,9 @@ public class ChatController {
 
     validatePrincipal(principal);
 
+    if (request.provider() == null) {
+      return gatewayChatService.streamMessage(chatId, principal.getSubject(), request);
+    }
     return chatService.streamMessage(chatId, principal.getSubject(), request);
   }
 
@@ -160,6 +169,10 @@ public class ChatController {
 
     validatePrincipal(principal);
 
+    if (request.provider() == null) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "Gateway provider edit streaming is not enabled yet");
+    }
     return chatService.editAndStreamMessage(chatId, principal.getSubject(), messageId, request);
   }
 

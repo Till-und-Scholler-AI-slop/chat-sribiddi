@@ -12,7 +12,7 @@ import {
   parseAttachmentContext,
   resolveStreamOutcome
 } from '~/composables/chat-helpers'
-import { rekeyStateEntry } from '~/utils/model-utils'
+import { isLegacyProvider, rekeyStateEntry } from '~/utils/model-utils'
 
 type Conversation = {
   session: ChatSession
@@ -706,8 +706,12 @@ export function useChatStore() {
     try {
       const input = {
         content: text,
-        provider: effectiveModel.provider,
+        provider: isLegacyProvider(effectiveModel.provider) ? effectiveModel.provider : undefined,
+        providerId: isLegacyProvider(effectiveModel.provider)
+          ? undefined
+          : effectiveModel.providerId || effectiveModel.provider,
         modelId: effectiveModel.value,
+        connectionId: effectiveModel.connectionId || undefined,
         media: options?.media?.map(item => ({ mimeType: item.mimeType, data: item.data })),
         webSearchEnabled: webSearchEnabled.value || undefined
       }
@@ -878,8 +882,10 @@ export function useChatStore() {
     try {
       const input = {
         content: newText,
-        provider: model.provider,
+        provider: isLegacyProvider(model.provider) ? model.provider : undefined,
+        providerId: isLegacyProvider(model.provider) ? undefined : model.providerId || model.provider,
         modelId: model.value,
+        connectionId: model.connectionId || undefined,
         webSearchEnabled: webSearchEnabled.value || undefined
       }
 

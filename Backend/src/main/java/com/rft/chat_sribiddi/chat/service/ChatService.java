@@ -172,8 +172,7 @@ public class ChatService {
     boolean providerCallSucceeded = false;
     try (var reservation = resolvedCall.quotaReservation()) {
       try (ProviderClientHandle clientHolder =
-          providerClientFactory.getClient(
-              requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.credentialSource())) {
+          providerClientFactory.getClient(requestDTO.provider(), resolvedCall.credential())) {
         PreparedPrompt preparedPrompt =
             chatRequestResolver.preparePromptSpec(
                 chatId, userId, requestDTO, prep.promptBatch(), resolvedCall.apiKey(), clientHolder);
@@ -314,8 +313,7 @@ public class ChatService {
       UUID chatId, String updatedTitle, ResolvedCall resolvedCall) {
     SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
     ProviderClientHandle clientHolder =
-        providerClientFactory.getClient(
-            requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.credentialSource());
+        providerClientFactory.getClient(requestDTO.provider(), resolvedCall.credential());
     try {
       PreparedPrompt preparedPrompt =
           chatRequestResolver.preparePromptSpec(

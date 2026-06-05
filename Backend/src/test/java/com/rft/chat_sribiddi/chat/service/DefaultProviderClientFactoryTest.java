@@ -3,6 +3,7 @@ package com.rft.chat_sribiddi.chat.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rft.chat_sribiddi.access.CredentialAccessService.ResolvedCredential;
 import com.rft.chat_sribiddi.auth.CredentialSource;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.ChatRuntimeOptions;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
@@ -14,6 +15,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,6 +68,29 @@ class DefaultProviderClientFactoryTest {
 
     assertThat(holder1).isNotSameAs(holder2);
     assertThat(holder1.client()).isNotSameAs(holder2.client());
+  }
+
+  @Test
+  void getClient_googleOauth_returnsInitializedClientHandleWithoutApiKey() {
+    ResolvedCredential credential =
+        new ResolvedCredential(
+            null,
+            CredentialSource.USER_OAUTH,
+            new com.rft.chat_sribiddi.access.AccessProperties().authenticatedLimits(),
+            "access-token",
+            "refresh-token",
+            "client-id",
+            "client-secret",
+            "quota-project",
+            Instant.now().plusSeconds(3600),
+            "google",
+            42L);
+
+    ProviderClientHandle holder = factory.getClient(Provider.GOOGLE, credential);
+
+    assertThat(holder).isNotNull();
+    assertThat(holder.client()).isNotNull();
+    assertThat(holder.closeable()).isNull();
   }
 
   @Test

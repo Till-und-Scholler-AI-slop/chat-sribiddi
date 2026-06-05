@@ -44,12 +44,18 @@ Public/authenticated application paths:
 - The backend must have `OPENROUTER_API_KEY` configured only for this guest
   OpenRouter Free path; otherwise anonymous calls return HTTP `503` with
   `MANAGED_PROVIDER_UNCONFIGURED`.
-- Signed-in chat is BYOK-only. A user must store a provider API key in Settings
-  before sending authenticated model requests for that provider; missing keys
-  return `API_KEY_REQUIRED`.
+- Signed-in chat uses per-user provider connections. A user must connect the
+  selected provider in Settings via API key, OAuth, device flow, local endpoint,
+  or the provider-supported method that is enabled in the catalog. Missing
+  connections return `API_KEY_REQUIRED`.
+- Google Provider OAuth is separate from Google login OAuth. Configure
+  `GOOGLE_PROVIDER_OAUTH_CLIENT_ID` and `GOOGLE_PROVIDER_OAUTH_CLIENT_SECRET`
+  when they differ from `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`; set
+  `GOOGLE_PROVIDER_OAUTH_USER_PROJECT` to the billed Google Cloud project used
+  for `x-goog-user-project`.
 - `/settings`, `/usage`, `/compare`, `/api/chats/import`, account endpoints,
-  key endpoints, usage endpoints, and authenticated chat endpoints require a
-  valid session.
+  provider connection endpoints, usage endpoints, and authenticated chat
+  endpoints require a valid session.
 - After a guest logs in, the frontend can call `POST /api/chats/import` to
   persist selected local guest chats without re-calling the AI provider.
 
@@ -72,9 +78,25 @@ Rate and quota defaults:
 
 Tool configuration:
 
-- Web search uses Brave Search only with the signed-in user's stored
-  `BRAVE_SEARCH` key from Settings. There is no managed Brave Search key in
+- Web search uses Brave Search only with the signed-in user's Brave Search
+  provider connection from Settings. There is no managed Brave Search key in
   production config.
+
+Provider Gateway:
+
+- Spring Boot remains the public control plane for auth, tenancy, encrypted
+  provider connections, quotas, and SSE. The TypeScript `ProviderGateway/`
+  service is internal-only and executes OpenAI-compatible/local provider calls
+  through the Vercel AI SDK.
+- Enable the backend adapter with `PROVIDER_GATEWAY_ENABLED=true` and set
+  `PROVIDER_GATEWAY_BASE_URL` to the internal gateway URL.
+- Start the gateway with `PROVIDER_GATEWAY_HOST` and `PROVIDER_GATEWAY_PORT`.
+  Private/local provider endpoint URLs are rejected unless
+  `PROVIDER_GATEWAY_ALLOW_PRIVATE_BASE_URLS=true` is set for a trusted local
+  deployment.
+- Do not expose the gateway to browsers or the public internet. Provider
+  secrets are decrypted only by the backend and forwarded to the gateway over
+  the private network for the current user request.
 
 ## Repo-Owned Infra
 
@@ -148,11 +170,11 @@ chat UI, see only the theme toggle plus Google login button in the sidebar
 footer, send a message with `OpenRouter Free` without a key-required alert,
 and a login button click should navigate to `accounts.google.com`.
 
-Also smoke-check the signed-in BYOK path after backend deploys: with no stored
-provider key, sending a non-guest model request should fail with
-`API_KEY_REQUIRED`; after storing a valid provider key in Settings, the same
+Also smoke-check the signed-in provider-connection path after backend deploys:
+with no ready provider connection, sending a non-guest model request should fail
+with `API_KEY_REQUIRED`; after connecting that provider in Settings, the same
 provider should stream successfully. The web-search tool should bind only after
-a user stores a `BRAVE_SEARCH` key.
+a user connects Brave Search.
 
 ## VPS Triage Commands
 
@@ -205,6 +227,7 @@ OAuth client configuration includes:
 
 ```text
 https://germinai.de/login/oauth2/code/google
+https://germinai.de/provider-connections/google/callback
 ```
 
 ## Spring Boot Production Startup Pitfalls

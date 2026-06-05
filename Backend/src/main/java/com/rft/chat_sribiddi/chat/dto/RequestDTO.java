@@ -1,6 +1,7 @@
 package com.rft.chat_sribiddi.chat.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -18,14 +19,18 @@ import org.springframework.ai.google.genai.common.GoogleGenAiThinkingLevel;
  * Payload for sending a chat message.
  *
  * @param content user message
- * @param provider target model provider
+ * @param provider target legacy/native model provider
+ * @param providerId string provider id for catalog/gateway-backed providers
  * @param modelId model identifier for the provider
+ * @param connectionId optional user-owned provider connection to use
  * @param apiKey deprecated compatibility field; request-supplied API keys are ignored
  */
 public record RequestDTO(
     @NotBlank(message = "content must not be blank") String content,
-    @NotNull(message = "provider is required") Provider provider,
+    Provider provider,
+    @Size(max = 80, message = "providerId is too long") String providerId,
     @NotBlank(message = "modelId must not be blank") String modelId,
+    @Positive(message = "connectionId must be positive") Long connectionId,
     @Deprecated @JsonIgnore String apiKey,
     @Size(max = 5, message = "media supports up to 5 attachments")
         List<@NotNull(message = "media items must not be null") @Valid MediaAttachment> media,
@@ -40,7 +45,7 @@ public record RequestDTO(
       String apiKey,
       List<MediaAttachment> media,
       Boolean webSearchEnabled) {
-    this(content, provider, modelId, apiKey, media, webSearchEnabled, null, null);
+    this(content, provider, null, modelId, null, apiKey, media, webSearchEnabled, null, null);
   }
 
   public RequestDTO(
@@ -51,7 +56,30 @@ public record RequestDTO(
       List<MediaAttachment> media,
       Boolean webSearchEnabled,
       List<ToolConsent> toolConsents) {
-    this(content, provider, modelId, apiKey, media, webSearchEnabled, null, toolConsents);
+    this(
+        content,
+        provider,
+        null,
+        modelId,
+        null,
+        apiKey,
+        media,
+        webSearchEnabled,
+        null,
+        toolConsents);
+  }
+
+  @AssertTrue(message = "provider or providerId is required")
+  public boolean hasProviderSelection() {
+    return provider != null || (providerId != null && !providerId.isBlank());
+  }
+
+  @JsonIgnore
+  public String effectiveProviderId() {
+    if (providerId != null && !providerId.isBlank()) {
+      return providerId.trim();
+    }
+    return provider == null ? null : provider.name();
   }
 
   public record MediaAttachment(

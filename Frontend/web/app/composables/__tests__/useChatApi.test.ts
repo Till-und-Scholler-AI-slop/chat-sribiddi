@@ -34,7 +34,7 @@ describe('normalizeBaseUrl', () => {
 
 describe('modelEndpointPath', () => {
   it('returns the OpenRouter catalog endpoint', () => {
-    expect(modelEndpointPath('OPENROUTER')).toBe('/models/openrouter')
+    expect(modelEndpointPath('OPENROUTER')).toBe('/models?provider=openrouter')
   })
 })
 
@@ -283,7 +283,7 @@ describe('useChatApi.logout', () => {
 
     expect(result[0]).toMatchObject({ value: 'gpt-test', label: 'GPT Test', provider: 'OPENAI' })
     const [url, init] = fetchMock.mock.calls[0]!
-    expect(url).toBe('http://localhost:8080/models/openai?expert=true')
+    expect(url).toBe('http://localhost:8080/models?provider=openai&expert=true')
     expect(init.method).toBe('GET')
   })
 
@@ -315,26 +315,30 @@ describe('useChatApi.logout', () => {
 
 describe('normalizeAvailability', () => {
   it('accepts the known availability flags', () => {
-    expect(normalizeAvailability('ALWAYS')).toBe('ALWAYS')
-    expect(normalizeAvailability('BYOK_ONLY')).toBe('BYOK_ONLY')
+    expect(normalizeAvailability('READY')).toBe('READY')
+    expect(normalizeAvailability('NEEDS_CONNECTION')).toBe('NEEDS_CONNECTION')
+    expect(normalizeAvailability('ALWAYS')).toBe('READY')
+    expect(normalizeAvailability('BYOK_ONLY')).toBe('NEEDS_CONNECTION')
   })
 
   it('is case-insensitive', () => {
-    expect(normalizeAvailability('byok_only')).toBe('BYOK_ONLY')
+    expect(normalizeAvailability('needs_connection')).toBe('NEEDS_CONNECTION')
   })
 
-  it('falls back to ALWAYS for unknown / null / missing values', () => {
-    expect(normalizeAvailability(null)).toBe('ALWAYS')
-    expect(normalizeAvailability(undefined)).toBe('ALWAYS')
-    expect(normalizeAvailability('')).toBe('ALWAYS')
-    expect(normalizeAvailability('something_else')).toBe('ALWAYS')
-    expect(normalizeAvailability(42)).toBe('ALWAYS')
+  it('falls back to READY for unknown / null / missing values', () => {
+    expect(normalizeAvailability(null)).toBe('READY')
+    expect(normalizeAvailability(undefined)).toBe('READY')
+    expect(normalizeAvailability('')).toBe('READY')
+    expect(normalizeAvailability('something_else')).toBe('READY')
+    expect(normalizeAvailability(42)).toBe('READY')
   })
 })
 
 describe('isModelLocked', () => {
-  it('returns true only for BYOK_ONLY models', () => {
+  it('returns true for non-ready model connection states', () => {
+    expect(isModelLocked({ availability: 'READY' })).toBe(false)
     expect(isModelLocked({ availability: 'ALWAYS' })).toBe(false)
+    expect(isModelLocked({ availability: 'NEEDS_CONNECTION' })).toBe(true)
     expect(isModelLocked({ availability: 'BYOK_ONLY' })).toBe(true)
     expect(isModelLocked({ availability: null })).toBe(false)
     expect(isModelLocked({})).toBe(false)

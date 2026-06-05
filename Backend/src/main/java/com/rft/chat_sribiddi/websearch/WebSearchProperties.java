@@ -21,7 +21,7 @@ public class WebSearchProperties {
   /** User-Agent sent to outbound search APIs. */
   private String userAgent = "ChatSribiddi/1.0 (WebSearch)";
 
-  /** Optional server-side Brave Search API key used when the user has no BYOK search key. */
+  /** Deprecated server-side Brave Search key; production should use user provider connections. */
   private String apiKey = "";
 
   private String searchUrl = "https://api.search.brave.com/res/v1/web/search";

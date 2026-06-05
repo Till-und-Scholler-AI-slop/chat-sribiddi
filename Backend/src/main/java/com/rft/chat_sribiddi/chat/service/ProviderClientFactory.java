@@ -1,5 +1,6 @@
 package com.rft.chat_sribiddi.chat.service;
 
+import com.rft.chat_sribiddi.access.CredentialAccessService.ResolvedCredential;
 import com.rft.chat_sribiddi.auth.CredentialSource;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.ChatRuntimeOptions;
@@ -12,6 +13,10 @@ public interface ProviderClientFactory {
    */
   default ProviderClientHandle getClient(Provider provider, String apiKey) {
     return getClient(provider, apiKey, CredentialSource.USER_KEY);
+  }
+
+  default ProviderClientHandle getClient(Provider provider, ResolvedCredential credential) {
+    return getClient(provider, credential.apiKey(), credential.credentialSource());
   }
 
   /**

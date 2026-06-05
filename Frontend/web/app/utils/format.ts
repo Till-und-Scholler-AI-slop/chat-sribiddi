@@ -8,8 +8,8 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
   OPENROUTER: 'OpenRouter'
 }
 
-export function providerLabel(provider: Provider): string {
-  return PROVIDER_LABELS[provider]
+export function providerLabel(provider: Provider | string): string {
+  return PROVIDER_LABELS[provider as Provider] || provider
 }
 
 export function formatTokenCount(count: number | null | undefined): string {

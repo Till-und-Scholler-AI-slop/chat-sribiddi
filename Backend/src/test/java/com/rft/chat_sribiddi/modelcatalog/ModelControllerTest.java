@@ -11,6 +11,8 @@ import com.rft.chat_sribiddi.access.CredentialAccessService;
 import com.rft.chat_sribiddi.auth.RequestUserResolver;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import com.rft.chat_sribiddi.providerconnection.ProviderConnectionService;
+import com.rft.chat_sribiddi.providers.ProviderCatalogService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Optional;
@@ -27,6 +29,7 @@ class ModelControllerTest {
 
   @Mock private ModelCatalogService modelCatalogService;
   @Mock private ApiKeyService apiKeyService;
+  @Mock private ProviderConnectionService providerConnectionService;
   @Mock private HttpServletRequest request;
   @Mock private OidcUser principal;
 
@@ -37,13 +40,15 @@ class ModelControllerTest {
     MockEnvironment environment =
         new MockEnvironment().withProperty("OPENROUTER_API_KEY", "srv-openrouter");
     CredentialAccessService credentialAccessService =
-        new CredentialAccessService(apiKeyService, new AccessProperties(), environment);
+        new CredentialAccessService(
+            apiKeyService, providerConnectionService, new AccessProperties(), environment);
     controller =
         new ModelController(
             modelCatalogService,
             apiKeyService,
             new RequestUserResolver(new MockEnvironment()),
-            credentialAccessService);
+            credentialAccessService,
+            new ProviderCatalogService());
   }
 
   @Test
@@ -57,8 +62,8 @@ class ModelControllerTest {
     var response = controller.openRouterModels(null, request, true);
 
     assertThat(response.getBody()).hasSize(2);
-    assertThat(response.getBody().get(0).getAvailability()).isEqualTo(AvailabilityFlag.ALWAYS);
-    assertThat(response.getBody().get(1).getAvailability()).isEqualTo(AvailabilityFlag.BYOK_ONLY);
+    assertThat(response.getBody().get(0).getAvailability()).isEqualTo(AvailabilityFlag.READY);
+    assertThat(response.getBody().get(1).getAvailability()).isEqualTo(AvailabilityFlag.NEEDS_CONNECTION);
     verify(modelCatalogService).listOpenRouterModels("srv-openrouter");
   }
 
@@ -73,7 +78,7 @@ class ModelControllerTest {
     var response = controller.openRouterModels(principal, request, true);
 
     assertThat(response.getBody()).hasSize(1);
-    assertThat(response.getBody().getFirst().getAvailability()).isEqualTo(AvailabilityFlag.BYOK_ONLY);
+    assertThat(response.getBody().getFirst().getAvailability()).isEqualTo(AvailabilityFlag.NEEDS_CONNECTION);
   }
 
   @Test
@@ -87,7 +92,7 @@ class ModelControllerTest {
 
     var response = controller.openRouterModels(principal, request, true);
 
-    assertThat(response.getBody().getFirst().getAvailability()).isEqualTo(AvailabilityFlag.ALWAYS);
+    assertThat(response.getBody().getFirst().getAvailability()).isEqualTo(AvailabilityFlag.READY);
     verify(modelCatalogService).listOpenRouterModels("user-key");
   }
 
@@ -101,7 +106,7 @@ class ModelControllerTest {
 
     var response = controller.openAiModels(principal, request, true);
 
-    assertThat(response.getBody().getFirst().getAvailability()).isEqualTo(AvailabilityFlag.ALWAYS);
+    assertThat(response.getBody().getFirst().getAvailability()).isEqualTo(AvailabilityFlag.READY);
   }
 
   @Test
@@ -112,7 +117,7 @@ class ModelControllerTest {
 
     var response = controller.openAiModels(null, request, true);
 
-    assertThat(response.getBody().getFirst().getAvailability()).isEqualTo(AvailabilityFlag.BYOK_ONLY);
+    assertThat(response.getBody().getFirst().getAvailability()).isEqualTo(AvailabilityFlag.NEEDS_CONNECTION);
   }
 
   @Test
@@ -150,7 +155,7 @@ class ModelControllerTest {
     var googleResponse = controller.googleModels(principal, request, true);
     var claudeResponse = controller.claudeModels(principal, request, true);
 
-    assertThat(googleResponse.getBody().getFirst().getAvailability()).isEqualTo(AvailabilityFlag.ALWAYS);
-    assertThat(claudeResponse.getBody().getFirst().getAvailability()).isEqualTo(AvailabilityFlag.ALWAYS);
+    assertThat(googleResponse.getBody().getFirst().getAvailability()).isEqualTo(AvailabilityFlag.READY);
+    assertThat(claudeResponse.getBody().getFirst().getAvailability()).isEqualTo(AvailabilityFlag.READY);
   }
 }

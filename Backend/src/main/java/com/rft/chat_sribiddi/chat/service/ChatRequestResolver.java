@@ -40,12 +40,8 @@ public class ChatRequestResolver {
   public ResolvedCall resolveCall(String userId, RequestDTO requestDTO) {
     var resolvedCredential =
         credentialAccessService.resolveUserCredential(
-            userId, requestDTO.provider(), requestDTO.modelId());
-    return new ResolvedCall(
-        resolvedCredential.apiKey(),
-        resolvedCredential.credentialSource(),
-        resolvedCredential.limits(),
-        QuotaReservation.noop());
+            userId, requestDTO.provider(), requestDTO.modelId(), requestDTO.connectionId());
+    return new ResolvedCall(resolvedCredential, QuotaReservation.noop());
   }
 
   public MessagePreparation prepareUserMessage(
