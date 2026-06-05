@@ -1,11 +1,9 @@
 package com.rft.chat_sribiddi.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.rft.chat_sribiddi.auth.UserSettingsController.BillingModePreferenceDTO;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,9 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
 class UserSettingsControllerTest {
@@ -40,40 +36,27 @@ class UserSettingsControllerTest {
   }
 
   @Test
-  void updateBillingMode_isMappedToSettingsBillingModePath() throws Exception {
+  void controller_isMappedToSettingsPath() {
     RequestMapping classMapping = UserSettingsController.class.getAnnotation(RequestMapping.class);
-    PatchMapping methodMapping =
-        UserSettingsController.class
-            .getMethod(
-                "updateBillingMode",
-                OidcUser.class,
-                HttpServletRequest.class,
-                BillingModePreferenceDTO.class)
-            .getAnnotation(PatchMapping.class);
 
     assertThat(classMapping.value()).contains("/settings");
-    assertThat(methodMapping.value()).contains("/billing-mode");
   }
 
   @Test
-  void updateBillingMode_persistsAndReturnsMode() {
-    when(userSettingsService.saveBillingModePreference(USER_ID, BillingMode.BYOK))
-        .thenReturn(BillingMode.BYOK);
+  void getSettings_returnsCustomInstructions() {
+    when(userSettingsService.getCustomInstructions(USER_ID)).thenReturn(java.util.Optional.of("x"));
 
-    var response =
-        controller.updateBillingMode(null, request, new BillingModePreferenceDTO(BillingMode.BYOK));
+    var response = controller.getSettings(null, request);
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-    assertThat(response.getBody()).isNotNull();
-    assertThat(response.getBody().billingMode()).isEqualTo(BillingMode.BYOK);
-    verify(userSettingsService).saveBillingModePreference(USER_ID, BillingMode.BYOK);
+    assertThat(response.getBody()).isEqualTo(new UserSettingsDTO("x"));
   }
 
   @Test
-  void updateBillingMode_rejectsMissingMode() {
-    assertThatThrownBy(() -> controller.updateBillingMode(null, request, null))
-        .isInstanceOf(ResponseStatusException.class)
-        .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
-        .isEqualTo(HttpStatus.BAD_REQUEST);
+  void updateSettings_persistsCustomInstructions() {
+    var response = controller.updateSettings(null, request, new UserSettingsDTO("x"));
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    verify(userSettingsService).saveCustomInstructions(USER_ID, "x");
   }
 }

@@ -9,30 +9,20 @@ export const MODEL_ENDPOINTS: Record<Provider, string> = {
   OPENROUTER: '/models/openrouter'
 }
 
-export type AvailabilityFlag = 'ALWAYS' | 'BYOK_ONLY' | 'UPGRADE_REQUIRED'
+export type AvailabilityFlag = 'ALWAYS' | 'BYOK_ONLY'
 
 export function isModelLocked(model: Pick<ModelOption, 'availability'>): boolean {
-  return model.availability === 'UPGRADE_REQUIRED'
+  return model.availability === 'BYOK_ONLY'
 }
 
 export function normalizeAvailability(value: unknown): AvailabilityFlag {
   if (typeof value === 'string') {
     const upper = value.toUpperCase()
-    if (upper === 'ALWAYS' || upper === 'BYOK_ONLY' || upper === 'UPGRADE_REQUIRED') {
+    if (upper === 'ALWAYS' || upper === 'BYOK_ONLY') {
       return upper
     }
   }
   return 'ALWAYS'
-}
-
-export function normalizeRequiredPlan(value: unknown): 'PREMIUM' | 'MAX' | null {
-  if (typeof value === 'string') {
-    const upper = value.toUpperCase()
-    if (upper === 'PREMIUM' || upper === 'MAX') {
-      return upper
-    }
-  }
-  return null
 }
 
 export function modelEndpointPath(provider: Provider): string {

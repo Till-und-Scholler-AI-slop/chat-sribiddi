@@ -2,8 +2,7 @@ package com.rft.chat_sribiddi.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.rft.chat_sribiddi.auth.Plan;
-import com.rft.chat_sribiddi.billing.PlanRestrictionException;
+import com.rft.chat_sribiddi.access.AccessRestrictionException;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -15,18 +14,29 @@ class GlobalExceptionHandlerTest {
   private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
 
   @Test
-  void handlePlanRestriction_mapsMissingManagedProviderConfigTo503() {
+  void handleAccessRestriction_mapsMissingManagedProviderConfigTo503() {
     var ex =
-        new PlanRestrictionException(
-            PlanRestrictionException.Reason.MANAGED_PROVIDER_UNCONFIGURED,
-            Plan.FREE,
-            "Managed billing mode is not configured for provider OPENROUTER (server key missing)");
+        new AccessRestrictionException(
+            AccessRestrictionException.Reason.MANAGED_PROVIDER_UNCONFIGURED,
+            "OpenRouter Free is not configured on the server");
 
-    var response = handler.handlePlanRestriction(ex);
+    var response = handler.handleAccessRestriction(ex);
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     assertThat(response.getBody().code()).isEqualTo("MANAGED_PROVIDER_UNCONFIGURED");
-    assertThat(response.getBody().details()).containsEntry("plan", "FREE");
+    assertThat(response.getBody().details()).isEmpty();
+  }
+
+  @Test
+  void handleAccessRestriction_mapsApiKeyRequiredToForbidden() {
+    var ex =
+        new AccessRestrictionException(
+            AccessRestrictionException.Reason.API_KEY_REQUIRED, "Add an API key");
+
+    var response = handler.handleAccessRestriction(ex);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    assertThat(response.getBody().code()).isEqualTo("API_KEY_REQUIRED");
   }
 
   @Test

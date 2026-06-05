@@ -5,7 +5,6 @@ import '../i18n/app_strings.dart';
 import '../screens/chat_screen.dart';
 import '../screens/compare_screen.dart';
 import '../screens/models_screen.dart';
-import '../screens/pricing_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/usage_screen.dart';
 import '../theme/app_theme.dart';
@@ -69,7 +68,6 @@ class _SectionView extends StatelessWidget {
       AppSection.models => const ModelsScreen(),
       AppSection.compare => const CompareScreen(),
       AppSection.usage => const UsageScreen(),
-      AppSection.pricing => const PricingScreen(),
       AppSection.settings => const SettingsScreen(),
     };
   }
@@ -189,7 +187,7 @@ class _DesktopSidebar extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.all(12),
-              child: _PlanBadge(),
+              child: _KeyBadge(),
             ),
             const Divider(),
             Padding(
@@ -244,14 +242,14 @@ class _SidebarButton extends StatelessWidget {
   }
 }
 
-class _PlanBadge extends StatelessWidget {
+class _KeyBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = AppStrings.of(context);
     final palette = ChatPalette.of(context);
     return InkWell(
       borderRadius: BorderRadius.circular(10),
-      onTap: () => AppScope.read(context).setSection(AppSection.pricing),
+      onTap: () => AppScope.read(context).setSection(AppSection.settings),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -261,28 +259,28 @@ class _PlanBadge extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(Icons.workspace_premium_outlined, color: palette.accent),
+            Icon(Icons.key_outlined, color: palette.accent),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    strings.t('billing.planLabel'),
+                    strings.t('mobile.keyAccess'),
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                           color: palette.muted,
                         ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    strings.t('mobile.planUsage'),
+                    strings.t('mobile.keyAccessHint'),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ),
             ),
             Chip(
-              label: Text(strings.t('billing.planBadge.free')),
+              label: Text(strings.t('mobile.byokOnly')),
               visualDensity: VisualDensity.compact,
             ),
           ],
@@ -297,7 +295,6 @@ const _desktopSections = [
   AppSection.models,
   AppSection.compare,
   AppSection.usage,
-  AppSection.pricing,
   AppSection.settings,
 ];
 
@@ -315,7 +312,6 @@ String _sectionLabel(AppStrings strings, AppSection section) {
     AppSection.models => strings.t('sidebar.models'),
     AppSection.compare => strings.t('sidebar.compare'),
     AppSection.usage => strings.t('sidebar.usage'),
-    AppSection.pricing => strings.t('mobile.pricing'),
     AppSection.settings => strings.t('sidebar.settings'),
   };
 }
@@ -326,7 +322,6 @@ IconData _sectionIcon(AppSection section) {
     AppSection.models => Icons.memory_outlined,
     AppSection.compare => Icons.compare_arrows_outlined,
     AppSection.usage => Icons.bar_chart_outlined,
-    AppSection.pricing => Icons.workspace_premium_outlined,
     AppSection.settings => Icons.settings_outlined,
   };
 }
@@ -337,7 +332,6 @@ IconData _sectionSelectedIcon(AppSection section) {
     AppSection.models => Icons.memory,
     AppSection.compare => Icons.compare_arrows,
     AppSection.usage => Icons.bar_chart,
-    AppSection.pricing => Icons.workspace_premium,
     AppSection.settings => Icons.settings,
   };
 }

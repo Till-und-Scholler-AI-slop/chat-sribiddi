@@ -56,13 +56,13 @@ class InMemoryRateLimitFilterTest {
   }
 
   @Test
-  void shouldNotFilter_skipsBillingWebhook() throws ServletException {
+  void shouldNotFilter_doesNotSkipRemovedWebhookPath() throws ServletException {
     RateLimitProperties properties = new RateLimitProperties();
     var filter =
         new InMemoryRateLimitFilter(
             properties, Clock.fixed(Instant.parse("2026-04-29T12:00:00Z"), ZoneOffset.UTC));
 
-    assertThat(filter.shouldNotFilter(new MockHttpServletRequest("POST", "/billing/webhook")))
-        .isTrue();
+    assertThat(filter.shouldNotFilter(new MockHttpServletRequest("POST", "/removed-webhook")))
+        .isFalse();
   }
 }

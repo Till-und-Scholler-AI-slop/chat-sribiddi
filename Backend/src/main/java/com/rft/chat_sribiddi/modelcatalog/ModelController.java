@@ -1,8 +1,7 @@
 package com.rft.chat_sribiddi.modelcatalog;
 
+import com.rft.chat_sribiddi.access.CredentialAccessService;
 import com.rft.chat_sribiddi.auth.RequestUserResolver;
-import com.rft.chat_sribiddi.billing.EntitlementService;
-import com.rft.chat_sribiddi.billing.ManagedApiKeyProperties;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -24,8 +23,7 @@ public class ModelController {
   private final ModelCatalogService modelCatalogService;
   private final ApiKeyService apiKeyService;
   private final RequestUserResolver requestUserResolver;
-  private final EntitlementService entitlementService;
-  private final ManagedApiKeyProperties managedApiKeyProperties;
+  private final CredentialAccessService credentialAccessService;
 
   @GetMapping("/openai")
   public ResponseEntity<List<ModelCatalogProperties.ModelOption>> openAiModels(
@@ -67,14 +65,10 @@ public class ModelController {
       @RequestParam(defaultValue = "false") boolean expert) {
     String userId = requestUserResolver.resolveUserId(principal, request).orElse(null);
     String userKey = lookupUserKey(userId, Provider.OPENROUTER);
-    // Free-tier users typically have no BYOK key; fall back to the server-managed OpenRouter
-    // key so the catalog is fetched live, then entitlement filtering narrows anonymous/Free
-    // managed users to OpenRouter's free router model (`openrouter/free`).
     boolean hasUserKey = hasText(userKey);
-    String apiKey = hasUserKey ? userKey : managedApiKeyOrNull();
+    String apiKey =
+        hasUserKey ? userKey : credentialAccessService.guestOpenRouterApiKey().orElse(null);
     List<ModelCatalogProperties.ModelOption> models = modelCatalogService.listOpenRouterModels(apiKey);
-    // Without a user key, only plan-usable OpenRouter models are returned. With a user key, BYOK
-    // takes precedence and all returned models are selectable.
     return ResponseEntity.ok(
         usableModels(userId, Provider.OPENROUTER, models, hasUserKey, expert));
   }
@@ -85,9 +79,9 @@ public class ModelController {
       List<ModelCatalogProperties.ModelOption> models,
       boolean hasUserKey,
       boolean expert) {
-    List<ModelCatalogProperties.ModelOption> usable =
-        entitlementService.filterUsableModelsForPlan(userId, provider, models, hasUserKey);
-    return expert ? usable : modelCatalogService.compactModels(provider, usable);
+    List<ModelCatalogProperties.ModelOption> annotated =
+        credentialAccessService.annotateModels(userId, provider, models, hasUserKey);
+    return expert ? annotated : modelCatalogService.compactModels(provider, annotated);
   }
 
   private String lookupUserKey(String userId, Provider provider) {
@@ -95,11 +89,6 @@ public class ModelController {
       return null;
     }
     return apiKeyService.getKey(userId, provider).orElse(null);
-  }
-
-  private String managedApiKeyOrNull() {
-    String key = managedApiKeyProperties.getOpenrouter();
-    return hasText(key) ? key : null;
   }
 
   private boolean hasText(String value) {

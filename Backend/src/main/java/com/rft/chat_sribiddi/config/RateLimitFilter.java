@@ -1,6 +1,5 @@
 package com.rft.chat_sribiddi.config;
 
-import com.rft.chat_sribiddi.auth.Plan;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,14 +22,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
   private final RateLimitProperties properties;
   private final RateLimiter rateLimiter;
-  private final RateLimitPlanResolver planResolver;
 
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {
     String path = request.getRequestURI();
     return !properties.isEnabled()
         || "OPTIONS".equalsIgnoreCase(request.getMethod())
-        || "/billing/webhook".equals(path)
         || "/actuator/health".equals(path)
         || "/actuator/info".equals(path);
   }
@@ -56,8 +53,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
     if (authentication != null && authentication.isAuthenticated()
         && !"anonymousUser".equals(authentication.getPrincipal())) {
-      Plan plan = planResolver.resolvePlan(authentication.getName());
-      return new RateLimit("user:" + authentication.getName(), properties.limitFor(plan));
+      return new RateLimit("user:" + authentication.getName(), properties.getAuthenticatedRequestsPerMinute());
     }
     return new RateLimit("ip:" + clientIp(request), properties.getAnonymousRequestsPerMinute());
   }

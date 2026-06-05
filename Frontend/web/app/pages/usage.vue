@@ -74,7 +74,7 @@ const loadUsage = async () => {
     })
     const model = modelFilter.value.trim()
     if (model) params.set('model', model)
-    usage.value = await requestJson<UsageResponse>(`/billing/usage?${params}`, { method: 'GET' })
+    usage.value = await requestJson<UsageResponse>(`/usage?${params}`, { method: 'GET' })
   } catch (err) {
     error.value = tt(err)
   } finally {

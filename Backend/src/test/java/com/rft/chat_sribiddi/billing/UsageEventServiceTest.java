@@ -6,8 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.rft.chat_sribiddi.auth.BillingMode;
-import com.rft.chat_sribiddi.auth.Plan;
+import com.rft.chat_sribiddi.auth.CredentialSource;
 import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
@@ -29,7 +28,6 @@ class UsageEventServiceTest {
   void record_persistsUsageEventWithEstimatedCost() {
     User user = new User();
     user.setId(42L);
-    user.setPlan(Plan.PREMIUM);
     when(userRepository.findByProviderId("provider-user")).thenReturn(Optional.of(user));
     when(modelPricingLookup.find(Provider.OPENROUTER, "openai/gpt-4o-mini"))
         .thenReturn(Optional.of(new ModelPricingLookup.Pricing(0.15, 0.60)));
@@ -44,7 +42,7 @@ class UsageEventServiceTest {
         500_000L,
         1_500_000L,
         99L,
-        BillingMode.MANAGED);
+        CredentialSource.USER_KEY);
 
     ArgumentCaptor<UsageEventEntity> eventCap = ArgumentCaptor.forClass(UsageEventEntity.class);
     verify(usageEventRepository).save(eventCap.capture());
@@ -56,8 +54,7 @@ class UsageEventServiceTest {
     assertThat(event.getPromptTokens()).isEqualTo(1_000_000L);
     assertThat(event.getCompletionTokens()).isEqualTo(500_000L);
     assertThat(event.getTotalTokens()).isEqualTo(1_500_000L);
-    assertThat(event.getBillingMode()).isEqualTo(BillingMode.MANAGED);
-    assertThat(event.getTierAtCall()).isEqualTo(Plan.PREMIUM);
+    assertThat(event.getCredentialSource()).isEqualTo(CredentialSource.USER_KEY);
     assertThat(event.getCostMicroCents()).isEqualTo(45_000_000L);
   }
 
@@ -67,7 +64,7 @@ class UsageEventServiceTest {
         new UsageEventService(userRepository, usageEventRepository, modelPricingLookup);
     when(userRepository.findByProviderId("missing")).thenReturn(Optional.empty());
 
-    service.record("missing", Provider.OPENAI, "gpt-5.2", 1L, 2L, 3L, null, BillingMode.BYOK);
+    service.record("missing", Provider.OPENAI, "gpt-5.2", 1L, 2L, 3L, null, CredentialSource.USER_KEY);
 
     verify(usageEventRepository, never()).save(any());
   }

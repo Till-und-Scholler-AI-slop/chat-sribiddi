@@ -112,14 +112,13 @@ jobs:
         env:
           BACKEND_ENV_FILE: ${{ secrets.BACKEND_ENV_FILE }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
           script_stop: true
           command_timeout: 40m
-          envs: BACKEND_ENV_FILE,OPENROUTER_API_KEY,BRAVE_SEARCH_API_KEY
+          envs: BACKEND_ENV_FILE,OPENROUTER_API_KEY
           script: |
             set -eu
             APP_DIR=/opt/chat-sribiddi
@@ -154,7 +153,6 @@ jobs:
               mv "$tmp_file" "$APP_DIR/Backend/.env"
             }
             set_env_var OPENROUTER_API_KEY "$OPENROUTER_API_KEY"
-            set_env_var BRAVE_SEARCH_API_KEY "$BRAVE_SEARCH_API_KEY"
             chmod 600 "$APP_DIR/Backend/.env"
 
             cd "$APP_DIR/Backend"

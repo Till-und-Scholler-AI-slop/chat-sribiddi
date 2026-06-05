@@ -2,7 +2,6 @@ package com.rft.chat_sribiddi.observability;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -14,7 +13,7 @@ class ChatMetricsTest {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     ChatMetrics metrics = new ChatMetrics(registry);
 
-    metrics.recordRequest(Provider.OPENAI, "gpt-5.2", Plan.PREMIUM, "success");
+    metrics.recordRequest(Provider.OPENAI, "gpt-5.2", "success");
     metrics.recordTokens(Provider.OPENAI, "gpt-5.2", "prompt", 50L);
     metrics.recordTokens(Provider.OPENAI, "gpt-5.2", "completion", 20L);
 
@@ -23,7 +22,6 @@ class ChatMetricsTest {
                 .find("chat.requests.total")
                 .tag("provider", "openai")
                 .tag("model", "gpt-5.2")
-                .tag("plan", "premium")
                 .tag("status", "success")
                 .counter()
                 .count())

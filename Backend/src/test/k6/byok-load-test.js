@@ -1,14 +1,14 @@
 import http from 'k6/http'
 import { check, sleep } from 'k6'
-import { managedLoadOptions } from './k6.config.js'
+import { byokLoadOptions } from './k6.config.js'
 
-export const options = managedLoadOptions
+export const options = byokLoadOptions
 
 const BASE_URL = (__ENV.BASE_URL || 'http://localhost:8080').replace(/\/$/, '')
-const USER_PREFIX = __ENV.K6_USER_PREFIX || 'k6-premium-user'
+const USER_PREFIX = __ENV.K6_USER_PREFIX || 'k6-byok-user'
 const MODEL_ID = __ENV.K6_MODEL_ID || 'openrouter/free'
 const PROVIDER = __ENV.K6_PROVIDER || 'OPENROUTER'
-const CHAT_TITLE = __ENV.K6_CHAT_TITLE || 'k6 managed-mode load test'
+const CHAT_TITLE = __ENV.K6_CHAT_TITLE || 'k6 BYOK load test'
 const PROMPT = __ENV.K6_PROMPT || 'Reply with a short health-check sentence.'
 const AUTH_COOKIE = __ENV.K6_AUTH_COOKIE || ''
 

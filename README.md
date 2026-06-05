@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/github/license/Till-und-Scholler-AI-slop/chat-sribiddi)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](#-quick-start)
 
-A lightweight, blazing-fast AI chat wrapper that supports multiple models, tiered billing, and runs anywhere — from your phone to your server.
+A lightweight, blazing-fast AI chat wrapper that supports multiple models with bring-your-own provider keys and runs anywhere — from your phone to your server.
 
 👉 **Live at [germinai.de](https://germinai.de)**
 
@@ -31,7 +31,7 @@ A lightweight, blazing-fast AI chat wrapper that supports multiple models, tiere
 ## ✨ Features
 
 - **🤖 Multi-Model Chat** — Switch between AI models on the fly. One interface, unlimited intelligence.
-- **💳 Tiered Billing** — Free, Premium (€14.99/mo), and Max (€39.99/mo) plans to match every use case.
+- **🔑 BYOK Access** — Signed-in users chat with encrypted provider API keys; guests can use OpenRouter Free when configured.
 - **📱 Mobile + Web** — Fully responsive PWA. Chat on any device, any screen size.
 - **🔐 OAuth2 Auth** — Secure login via OAuth2. No passwords to manage, no accounts to remember.
 - **⚡ Lightning Fast** — Spring Boot backend with Redis caching keeps responses snappy.
@@ -48,7 +48,7 @@ A lightweight, blazing-fast AI chat wrapper that supports multiple models, tiere
 | **Frontend** | Vue 3 · Nuxt 3 · Nuxt UI · TypeScript |
 | **Cache** | Redis |
 | **Reverse Proxy** | Caddy |
-| **Payments** | Stripe *(coming soon)* |
+| **Provider access** | BYOK keys + optional guest OpenRouter Free |
 | **Hosting** | Docker & Docker Compose |
 
 ---
@@ -71,7 +71,7 @@ cd chat-sribiddi
 
 ```bash
 cp .env.example .env
-# Edit .env — set your AI API keys, OAuth2 credentials, and database config
+# Edit .env — set OAuth2 credentials, database config, and optional guest OpenRouter key
 ```
 
 ### 3. Spin it up

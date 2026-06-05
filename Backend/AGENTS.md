@@ -1,7 +1,7 @@
 # Backend — Spring Boot 4 / Java 25 / Spring AI 2.0.0-M8
 
 ## OVERVIEW
-REST API for multi-model AI chat with tiered billing. Feature-package architecture — each domain owns controllers, services, entities, repos, DTOs.
+REST API for multi-model AI chat with BYOK credential access and guest OpenRouter Free. Feature-package architecture — each domain owns controllers, services, entities, repos, DTOs.
 
 ## STRUCTURE
 ```
@@ -14,7 +14,8 @@ src/main/java/com/rft/chat_sribiddi/
 │   ├── repository/ # Spring Data JPA repos
 │   ├── exception/  # ChatNotFoundException
 │   └── toolcall/   # RecordingToolCallback, ToolExecutionCollector
-├── billing/        # Stripe, entitlements, quotas (23 files, FLAT — no sub-packages)
+├── access/         # Credential resolution, key-required checks, access limits
+├── billing/        # Usage events, model pricing lookup, guest quota (FLAT — no sub-packages)
 ├── auth/           # OAuth2, security, user settings (flat except config/)
 ├── keyring/        # Per-user API key encryption (flat, 7 files)
 ├── modelcatalog/   # AI model catalog (flat, 6 files)
@@ -37,17 +38,16 @@ src/main/java/com/rft/chat_sribiddi/
 
 ## SPRING AI PATTERNS
 - **All auto-configs excluded** — provider clients built manually via `DefaultProviderClientFactory`
-- **Caffeine cache** (30min TTL, max 200) for `ChatClient` instances per provider+key+billingMode
+- **Caffeine cache** (30min TTL, max 200) for `ChatClient` instances per provider+key+credentialSource
 - **Prompt pipeline**: `PromptMessageBuilder` → `PromptAdvisors` (memory+RAG) → `PromptToolBinder` (tools with `RecordingToolCallback`)
 - **`RepositoryBackedChatMemory.saveAll()` is a no-op** — app persists messages itself
 - **SSE streaming**: `ChatStreamSubscriber` has dual paths (auth + stateless), `SseEmitter` lifecycle
 
 ## ANTI-PATTERNS (THIS PROJECT)
-- **`BillingController`** uses `@Autowired` + `LoggerFactory` (every other class uses Lombok)
 - **`MessageEntity.chatId`** is raw UUID, no `@ManyToOne` — do NOT add JPA relations without Flyway migration
 - **Static `CryptoService`** in `ApiKeyAttributeConverter` — intentional JPA limitation workaround
 - **`ChatRuntimeOptions`** has 4 overloaded compact constructors (backward compat smell)
-- **Inner records in controllers** — `ChatController.UpdateChatPayload`, `BillingController.CheckoutSessionRequest` etc.
+- **Inner records in controllers** — `ChatController.UpdateChatPayload` etc.
 - **`Dotenv`** loads `.env` before Spring startup — non-standard but intentional
 - **k6 load tests** in `src/test/k6/` — JavaScript inside Java source tree (should be at project root)
 

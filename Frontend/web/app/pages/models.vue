@@ -135,9 +135,7 @@ const modelSlug = (model: ModelOption) => {
 
 const useModel = async (model: ModelOption) => {
   if (isModelLocked(model)) {
-    // Plan-gated model — route the user to the upgrade/pricing page
-    // instead of starting a chat (see FE-5).
-    await router.push('/pricing')
+    await router.push(isAuthenticated.value ? '/settings' : '/login')
     return
   }
 
@@ -282,7 +280,7 @@ onMounted(async () => {
               role="button"
               tabindex="0"
               :aria-label="isModelLocked(model)
-                ? t('models.premiumRequiredAria', { label: model.label })
+                ? t('models.keyRequiredAria', { label: model.label })
                 : t('models.chatWithModel', { label: model.label })"
               @click="useModel(model)"
               @keydown="handleCardKeydown($event, model)"
@@ -302,7 +300,7 @@ onMounted(async () => {
                       <span class="truncate">{{ model.label }}</span>
                       <UTooltip
                         v-if="isModelLocked(model)"
-                        :text="t('models.premiumRequired')"
+                        :text="t('models.keyRequired')"
                       >
                         <UIcon
                           name="i-heroicons-lock-closed"
@@ -424,8 +422,7 @@ onMounted(async () => {
   box-shadow: 0 4px 14px color-mix(in oklab, black 30%, transparent);
 }
 
-/* Plan-locked model cards: mute the card so users can still see the
-   information but understand the model is not available on their plan. */
+/* BYOK-only model cards: mute the card while keeping catalog information visible. */
 .model-card-locked {
   opacity: 0.7;
 }

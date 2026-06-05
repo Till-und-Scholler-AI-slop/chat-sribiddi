@@ -3,7 +3,7 @@ package com.rft.chat_sribiddi.chat.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.rft.chat_sribiddi.auth.BillingMode;
+import com.rft.chat_sribiddi.auth.CredentialSource;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.ChatRuntimeOptions;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.sun.net.httpserver.HttpServer;
@@ -269,7 +269,7 @@ class DefaultProviderClientFactoryTest {
               ObservationRegistry.NOOP);
 
       ProviderClientHandle handle =
-          customFactory.getClient(Provider.OPENROUTER, "or-key", BillingMode.BYOK);
+          customFactory.getClient(Provider.OPENROUTER, "or-key", CredentialSource.USER_KEY);
       try (handle) {
         var options = customFactory.buildOptions(Provider.OPENROUTER, "test-model", "or-key");
         var chunks =
@@ -311,34 +311,32 @@ class DefaultProviderClientFactoryTest {
   }
 
   @Test
-  void getClient_sameKey_differentBillingModes_returnSeparateHolders() {
+  void getClient_sameKey_differentCredentialSources_returnSeparateHolders() {
     ProviderClientHandle byok =
-        factory.getClient(Provider.GOOGLE, "shared-key", BillingMode.BYOK);
-    ProviderClientHandle managed =
-        factory.getClient(Provider.GOOGLE, "shared-key", BillingMode.MANAGED);
+        factory.getClient(Provider.GOOGLE, "shared-key", CredentialSource.USER_KEY);
+    ProviderClientHandle guest =
+        factory.getClient(Provider.GOOGLE, "shared-key", CredentialSource.GUEST_OPENROUTER_FREE);
 
-    assertThat(managed).isNotSameAs(byok);
-    assertThat(managed.client()).isNotSameAs(byok.client());
+    assertThat(guest).isNotSameAs(byok);
+    assertThat(guest.client()).isNotSameAs(byok.client());
 
-    // Subsequent calls with the same mode+key must still hit the cached entry.
+    // Subsequent calls with the same source+key must still hit the cached entry.
     ProviderClientHandle byokAgain =
-        factory.getClient(Provider.GOOGLE, "shared-key", BillingMode.BYOK);
+        factory.getClient(Provider.GOOGLE, "shared-key", CredentialSource.USER_KEY);
     assertThat(byokAgain).isSameAs(byok);
   }
 
   @Test
-  void getClient_twoArgOverload_defaultsToByokCachePartition() {
-    // The legacy 2-arg call site must land in the same cache entry as an explicit BYOK call
-    // to guarantee the existing BYOK path is behaviourally unchanged.
+  void getClient_twoArgOverload_defaultsToUserKeyCachePartition() {
     ProviderClientHandle legacy = factory.getClient(Provider.GOOGLE, "byok-key");
     ProviderClientHandle explicit =
-        factory.getClient(Provider.GOOGLE, "byok-key", BillingMode.BYOK);
+        factory.getClient(Provider.GOOGLE, "byok-key", CredentialSource.USER_KEY);
 
     assertThat(explicit).isSameAs(legacy);
   }
 
   @Test
-  void getClient_nullBillingMode_throws() {
+  void getClient_nullCredentialSource_throws() {
     assertThatThrownBy(() -> factory.getClient(Provider.OPENAI, "key", null))
         .isInstanceOf(IllegalArgumentException.class);
   }

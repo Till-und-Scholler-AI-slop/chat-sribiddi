@@ -87,7 +87,7 @@
     "attachmentReadFallback": "Anhang konnte nicht gelesen werden.",
     "documentUploadRequiresLogin": "Dokument-Uploads sind nur in angemeldeten Chats verfügbar.",
     "messageFailedTitle": "Nachricht fehlgeschlagen",
-    "parallelStreamsExceeded": "Zu viele Chats streamen gleichzeitig. Warte, bis einer fertig ist, oder upgrade deinen Plan.",
+    "parallelStreamsExceeded": "Zu viele Chats streamen gleichzeitig. Warte, bis einer fertig ist.",
     "sendMessage": "Nachricht senden",
     "stopGenerating": "Antwort stoppen",
     "retryFailedTitle": "Wiederholen fehlgeschlagen",
@@ -186,8 +186,8 @@
     "outputLabel": "Ausgabe",
     "expertMode": "Expert Mode",
     "expertModeDescription": "Zeigt alle nutzbaren Modelle statt der kuratierten Auswahl.",
-    "premiumRequired": "Premium erforderlich",
-    "premiumRequiredAria": "{label} – Premium erforderlich. Klicke, um die Preisseite zu öffnen."
+    "keyRequired": "API-Schlüssel erforderlich",
+    "keyRequiredAria": "{label} benötigt einen gespeicherten API-Schlüssel. Öffne die Einstellungen, um einen hinzuzufügen."
   },
   "settings": {
     "title": "Einstellungen",
@@ -252,19 +252,6 @@
     "preSendCostDescription": "Zeigt eine kleine geschätzte Kostenanzeige neben der Senden-Schaltfläche – basierend auf dem aktuellen Chat-Kontext und den Modellpreisen.",
     "expertModeLabel": "Expert Mode",
     "expertModeDescription": "Zeigt alle nutzbaren Modelle statt einer kompakten Auswahl pro Anbieter.",
-    "billingModeHeading": "Abrechnungsmodus",
-    "billingModeDescription": "Lege fest, wie Chat-Anfragen bezahlt werden, wenn ein Modell mehrere Schlüsselquellen nutzen kann.",
-    "billingModeAutoLabel": "Automatisch",
-    "billingModeAutoDescription": "Bevorzugt deinen gespeicherten API-Schlüssel und nutzt sonst Managed Mode, wenn dein Tarif es erlaubt.",
-    "billingModeByokLabel": "Eigene Schlüssel nutzen",
-    "billingModeByokDescription": "Nutzt immer deine gespeicherten Anbieter-Schlüssel und verbraucht kein Managed-Mode-Kontingent.",
-    "billingModeManagedLabel": "Von chat-sribiddi verwaltet",
-    "billingModeManagedDescription": "Nutzt plattformverwaltete Schlüssel für unterstützte Modelle in Premium- und Max-Tarifen.",
-    "billingModeManagedUpgradeDescription": "Managed Mode ist in Premium- und Max-Tarifen verfügbar.",
-    "billingModeManagedUnavailableTitle": "Managed Mode nicht verfügbar",
-    "billingModeSavedTitle": "Abrechnungsmodus gespeichert",
-    "billingModeSavedDescription": "Neue Chat-Anfragen nutzen diese Abrechnungseinstellung.",
-    "billingModeSaveFailed": "Abrechnungsmodus konnte nicht gespeichert werden",
     "customInstructionsHeading": "Eigene Anweisungen",
     "customInstructionsDescription": "Persönliche Anweisungen, die in jeder Konversation an den System-Prompt angehängt werden. Der Basis-System-Prompt bleibt erhalten.",
     "customInstructionsPlaceholder": "z. B. Antworte immer auf Deutsch. Bevorzuge knappe Stichpunkt-Antworten.",
@@ -293,11 +280,11 @@
     "notFound": "Ressource nicht gefunden.",
     "payloadTooLarge": "Anhang ist zu groß.",
     "rateLimit": "Zu viele Anfragen. Bitte kurz warten.",
-    "dailyCapExceeded": "Das Tageslimit für diesen Plan ist erreicht. Upgrade, um weiter zu chatten.",
-    "parallelStreamsExceeded": "Zu viele Chats streamen gleichzeitig. Warte, bis einer fertig ist, oder upgrade deinen Plan.",
-    "modelNotAllowed": "Dieses Modell ist in deinem aktuellen Plan nicht verfügbar.",
-    "toolNotAllowed": "Dieses Tool ist in deinem aktuellen Plan nicht verfügbar.",
-    "billingUnavailable": "Abrechnung ist vorübergehend nicht verfügbar. Bitte versuche es später erneut.",
+    "dailyCapExceeded": "Das tägliche OpenRouter-Free-Limit für Gäste ist erreicht. Melde dich an und hinterlege einen eigenen Anbieter-Schlüssel, um weiter zu chatten.",
+    "parallelStreamsExceeded": "Zu viele Chats streamen gleichzeitig. Warte, bis einer fertig ist.",
+    "modelNotAllowed": "Dieses Modell ist mit der aktuellen Schlüsselquelle nicht verfügbar.",
+    "toolNotAllowed": "Dieses Tool ist nicht verfügbar oder benötigt deinen eigenen Schlüssel.",
+    "apiKeyRequired": "Hinterlege in den Einstellungen einen Anbieter-API-Schlüssel, bevor du dieses Modell nutzt.",
     "cancelled": "Die Anfrage wurde abgebrochen.",
     "managedProviderUnconfigured": "OpenRouter Free ist serverseitig noch nicht konfiguriert. Bitte später erneut versuchen.",
     "unsupportedDocumentType": "Dieser Dokumenttyp wird nicht unterstützt.",
@@ -310,57 +297,6 @@
     "unexpectedTitle": "Etwas ist schiefgelaufen",
     "unexpectedDescription": "Bitte lade die Seite neu oder kehre zum Chat zurück.",
     "backToChat": "Zum Chat"
-  },
-  "billing": {
-    "title": "Abrechnung",
-    "subtitle": "Verwalte deinen Plan, deine Nutzung und dein Abonnement.",
-    "usageLoadFailedTitle": "Nutzung konnte nicht geladen werden",
-    "entitlementsLoadFailedTitle": "Plan-Details konnten nicht geladen werden",
-    "currentPlanHeading": "Aktueller Plan",
-    "currentPlanDescription": "Dein aktiver Chat-Sribiddi-Plan und dessen Status.",
-    "planLabel": "Plan",
-    "renewsOn": "Verlängert sich am",
-    "cancelsOn": "Endet am",
-    "endedOn": "Beendet am",
-    "cancelAtPeriodEndNotice": "Dein Abonnement endet zum Ablauf der aktuellen Abrechnungsperiode.",
-    "upgradeHeading": "Plan upgraden",
-    "upgradeDescription": "Schalte Premium-Modelle, höhere Limits und mehr Tools frei.",
-    "upgradeCta": "Upgrade",
-    "comparePlansHint": "Du suchst den vollständigen Funktionsvergleich?",
-    "comparePlansLink": "Zur Preisübersicht",
-    "manageHeading": "Abonnement verwalten",
-    "manageDescription": "Zahlungsmethode ändern, Plan wechseln oder kündigen über das Stripe-Kundenportal.",
-    "manageCta": "Abonnement verwalten",
-    "checkoutFailedTitle": "Checkout konnte nicht gestartet werden",
-    "portalFailedTitle": "Kundenportal konnte nicht geöffnet werden",
-    "usageHeading": "Nutzung",
-    "usageDescription": "Deine Nachrichten der letzten 30 Tage im Verhältnis zum Nutzungslimit deines Plans.",
-    "usageOfCap": "{used} von {cap} Nachrichten in den letzten 30 Tagen",
-    "usageNoCap": "{used} Nachrichten in den letzten 30 Tagen",
-    "usageWindowNote": "Die Nachrichtenzahl umfasst deine Nutzung der letzten 30 Tage. Das Tageslimit deines Plans gilt weiterhin und wird jeden Tag um 00:00 UTC zurückgesetzt.",
-    "status": {
-      "free": "Kostenlos",
-      "active": "Aktiv",
-      "trialing": "Testphase",
-      "past_due": "Zahlung überfällig",
-      "unpaid": "Unbezahlt",
-      "canceled": "Gekündigt",
-      "incomplete": "Unvollständig",
-      "incomplete_expired": "Abgelaufen",
-      "paused": "Pausiert"
-    },
-    "planBadge": {
-      "ariaLabel": "Aktueller Plan",
-      "free": "Free",
-      "premium": "Premium",
-      "max": "Max"
-    },
-    "upgradeBanner": {
-      "title": "Tageslimit erreicht",
-      "description": "Du hast dein tägliches Nachrichtenlimit im Free-Plan erreicht. Upgrade auf Premium oder Max für höhere Limits und Premium-Modelle.",
-      "cta": "Plan upgraden",
-      "dismiss": "Schließen"
-    }
   },
   "usage": {
     "title": "Nutzungsdashboard",
@@ -378,57 +314,6 @@
     "dailyTrend": "Tagestrend",
     "requestsCount": "{count} Anfragen",
     "noData": "Für diesen Zeitraum liegen noch keine Nutzungsdaten vor."
-  },
-  "pricing": {
-    "title": "Preise",
-    "subtitle": "Wähle den Plan, der zu deiner Nutzung von Chat Sribiddi passt.",
-    "perMonth": "/ Monat",
-    "recommended": "Empfohlen",
-    "currentPlan": "Aktueller Plan",
-    "ctaCurrent": "Aktuell",
-    "ctaUpgrade": "Upgrade",
-    "ctaSignInToUpgrade": "Zum Upgraden anmelden",
-    "backButton": "Zurück zum Chat",
-    "checkoutFailedTitle": "Checkout konnte nicht gestartet werden",
-    "plans": {
-      "free": {
-        "name": "Free",
-        "price": "0 €",
-        "description": "Starte mit den grundlegenden Chat-Funktionen.",
-        "features": {
-          "0": "Zugriff auf kostenlose Modelle",
-          "1": "Bis zu 2 Anhänge pro Nachricht (je 2 MB, 4 MB gesamt)",
-          "2": "Kontextfenster von 10 Nachrichten",
-          "3": "50 Nachrichten pro Tag"
-        }
-      },
-      "premium": {
-        "name": "Premium",
-        "price": "9 €",
-        "description": "Schalte Premium-Modelle, Tools und höhere Limits frei.",
-        "features": {
-          "0": "Zugriff auf Premium-Modelle",
-          "1": "Websuche-Tool inklusive",
-          "2": "Bis zu 5 Anhänge pro Nachricht (je 5 MB, 20 MB gesamt)",
-          "3": "Kontextfenster von 20 Nachrichten",
-          "4": "500 Nachrichten pro Tag",
-          "5": "2 parallele Chats"
-        }
-      },
-      "max": {
-        "name": "Max",
-        "price": "29 €",
-        "description": "Alles aus Premium, dazu Top-Modelle und mehr Spielraum für Power-User.",
-        "features": {
-          "0": "Zugriff auf alle KI-Modelle",
-          "1": "Alle Tools freigeschaltet",
-          "2": "Bis zu 10 Anhänge pro Nachricht (je 10 MB, 50 MB gesamt)",
-          "3": "Kontextfenster von 40 Nachrichten",
-          "4": "2.000 Nachrichten pro Tag",
-          "5": "4 parallele Chats"
-        }
-      }
-    }
   },
   "compare": {
     "title": "Modellvergleich",
@@ -501,14 +386,14 @@
       "retentionBody": "Personenbezogene Daten werden nur so lange gespeichert, wie dies für die genannten Zwecke erforderlich ist oder gesetzliche Aufbewahrungspflichten bestehen. Chat-Inhalte und hinterlegte API-Schlüssel bleiben gespeichert, bis sie über die Einstellungsseite entfernt werden oder bei Löschung Ihres Kontos zusammen mit den zugehörigen Chat-Daten entfernt werden.",
       "rightsHeading": "Ihre Rechte",
       "rightsBody": "Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit sowie Beschwerde bei einer Datenschutz-Aufsichtsbehörde.",
-      "stripeHeading": "Zahlungsabwicklung (Stripe)",
-      "stripeBody": "[TODO: Juristischer Text — Für kostenpflichtige Abonnements wird der Zahlungsdienstleister Stripe Payments Europe, Ltd. eingesetzt. Im Rahmen der Zahlungsabwicklung werden Zahlungsdaten (u.a. Name, Zahlungsmittel, Rechnungsadresse, Transaktionsdaten) an Stripe übermittelt. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Vertragserfüllung). Weitere Informationen unter https://stripe.com/de/privacy.]",
+      "providerKeysHeading": "Anbieter-API-Schlüssel",
+      "providerKeysBody": "[TODO: Juristischer Text — Angemeldete Nutzerinnen und Nutzer können API-Schlüssel externer KI-Anbieter speichern. Schlüssel werden verschlüsselt abgelegt und nur verwendet, um Anfragen im Auftrag der Nutzerin oder des Nutzers an den gewählten Anbieter zu senden.]",
       "adSenseHeading": "Werbung (Google AdSense)",
       "adSenseBody": "[TODO: Juristischer Text — Diese Website nutzt Google AdSense, einen Dienst der Google Ireland Limited, zur Einbindung von Werbung. Dabei werden Cookies und ähnliche Technologien eingesetzt, um personalisierte oder nicht-personalisierte Anzeigen auszuliefern. Rechtsgrundlage ist Art. 6 Abs. 1 lit. a DSGVO (Einwilligung über das Cookie-Banner). Weitere Informationen unter https://policies.google.com/privacy.]",
       "aiProvidersHeading": "KI-Dienstleister",
       "aiProvidersBody": "[TODO: Juristischer Text — Zur Bereitstellung der Chat-Funktion werden Ihre Eingaben an den jeweils gewählten KI-Anbieter übermittelt: OpenRouter Inc. (Routing-Dienst), OpenAI, LLC (GPT-Modelle), Google LLC/Google Ireland Ltd. (Gemini-Modelle), Anthropic PBC (Claude-Modelle). Je nach Anbieter kann eine Übermittlung in Drittländer (insbesondere USA) erfolgen; Grundlage sind EU-Standardvertragsklauseln und ggf. zusätzliche Schutzmaßnahmen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Vertragserfüllung).]",
       "dpaHeading": "Verzeichnis von Verarbeitungstätigkeiten / Auftragsverarbeitung",
-      "dpaBody": "[TODO: Juristischer Text — Ein Verzeichnis der Verarbeitungstätigkeiten gemäß Art. 30 DSGVO sowie Auftragsverarbeitungsverträge mit den eingesetzten Dienstleistern (Hosting, Authentifizierung, Zahlungsdienstleister, KI-Anbieter) werden geführt und können auf Anfrage unter den oben genannten Kontaktdaten eingesehen werden.]"
+      "dpaBody": "[TODO: Juristischer Text — Ein Verzeichnis der Verarbeitungstätigkeiten gemäß Art. 30 DSGVO sowie Auftragsverarbeitungsverträge mit den eingesetzten Dienstleistern (Hosting, Authentifizierung, KI-Anbieter) werden geführt und können auf Anfrage unter den oben genannten Kontaktdaten eingesehen werden.]"
     },
     "agb": {
       "title": "AGB",
@@ -516,13 +401,13 @@
       "placeholderNotice": "[TODO: Juristischer Text — Dieser Text ist ein Platzhalter und muss vor Veröffentlichung durch einen Rechtsbeistand geprüft und finalisiert werden.]",
       "intro": "[TODO: Juristischer Text — Diese Allgemeinen Geschäftsbedingungen (AGB) regeln die Nutzung des Dienstes Chat Sribiddi, bereitgestellt durch den im Impressum genannten Anbieter. Mit der Registrierung bzw. Nutzung erkennen Sie diese AGB an.]",
       "scopeHeading": "1. Geltungsbereich",
-      "scopeBody": "[TODO: Juristischer Text — Diese AGB gelten für alle Nutzerinnen und Nutzer des Dienstes Chat Sribiddi, unabhängig von der gewählten Tarifstufe (Free, Premium, Max). Abweichende Bedingungen werden nur wirksam, wenn sie ausdrücklich schriftlich bestätigt wurden.]",
+      "scopeBody": "[TODO: Juristischer Text — Diese AGB gelten für alle Nutzerinnen und Nutzer des Dienstes Chat Sribiddi. Abweichende Bedingungen werden nur wirksam, wenn sie ausdrücklich schriftlich bestätigt wurden.]",
       "servicesHeading": "2. Leistungen",
-      "servicesBody": "[TODO: Juristischer Text — Chat Sribiddi stellt eine Weboberfläche zur Nutzung von KI-Modellen verschiedener Anbieter zur Verfügung. Der Leistungsumfang hängt von der gewählten Tarifstufe ab. Ein Anspruch auf ständige Verfügbarkeit besteht nicht.]",
-      "pricesHeading": "3. Preise und Zahlungsbedingungen",
-      "pricesBody": "[TODO: Juristischer Text — Kostenpflichtige Tarife werden zu den zum Zeitpunkt der Bestellung geltenden Preisen abgerechnet. Die Abrechnung erfolgt monatlich oder jährlich im Voraus über den Zahlungsdienstleister Stripe. Alle Preise verstehen sich inkl. gesetzlicher Umsatzsteuer, soweit anwendbar.]",
-      "termHeading": "4. Laufzeit und Kündigung",
-      "termBody": "[TODO: Juristischer Text — Kostenpflichtige Abonnements verlängern sich automatisch um die zuvor gewählte Laufzeit, sofern sie nicht vor Ablauf über das Kundenportal gekündigt werden. Free-Konten können jederzeit ohne Angabe von Gründen gelöscht werden.]",
+      "servicesBody": "[TODO: Juristischer Text — Chat Sribiddi stellt eine Weboberfläche zur Nutzung von KI-Modellen verschiedener Anbieter zur Verfügung. Die angemeldete Nutzung setzt nutzerseitig bereitgestellte Anbieter-API-Schlüssel voraus. Ein Anspruch auf ständige Verfügbarkeit besteht nicht.]",
+      "pricesHeading": "3. Kosten und Anbieter-Konten",
+      "pricesBody": "[TODO: Juristischer Text — Chat Sribiddi verarbeitet in dieser Version keine Zahlungen. Kosten für KI-Anbieter, API-Nutzung oder Anbieter-Abonnements werden direkt zwischen Nutzerin bzw. Nutzer und dem gewählten Anbieter abgewickelt.]",
+      "termHeading": "4. Laufzeit und Kontolöschung",
+      "termBody": "[TODO: Juristischer Text — Nutzerkonten können jederzeit ohne Angabe von Gründen gelöscht werden. Gespeicherte Chats und API-Schlüssel werden bei der Kontolöschung entfernt.]",
       "withdrawalHeading": "5. Widerrufsrecht",
       "withdrawalBody": "[TODO: Juristischer Text — Verbrauchern steht grundsätzlich ein gesetzliches Widerrufsrecht von 14 Tagen zu. Mit dem ausdrücklichen Beginn der Leistungserbringung vor Ablauf der Widerrufsfrist erlischt das Widerrufsrecht nach § 356 Abs. 5 BGB. Details zum Widerrufsrecht und ein Muster-Widerrufsformular werden separat bereitgestellt.]",
       "liabilityHeading": "6. Haftung",

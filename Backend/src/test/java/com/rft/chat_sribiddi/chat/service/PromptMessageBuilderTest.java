@@ -3,8 +3,7 @@ package com.rft.chat_sribiddi.chat.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
-import com.rft.chat_sribiddi.auth.Plan;
-import com.rft.chat_sribiddi.billing.Entitlements;
+import com.rft.chat_sribiddi.access.AccessLimits;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
@@ -207,17 +206,13 @@ class PromptMessageBuilderTest {
     return new PromptMessageBuilder.DocumentRetrievalContext(chatId, "user-1");
   }
 
-  private static Entitlements entitlements(int contextMessageLimit) {
-    return new Entitlements(
-        Plan.FREE,
+  private static AccessLimits entitlements(int contextMessageLimit) {
+    return new AccessLimits(
         5,
         5_242_880,
         20_971_520,
         contextMessageLimit,
         Set.of("*"),
-        100,
-        1,
-        null,
-        null);
+        1);
   }
 }

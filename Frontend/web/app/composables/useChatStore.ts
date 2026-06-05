@@ -37,6 +37,7 @@ type StoredGuestChat = {
 }
 
 const GUEST_CHAT_STORAGE_KEY = 'chat-sribiddi:guest-chats:v1'
+const AUTHENTICATED_PARALLEL_STREAM_LIMIT = 1
 
 export function useChatStore() {
   const {
@@ -528,8 +529,6 @@ export function useChatStore() {
     return updatedMessage
   }
 
-  const { caps, loaded: entitlementsLoaded } = useEntitlements()
-
   type StreamHandlerDeps = {
     conversation: Conversation
     assistantMessageIndex: number
@@ -624,8 +623,8 @@ export function useChatStore() {
     const effectiveModel = resolveAllowedModel(model, conversation)
     if (!effectiveModel) return null
 
-    if (!conversation.local && entitlementsLoaded.value) {
-      const limit = caps.value.parallelStreams ?? 1
+    if (!conversation.local) {
+      const limit = AUTHENTICATED_PARALLEL_STREAM_LIMIT
       if (limit > 0) {
         const inFlight = conversations.value.filter(
           c =>

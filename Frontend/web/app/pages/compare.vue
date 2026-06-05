@@ -11,6 +11,7 @@ const { t } = useI18n()
 const tt = useTranslatedError()
 const toast = useToast()
 const router = useRouter()
+const { status: authStatus } = useAuth()
 
 const {
   panels,
@@ -79,7 +80,7 @@ onBeforeRouteLeave((_to, _from, next) => {
 
 const handleSetPanelModel = async (panelId: string, model: ModelOption) => {
   if (isModelLocked(model)) {
-    await router.push('/pricing')
+    await router.push(authStatus.value === 'authenticated' ? '/settings' : '/login')
     return
   }
 

@@ -29,11 +29,11 @@ defineProps<{
         name="i-heroicons-star-solid"
         class="size-3 text-yellow-400"
       />
-      <UTooltip v-if="isModelLocked(option)" :text="t('models.premiumRequired')">
+      <UTooltip v-if="isModelLocked(option)" :text="t('models.keyRequired')">
         <UIcon
           name="i-heroicons-lock-closed"
           class="size-3.5 text-gray-500 dark:text-gray-400"
-          :aria-label="t('models.premiumRequired')"
+          :aria-label="t('models.keyRequired')"
         />
       </UTooltip>
       <UBadge :label="PROVIDER_LABELS[option.provider]" variant="soft" color="neutral" />
