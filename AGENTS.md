@@ -5,14 +5,15 @@
 **Branch:** main
 
 ## OVERVIEW
-AI chat platform (germinai.de) — multi-model (OpenAI, Gemini, Claude, OpenRouter), tiered billing (Free/Premium/Max), web + mobile. Spring Boot 4 / Java 25 backend + Nuxt 4 / Vue 3 / TypeScript web frontend + Flutter mobile prototype. PostgreSQL, Redis, Caddy reverse proxy, Stripe payments.
+AI chat platform (germinai.de) — multi-model (OpenAI, Gemini, Claude, OpenRouter), BYOK-only for signed-in users, guest OpenRouter Free path, web + mobile. Spring Boot 4 / Java 25 backend + Nuxt 4 / Vue 3 / TypeScript web frontend + Flutter mobile prototype. PostgreSQL, Redis, Caddy reverse proxy.
 
 ## STRUCTURE
 ```
 chat-sribiddi/
 ├── Backend/            # Spring Boot 4 / Java 25 / Spring AI 2.0.0-M8
 │   ├── src/main/java/…/chat/       # Core chat: controllers, services, DTOs, entities, streaming
-│   ├── src/main/java/…/billing/    # Stripe, quotas, entitlements, plan lifecycle
+│   ├── src/main/java/…/billing/    # Usage events, model pricing lookup, guest quota
+│   ├── src/main/java/…/access/     # Credential/access resolution and limits
 │   ├── src/main/java/…/auth/       # OAuth2, security, user settings
 │   ├── src/main/java/…/keyring/    # Per-user API key encryption/storage
 │   ├── src/main/java/…/modelcatalog/ # AI model catalog (live + YAML fallback)
@@ -38,7 +39,7 @@ chat-sribiddi/
 | Chat streaming flow | `Backend/…/chat/service/ChatService.java` → `ChatStreamSubscriber.java` | SSE via SseEmitter, dual auth/stateless paths |
 | Add AI provider | `Backend/…/chat/service/DefaultProviderClientFactory.java` | + add to `application.yaml` `ai.models.*` |
 | Add chat tool | `Backend/…/tools/` implement `ChatTool` | Register in `ToolAutoRegistration` |
-| Billing/plan logic | `Backend/…/billing/EntitlementService.java` | Plan gating, quotas, model price caps |
+| Credential access | `Backend/…/access/CredentialAccessService.java` | User-key requirement, guest OpenRouter Free, model availability |
 | Frontend state | `Frontend/web/app/composables/useChatStore.ts` | 993-line god composable (no Pinia) |
 | Frontend API calls | `Frontend/web/app/composables/useChatApi.ts` | All HTTP + types in one file |
 | i18n strings | `Frontend/web/i18n/locales/{de,en}.json` | `de` is default/source locale |
@@ -98,7 +99,7 @@ client.prompt()
 - Both use `QuotaReservation` interface (commit/rollback)
 
 **Provider Factory:**
-- `DefaultProviderClientFactory.getClient(provider, apiKey, billingMode)`
+- `DefaultProviderClientFactory.getClient(provider, apiKey, credentialSource)`
 - Caches `ChatClient` instances per provider with Caffeine (30min TTL)
 - All providers get `ObservationRegistry` for metrics/tracing
 
@@ -115,9 +116,8 @@ client.prompt()
 
 | Feature | Env Vars | Notes |
 |---------|----------|-------|
-| **OpenRouter (Free tier)** | `OPENROUTER_API_KEY`, `OPENROUTER_APP_NAME`, `OPENROUTER_REFERRER` | Managed mode for free users. Blank key disables. |
-| **Brave Search** | `BRAVE_SEARCH_API_KEY` | Web search tool. Blank = BYOK only. |
-| **Stripe Billing** | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID_PREMIUM_MONTH`, `STRIPE_PRICE_ID_PREMIUM_YEAR`, `STRIPE_PRICE_ID_MAX_MONTH`, `STRIPE_PRICE_ID_MAX_YEAR` | Blank keys → 503. Webhook endpoint: `POST /billing/webhook` |
+| **OpenRouter Free guest path** | `OPENROUTER_API_KEY`, `OPENROUTER_APP_NAME`, `OPENROUTER_REFERRER` | Required only for anonymous `OPENROUTER/openrouter/free`. Blank key disables guest free chat. |
+| **Brave Search** | — | Users store their own `BRAVE_SEARCH` key in Settings; there is no managed server Brave key. |
 | **Legal Pages** | — | Replace `[TODO: Legal text …]` in `de.json`/`en.json` with counsel-reviewed copy |
 
 ## Operations

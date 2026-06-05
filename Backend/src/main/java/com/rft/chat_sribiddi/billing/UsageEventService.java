@@ -1,7 +1,6 @@
 package com.rft.chat_sribiddi.billing;
 
-import com.rft.chat_sribiddi.auth.BillingMode;
-import com.rft.chat_sribiddi.auth.Plan;
+import com.rft.chat_sribiddi.auth.CredentialSource;
 import com.rft.chat_sribiddi.auth.User;
 import com.rft.chat_sribiddi.auth.UserRepository;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
@@ -15,7 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Records per-call usage/cost events. This is the BILL-5 integration hook invoked by
  * {@link com.rft.chat_sribiddi.chat.service.ChatService} after every provider call (including
- * stream completion) so that managed-mode billing and reporting can consume the data.
+ * stream completion) so that usage and cost analytics can consume the data.
  *
  * <p>Rows are persisted to the {@code usage_events} table created by Flyway {@code V7}. Cost is
  * estimated from the model pricing catalog when pricing is known.
@@ -44,7 +43,7 @@ public class UsageEventService {
    * @param totalTokens total tokens reported by the provider (may be {@code null})
    * @param messageId id of the persisted assistant {@code MessageEntity}, or {@code null} when no
    *     assistant message was saved (e.g. stream error before persistence)
-   * @param billingMode the effective billing mode for the call
+   * @param credentialSource the credential source used for the call
    */
   @Transactional
   public void record(
@@ -55,9 +54,9 @@ public class UsageEventService {
       Long generationTokens,
       Long totalTokens,
       Long messageId,
-      BillingMode billingMode) {
+      CredentialSource credentialSource) {
     log.debug(
-        "usage_event user={} provider={} model={} prompt={} generation={} total={} messageId={} mode={}",
+        "usage_event user={} provider={} model={} prompt={} generation={} total={} messageId={} source={}",
         userId,
         provider,
         modelId,
@@ -65,7 +64,7 @@ public class UsageEventService {
         generationTokens,
         totalTokens,
         messageId,
-        billingMode);
+        credentialSource);
     persist(
         userId,
         provider,
@@ -74,7 +73,7 @@ public class UsageEventService {
         generationTokens,
         totalTokens,
         messageId,
-        billingMode);
+        credentialSource);
   }
 
   protected void persist(
@@ -85,7 +84,7 @@ public class UsageEventService {
       Long generationTokens,
       Long totalTokens,
       Long messageId,
-      BillingMode billingMode) {
+      CredentialSource credentialSource) {
     if (provider == null || modelId == null || modelId.isBlank()) {
       return;
     }
@@ -105,8 +104,7 @@ public class UsageEventService {
     entity.setTotalTokens(totalTokens);
     entity.setCostMicroCents(
         estimateCostMicroCents(provider, modelId, promptTokens, generationTokens));
-    entity.setBillingMode(billingMode);
-    entity.setTierAtCall(user.getPlan() == null ? Plan.FREE : user.getPlan());
+    entity.setCredentialSource(credentialSource);
     usageEventRepository.save(entity);
   }
 

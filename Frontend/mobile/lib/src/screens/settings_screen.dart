@@ -278,31 +278,6 @@ class _InterfaceSettings extends StatelessWidget {
             onChanged: app.setShowPreSendCost,
           ),
         ),
-        const SizedBox(height: 12),
-        _SettingsCard(
-          title: strings.t('settings.billingModeHeading'),
-          subtitle: strings.t('settings.billingModeAutoLabel'),
-          child: DropdownButtonFormField<String>(
-            initialValue: app.billingMode,
-            items: [
-              DropdownMenuItem(
-                value: 'AUTO',
-                child: Text(strings.t('settings.billingModeAutoLabel')),
-              ),
-              DropdownMenuItem(
-                value: 'BYOK',
-                child: Text(strings.t('settings.billingModeByokLabel')),
-              ),
-              DropdownMenuItem(
-                value: 'MANAGED',
-                child: Text(strings.t('settings.billingModeManagedLabel')),
-              ),
-            ],
-            onChanged: (value) {
-              if (value != null) app.setBillingMode(value);
-            },
-          ),
-        ),
       ],
     );
   }

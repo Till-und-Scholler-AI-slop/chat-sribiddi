@@ -87,7 +87,7 @@
     "attachmentReadFallback": "Attachment could not be read.",
     "documentUploadRequiresLogin": "Document uploads are available in signed-in chats only.",
     "messageFailedTitle": "Message failed",
-    "parallelStreamsExceeded": "Too many chats are streaming at once. Wait for one to finish or upgrade your plan.",
+    "parallelStreamsExceeded": "Too many chats are streaming at once. Wait for one to finish.",
     "sendMessage": "Send message",
     "stopGenerating": "Stop response",
     "retryFailedTitle": "Retry failed",
@@ -186,8 +186,8 @@
     "outputLabel": "Output",
     "expertMode": "Expert mode",
     "expertModeDescription": "Shows every usable model instead of the curated picker.",
-    "premiumRequired": "Premium required",
-    "premiumRequiredAria": "{label} – Premium required. Click to open the pricing page."
+    "keyRequired": "API key required",
+    "keyRequiredAria": "{label} requires a stored API key. Open settings to add one."
   },
   "settings": {
     "title": "Settings",
@@ -252,19 +252,6 @@
     "preSendCostDescription": "Displays a small estimated request cost next to the send button using the current chat context and model pricing.",
     "expertModeLabel": "Expert mode",
     "expertModeDescription": "Shows every usable model instead of a compact selection per provider.",
-    "billingModeHeading": "Billing mode",
-    "billingModeDescription": "Choose how chat requests should be paid for when a model can use more than one key source.",
-    "billingModeAutoLabel": "Automatic",
-    "billingModeAutoDescription": "Prefer your stored API key when available, otherwise use managed mode if your plan allows it.",
-    "billingModeByokLabel": "Bring your own keys",
-    "billingModeByokDescription": "Always use your saved provider keys and do not consume managed-mode quota.",
-    "billingModeManagedLabel": "Managed by chat-sribiddi",
-    "billingModeManagedDescription": "Use platform-managed keys for supported models on Premium and Max plans.",
-    "billingModeManagedUpgradeDescription": "Managed mode is available on Premium and Max plans.",
-    "billingModeManagedUnavailableTitle": "Managed mode unavailable",
-    "billingModeSavedTitle": "Billing mode saved",
-    "billingModeSavedDescription": "New chat requests will use this billing preference.",
-    "billingModeSaveFailed": "Could not save billing mode",
     "customInstructionsHeading": "Custom instructions",
     "customInstructionsDescription": "Add personal instructions that will be appended to the system prompt in every conversation. The base system prompt is always preserved.",
     "customInstructionsPlaceholder": "e.g. Always reply in German. Prefer concise bullet-point answers.",
@@ -293,11 +280,11 @@
     "notFound": "Resource not found.",
     "payloadTooLarge": "Attachment is too large.",
     "rateLimit": "Too many requests. Please wait a moment.",
-    "dailyCapExceeded": "The daily limit for this plan has been reached. Upgrade to keep chatting.",
-    "parallelStreamsExceeded": "Too many chats are streaming at once. Wait for one to finish or upgrade your plan.",
-    "modelNotAllowed": "This model is not available on your current plan.",
-    "toolNotAllowed": "This tool is not available on your current plan.",
-    "billingUnavailable": "Billing is temporarily unavailable. Please try again later.",
+    "dailyCapExceeded": "The daily OpenRouter Free guest limit has been reached. Sign in and add your own provider key to keep chatting.",
+    "parallelStreamsExceeded": "Too many chats are streaming at once. Wait for one to finish.",
+    "modelNotAllowed": "This model is not available with the current key source.",
+    "toolNotAllowed": "This tool is not available or requires your own key.",
+    "apiKeyRequired": "Add a provider API key in Settings before using this model.",
     "cancelled": "The request was cancelled.",
     "managedProviderUnconfigured": "OpenRouter Free is not configured on the server yet. Please try again later.",
     "unsupportedDocumentType": "This document type is not supported.",
@@ -310,57 +297,6 @@
     "unexpectedTitle": "Something went wrong",
     "unexpectedDescription": "Please reload the page or return to chat.",
     "backToChat": "Back to chat"
-  },
-  "billing": {
-    "title": "Billing",
-    "subtitle": "Manage your plan, usage and subscription details.",
-    "usageLoadFailedTitle": "Usage could not be loaded",
-    "entitlementsLoadFailedTitle": "Plan details could not be loaded",
-    "currentPlanHeading": "Current plan",
-    "currentPlanDescription": "Your active Chat Sribiddi plan and its status.",
-    "planLabel": "Plan",
-    "renewsOn": "Renews on",
-    "cancelsOn": "Cancels on",
-    "endedOn": "Ended on",
-    "cancelAtPeriodEndNotice": "Your subscription is scheduled to end at the end of the current billing period.",
-    "upgradeHeading": "Upgrade your plan",
-    "upgradeDescription": "Unlock premium models, higher limits and more tools.",
-    "upgradeCta": "Upgrade",
-    "comparePlansHint": "Looking for the full feature comparison?",
-    "comparePlansLink": "View the pricing page",
-    "manageHeading": "Manage subscription",
-    "manageDescription": "Update your payment method, switch plan or cancel via the Stripe Customer Portal.",
-    "manageCta": "Manage subscription",
-    "checkoutFailedTitle": "Could not start checkout",
-    "portalFailedTitle": "Could not open the Customer Portal",
-    "usageHeading": "Usage",
-    "usageDescription": "Your messages over the last 30 days against your plan's usage limit.",
-    "usageOfCap": "{used} of {cap} messages in the last 30 days",
-    "usageNoCap": "{used} messages in the last 30 days",
-    "usageWindowNote": "Message count reflects your activity over the trailing 30 days. Your plan's daily cap still applies and resets every day at 00:00 UTC.",
-    "status": {
-      "free": "Free",
-      "active": "Active",
-      "trialing": "Trial",
-      "past_due": "Past due",
-      "unpaid": "Unpaid",
-      "canceled": "Canceled",
-      "incomplete": "Incomplete",
-      "incomplete_expired": "Expired",
-      "paused": "Paused"
-    },
-    "planBadge": {
-      "ariaLabel": "Current plan",
-      "free": "Free",
-      "premium": "Premium",
-      "max": "Max"
-    },
-    "upgradeBanner": {
-      "title": "Daily limit reached",
-      "description": "You've hit your daily message cap on the Free plan. Upgrade to Premium or Max for higher limits and premium models.",
-      "cta": "Upgrade plan",
-      "dismiss": "Dismiss"
-    }
   },
   "usage": {
     "title": "Usage dashboard",
@@ -378,57 +314,6 @@
     "dailyTrend": "Daily trend",
     "requestsCount": "{count} requests",
     "noData": "No usage data is available for this period yet."
-  },
-  "pricing": {
-    "title": "Pricing",
-    "subtitle": "Pick the plan that fits how you use Chat Sribiddi.",
-    "perMonth": "/ month",
-    "recommended": "Recommended",
-    "currentPlan": "Current plan",
-    "ctaCurrent": "Current",
-    "ctaUpgrade": "Upgrade",
-    "ctaSignInToUpgrade": "Sign in to upgrade",
-    "backButton": "Back to chat",
-    "checkoutFailedTitle": "Could not start checkout",
-    "plans": {
-      "free": {
-        "name": "Free",
-        "price": "€0",
-        "description": "Get started with the core chat experience.",
-        "features": {
-          "0": "Access to free models",
-          "1": "Up to 2 attachments per message (2 MB each, 4 MB total)",
-          "2": "10-message context window",
-          "3": "50 messages per day"
-        }
-      },
-      "premium": {
-        "name": "Premium",
-        "price": "€9",
-        "description": "Unlock premium models, tools, and higher limits.",
-        "features": {
-          "0": "Access to premium AI models",
-          "1": "Web search tool included",
-          "2": "Up to 5 attachments per message (5 MB each, 20 MB total)",
-          "3": "20-message context window",
-          "4": "500 messages per day",
-          "5": "2 parallel chats"
-        }
-      },
-      "max": {
-        "name": "Max",
-        "price": "€29",
-        "description": "Everything in Premium, plus top-tier models and headroom for power users.",
-        "features": {
-          "0": "Access to all AI models",
-          "1": "All tools unlocked",
-          "2": "Up to 10 attachments per message (10 MB each, 50 MB total)",
-          "3": "40-message context window",
-          "4": "2,000 messages per day",
-          "5": "4 parallel chats"
-        }
-      }
-    }
   },
   "compare": {
     "title": "Model comparison",
@@ -501,14 +386,14 @@
       "retentionBody": "Personal data is only retained for as long as necessary for the stated purposes or as long as legal retention obligations apply. Chat content and stored API keys remain saved until they are removed via the settings page or, when your account is deleted, removed together with the associated chat data.",
       "rightsHeading": "Your rights",
       "rightsBody": "You have the right to information, rectification, erasure, restriction of processing, data portability and to lodge a complaint with a data protection authority.",
-      "stripeHeading": "Payment processing (Stripe)",
-      "stripeBody": "[TODO: Legal text — For paid subscriptions the payment service provider Stripe Payments Europe, Ltd. is used. During payment processing, payment data (including name, payment method, billing address, transaction data) is transmitted to Stripe. The legal basis is Art. 6 (1) (b) GDPR (performance of contract). Further information at https://stripe.com/privacy.]",
+      "providerKeysHeading": "Provider API keys",
+      "providerKeysBody": "[TODO: Legal text — Signed-in users may store API keys for external AI providers. Keys are encrypted and used only to send requests to the selected provider on behalf of the user.]",
       "adSenseHeading": "Advertising (Google AdSense)",
       "adSenseBody": "[TODO: Legal text — This website uses Google AdSense, a service of Google Ireland Limited, to display advertising. Cookies and similar technologies are used to deliver personalised or non-personalised ads. The legal basis is Art. 6 (1) (a) GDPR (consent via the cookie banner). Further information at https://policies.google.com/privacy.]",
       "aiProvidersHeading": "AI service providers",
       "aiProvidersBody": "[TODO: Legal text — To provide the chat feature, your inputs are transmitted to the AI provider you have selected: OpenRouter Inc. (routing service), OpenAI, LLC (GPT models), Google LLC / Google Ireland Ltd. (Gemini models), Anthropic PBC (Claude models). Depending on the provider, data may be transferred to third countries (in particular the USA) on the basis of EU standard contractual clauses and, where applicable, additional safeguards. The legal basis is Art. 6 (1) (b) GDPR (performance of contract).]",
       "dpaHeading": "Record of processing activities / data processing agreements",
-      "dpaBody": "[TODO: Legal text — A record of processing activities pursuant to Art. 30 GDPR and data processing agreements with the service providers used (hosting, authentication, payment processor, AI providers) are maintained and may be reviewed on request via the contact details provided above.]"
+      "dpaBody": "[TODO: Legal text — A record of processing activities pursuant to Art. 30 GDPR and data processing agreements with the service providers used (hosting, authentication, AI providers) are maintained and may be reviewed on request via the contact details provided above.]"
     },
     "agb": {
       "title": "Terms",
@@ -516,13 +401,13 @@
       "placeholderNotice": "[TODO: Legal text — This text is a placeholder and must be reviewed and finalised by legal counsel before publication.]",
       "intro": "[TODO: Legal text — These general terms and conditions (T&Cs) govern the use of the Chat Sribiddi service, provided by the operator listed in the legal notice. By registering or using the service you accept these terms.]",
       "scopeHeading": "1. Scope",
-      "scopeBody": "[TODO: Legal text — These terms apply to all users of the Chat Sribiddi service, regardless of the selected plan (Free, Premium, Max). Deviating conditions are only effective if expressly confirmed in writing.]",
+      "scopeBody": "[TODO: Legal text — These terms apply to all users of the Chat Sribiddi service. Deviating conditions are only effective if expressly confirmed in writing.]",
       "servicesHeading": "2. Services",
-      "servicesBody": "[TODO: Legal text — Chat Sribiddi provides a web interface for using AI models from various providers. The scope of services depends on the selected plan. There is no claim to uninterrupted availability.]",
-      "pricesHeading": "3. Prices and payment terms",
-      "pricesBody": "[TODO: Legal text — Paid plans are billed at the prices applicable at the time of ordering. Billing is carried out monthly or yearly in advance via the payment processor Stripe. All prices include statutory VAT where applicable.]",
-      "termHeading": "4. Term and cancellation",
-      "termBody": "[TODO: Legal text — Paid subscriptions automatically renew for the previously selected term unless cancelled via the customer portal before the end of the current term. Free accounts may be deleted at any time without giving reasons.]",
+      "servicesBody": "[TODO: Legal text — Chat Sribiddi provides a web interface for using AI models from various providers. Signed-in use requires user-provided provider API keys. There is no claim to uninterrupted availability.]",
+      "pricesHeading": "3. Costs and provider accounts",
+      "pricesBody": "[TODO: Legal text — Chat Sribiddi does not process payments in this version. Costs for AI providers, API usage, or provider subscriptions are handled directly between the user and the selected provider.]",
+      "termHeading": "4. Term and account deletion",
+      "termBody": "[TODO: Legal text — User accounts may be deleted at any time without giving reasons. Stored chats and API keys are removed when the account is deleted.]",
       "withdrawalHeading": "5. Right of withdrawal",
       "withdrawalBody": "[TODO: Legal text — Consumers are in principle entitled to a statutory 14-day right of withdrawal. Upon express commencement of the service before the end of the withdrawal period, the right of withdrawal expires pursuant to § 356 (5) BGB. Details and a model withdrawal form are provided separately.]",
       "liabilityHeading": "6. Liability",

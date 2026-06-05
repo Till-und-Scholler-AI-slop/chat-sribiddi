@@ -3,12 +3,10 @@ package com.rft.chat_sribiddi.chat.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.rft.chat_sribiddi.auth.Plan;
-import com.rft.chat_sribiddi.billing.Entitlements;
+import com.rft.chat_sribiddi.access.AccessLimits;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.MediaAttachment;
 import java.util.Base64;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class MediaValidationServiceTest {
@@ -64,18 +62,14 @@ class MediaValidationServiceTest {
     return new MediaAttachment("image/png", Base64.getEncoder().encodeToString(data.getBytes()));
   }
 
-  private static Entitlements entitlements(
+  private static AccessLimits entitlements(
       int maxAttachments, long maxAttachmentBytes, long maxTotalAttachmentBytes) {
-    return new Entitlements(
-        Plan.FREE,
+    return new AccessLimits(
         maxAttachments,
         maxAttachmentBytes,
         maxTotalAttachmentBytes,
         10,
-        Set.of(),
-        50,
-        1,
-        0.0,
-        0.0);
+        java.util.Set.of(),
+        1);
   }
 }

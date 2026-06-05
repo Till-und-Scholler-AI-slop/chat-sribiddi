@@ -1,6 +1,5 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.chat.dto.MessageResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.ImportChatsRequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
@@ -162,12 +161,11 @@ public class ChatService {
 
     ResolvedCall resolvedCall = chatRequestResolver.resolveCall(userId, requestDTO);
     MessagePreparation prep =
-        chatRequestResolver.prepareUserMessage(chatId, chat, userId, requestDTO, resolvedCall.entitlements());
+        chatRequestResolver.prepareUserMessage(
+            chatId, chat, userId, requestDTO, resolvedCall.accessLimits());
     if (log.isTraceEnabled()) {
       log.trace("Prompt messages: {}", prep.promptBatch().combinedMessages());
     }
-
-    var plan = chatUsageRecorder.resolvePlan(userId);
 
     ChatResponseExtractor.ChatCallResult completion;
     ToolExecutionCollector toolExecutionCollector;
@@ -175,7 +173,7 @@ public class ChatService {
     try (var reservation = resolvedCall.quotaReservation()) {
       try (ProviderClientHandle clientHolder =
           providerClientFactory.getClient(
-              requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.billingMode())) {
+              requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.credentialSource())) {
         PreparedPrompt preparedPrompt =
             chatRequestResolver.preparePromptSpec(
                 chatId, userId, requestDTO, prep.promptBatch(), resolvedCall.apiKey(), clientHolder);
@@ -185,7 +183,7 @@ public class ChatService {
         reservation.commit();
       } catch (RuntimeException | Error error) {
         chatUsageRecorder.recordRequestMetric(
-            requestDTO.provider(), requestDTO.modelId(), plan, false);
+            requestDTO.provider(), requestDTO.modelId(), false);
         throw error;
       }
     }
@@ -219,8 +217,7 @@ public class ChatService {
             requestDTO.modelId(),
             tokenUsage,
             assistantMessage.getId(),
-            resolvedCall.billingMode(),
-            plan,
+            resolvedCall.credentialSource(),
             providerCallSucceeded));
 
     log.debug("Message persisted successfully");
@@ -244,9 +241,9 @@ public class ChatService {
             .orElseThrow(() -> new ChatNotFoundException(chatId));
 
     ResolvedCall resolvedCall = chatRequestResolver.resolveCall(userId, requestDTO);
-    var plan = chatUsageRecorder.resolvePlan(userId);
     MessagePreparation prep =
-        chatRequestResolver.prepareUserMessage(chatId, chat, userId, requestDTO, resolvedCall.entitlements());
+        chatRequestResolver.prepareUserMessage(
+            chatId, chat, userId, requestDTO, resolvedCall.accessLimits());
 
     streamConcurrencyGate.acquire(userId);
     try {
@@ -256,8 +253,7 @@ public class ChatService {
           prep.promptBatch(),
           chatId,
           prep.updatedTitle(),
-          resolvedCall,
-          plan);
+          resolvedCall);
     } catch (RuntimeException | Error error) {
       streamConcurrencyGate.release(userId);
       throw error;
@@ -289,9 +285,8 @@ public class ChatService {
     // Run entitlement checks before mutating chat history so that a rejected request
     // never leaves the database in a half-edited state.
     ResolvedCall resolvedCall = chatRequestResolver.resolveCall(userId, requestDTO);
-    var plan = chatUsageRecorder.resolvePlan(userId);
     List<ValidatedMediaAttachment> validatedMedia =
-        chatRequestResolver.validateMedia(requestDTO.media(), resolvedCall.entitlements());
+        chatRequestResolver.validateMedia(requestDTO.media(), resolvedCall.accessLimits());
     String userContext = chatRequestResolver.buildMediaContext(validatedMedia);
 
     userMessage.setMessage(requestDTO.content());
@@ -302,12 +297,12 @@ public class ChatService {
 
     var promptBatch =
         chatRequestResolver.buildPromptBatchForEdit(
-            chatId, userId, requestDTO, resolvedCall.entitlements(), messageId, validatedMedia);
+            chatId, userId, requestDTO, resolvedCall.accessLimits(), messageId, validatedMedia);
 
     streamConcurrencyGate.acquire(userId);
     try {
       return createAndSubscribeStream(
-          userId, requestDTO, promptBatch, chatId, null, resolvedCall, plan);
+          userId, requestDTO, promptBatch, chatId, null, resolvedCall);
     } catch (RuntimeException | Error error) {
       streamConcurrencyGate.release(userId);
       throw error;
@@ -316,11 +311,11 @@ public class ChatService {
 
   private SseEmitter createAndSubscribeStream(
       String userId, RequestDTO requestDTO, PromptMessageBuilder.PromptMessageBatch promptBatch,
-      UUID chatId, String updatedTitle, ResolvedCall resolvedCall, Plan plan) {
+      UUID chatId, String updatedTitle, ResolvedCall resolvedCall) {
     SseEmitter emitter = new SseEmitter(chatProperties.getStreamTimeoutMs());
     ProviderClientHandle clientHolder =
         providerClientFactory.getClient(
-            requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.billingMode());
+            requestDTO.provider(), resolvedCall.apiKey(), resolvedCall.credentialSource());
     try {
       PreparedPrompt preparedPrompt =
           chatRequestResolver.preparePromptSpec(
@@ -336,8 +331,7 @@ public class ChatService {
               userId,
               requestDTO.provider(),
               requestDTO.modelId(),
-              resolvedCall.billingMode(),
-              plan,
+              resolvedCall.credentialSource(),
               chatId,
               assistantContext,
               updatedTitle,

@@ -1,6 +1,7 @@
 package com.rft.chat_sribiddi.billing;
 
-import com.rft.chat_sribiddi.auth.Plan;
+import com.rft.chat_sribiddi.access.AccessProperties;
+import com.rft.chat_sribiddi.access.AccessRestrictionException;
 import com.rft.chat_sribiddi.config.RateLimitProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
@@ -28,7 +29,7 @@ public class GuestQuotaService {
   private static final String KEY_PREFIX = "guest-quota:";
   private static final ZoneId UTC = ZoneId.of("UTC");
 
-  private final BillingProperties billingProperties;
+  private final AccessProperties accessProperties;
   private final RateLimitProperties rateLimitProperties;
   private final StringRedisTemplate redisTemplate;
   private final Clock clock;
@@ -36,29 +37,29 @@ public class GuestQuotaService {
 
   @Autowired
   public GuestQuotaService(
-      BillingProperties billingProperties,
+      AccessProperties accessProperties,
       RateLimitProperties rateLimitProperties,
       ObjectProvider<StringRedisTemplate> redisTemplateProvider) {
     this(
-        billingProperties,
+        accessProperties,
         rateLimitProperties,
         redisTemplateProvider.getIfAvailable(),
         Clock.system(UTC));
   }
 
   GuestQuotaService(
-      BillingProperties billingProperties,
+      AccessProperties accessProperties,
       RateLimitProperties rateLimitProperties,
       StringRedisTemplate redisTemplate,
       Clock clock) {
-    this.billingProperties = billingProperties;
+    this.accessProperties = accessProperties;
     this.rateLimitProperties = rateLimitProperties;
     this.redisTemplate = redisTemplate;
     this.clock = clock;
   }
 
   public void assertWithinDailyCap(HttpServletRequest request, String guestId) {
-    long cap = billingProperties.getGuestDailyCap();
+    long cap = accessProperties.getGuestDailyCap();
     if (cap <= 0) {
       return;
     }
@@ -75,7 +76,7 @@ public class GuestQuotaService {
   }
 
   public GuestQuotaReservation reserveDailyCall(HttpServletRequest request, String guestId) {
-    long cap = billingProperties.getGuestDailyCap();
+    long cap = accessProperties.getGuestDailyCap();
     if (cap <= 0) {
       return GuestQuotaReservation.noop();
     }
@@ -112,7 +113,7 @@ public class GuestQuotaService {
         return;
       } catch (RuntimeException ex) {
         log.warn("Redis guest quota increment failed for key '{}': {}", key, ex.getMessage());
-        if (ex instanceof PlanRestrictionException) {
+        if (ex instanceof AccessRestrictionException) {
           throw ex;
         }
         throw quotaUnavailable();
@@ -191,17 +192,15 @@ public class GuestQuotaService {
     }
   }
 
-  private PlanRestrictionException dailyCapReached(long cap) {
-    return new PlanRestrictionException(
-        PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED,
-        Plan.FREE,
+  private AccessRestrictionException dailyCapReached(long cap) {
+    return new AccessRestrictionException(
+        AccessRestrictionException.Reason.DAILY_CAP_EXCEEDED,
         "Daily guest call cap (%d) reached".formatted(cap));
   }
 
-  private PlanRestrictionException quotaUnavailable() {
-    return new PlanRestrictionException(
-        PlanRestrictionException.Reason.DAILY_CAP_EXCEEDED,
-        Plan.FREE,
+  private AccessRestrictionException quotaUnavailable() {
+    return new AccessRestrictionException(
+        AccessRestrictionException.Reason.DAILY_CAP_EXCEEDED,
         "Guest quota is temporarily unavailable. Please retry later.");
   }
 
@@ -257,7 +256,7 @@ public class GuestQuotaService {
       this.reservedKeys = List.copyOf(reservedKeys);
     }
 
-    static GuestQuotaReservation noop() {
+    public static GuestQuotaReservation noop() {
       return NOOP;
     }
 

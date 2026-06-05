@@ -13,7 +13,6 @@ const tt = useTranslatedError()
 
 const { checkAuth, status: authStatus, logout } = useAuth()
 const { baseUrl: backendBaseUrl } = useChatApi()
-const { plan, ensureLoaded: ensureEntitlementsLoaded } = usePlan()
 const { settings } = useUserSettings()
 const {
   conversations,
@@ -76,11 +75,7 @@ onMounted(async () => {
   try {
     const auth = await checkAuth()
     if (auth === 'authenticated') {
-      await Promise.all([
-        loadChatsFromBackend(),
-        // Load entitlements so the plan badge reflects the current tier.
-        ensureEntitlementsLoaded()
-      ])
+      await loadChatsFromBackend()
       maybeOpenGuestImportPrompt()
     } else {
       await loadGuestChats()
@@ -261,31 +256,6 @@ const handleGuestImport = async () => {
   }
 }
 
-// Plan badge (FE-7): color-coded per tier.
-// Free=neutral (gray), Premium=primary (sky blue), Max=secondary (purple).
-const planBadgeColor = computed<'neutral' | 'primary' | 'secondary'>(() => {
-  switch (plan.value) {
-    case 'PREMIUM':
-      return 'primary'
-    case 'MAX':
-      return 'secondary'
-    case 'FREE':
-    default:
-      return 'neutral'
-  }
-})
-
-const planBadgeLabel = computed<string>(() => {
-  switch (plan.value) {
-    case 'PREMIUM':
-      return t('billing.planBadge.premium')
-    case 'MAX':
-      return t('billing.planBadge.max')
-    case 'FREE':
-    default:
-      return t('billing.planBadge.free')
-  }
-})
 </script>
 
 <template>
@@ -395,22 +365,6 @@ const planBadgeLabel = computed<string>(() => {
     <!-- Footer -->
     <div class="border-t border-gray-200/60 dark:border-white/[0.06] p-2 space-y-1">
       <template v-if="isAuthenticated">
-        <div
-          v-if="!collapsed"
-          class="px-2 pt-1 pb-2 flex items-center justify-between"
-        >
-          <span class="text-xs text-gray-500 dark:text-gray-400">
-            {{ t('billing.planLabel') }}
-          </span>
-          <NuxtLink to="/pricing" class="no-underline">
-            <UBadge
-              :color="planBadgeColor"
-              variant="subtle"
-              :label="planBadgeLabel"
-              :aria-label="t('billing.planBadge.ariaLabel')"
-            />
-          </NuxtLink>
-        </div>
         <UButton
           variant="ghost"
           icon="i-heroicons-cpu-chip"

@@ -113,15 +113,9 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
     if (path === '/account/settings' || path === '/settings') {
       await fulfillJson(route, {
         customInstructions: '',
-        billingModePreference: 'AUTO',
         favoriteModels: [],
         lastUsedModel: null
       })
-      return
-    }
-
-    if (path === '/billing/me') {
-      await fulfillJson(route, { plan: 'FREE', status: 'active' })
       return
     }
 

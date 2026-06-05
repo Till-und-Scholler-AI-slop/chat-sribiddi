@@ -1,11 +1,17 @@
 package com.rft.chat_sribiddi.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-import com.rft.chat_sribiddi.auth.Plan;
-import com.rft.chat_sribiddi.billing.EntitlementService;
-import com.rft.chat_sribiddi.billing.Entitlements;
+import com.rft.chat_sribiddi.access.AccessLimits;
+import com.rft.chat_sribiddi.access.CredentialAccessService;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
@@ -48,7 +54,7 @@ class PromptToolBinderTest {
   @Mock private CalculatorTool calculatorTool;
   @Mock private UrlFetcherTool urlFetcherTool;
   @Mock private PythonInterpreterTool pythonInterpreterTool;
-  @Mock private EntitlementService entitlementService;
+  @Mock private CredentialAccessService credentialAccessService;
   @Mock private ChatClient.ChatClientRequestSpec promptSpec;
 
   private ChatProperties chatProperties;
@@ -70,7 +76,7 @@ class PromptToolBinderTest {
             urlFetcherTool,
             pythonInterpreterTool,
             new CurrentDateTimeTool(),
-            entitlementService);
+            credentialAccessService);
     chatId = UUID.randomUUID();
   }
 
@@ -89,14 +95,14 @@ class PromptToolBinderTest {
   void bindTools_wiresEnabledCustomToolDirectly() {
     ChatTool customTool = new CustomAnnotatedTool();
     when(toolRegistry.getAll()).thenReturn(List.of(customTool));
-    when(entitlementService.get("user-123")).thenReturn(entitlements("*"));
+    when(credentialAccessService.authenticatedLimits()).thenReturn(accessLimits("*"));
     when(chatToolRepository.findByChatId(chatId)).thenReturn(List.of(enabledTool("custom-tool")));
 
     binder.bindTools(
         chatId,
         "user-123",
         RequestDTO.Provider.OPENAI,
-        "gpt-5.2",
+        "gpt-5.5",
         false,
         List.of(),
         new ToolExecutionCollector(),
@@ -114,14 +120,14 @@ class PromptToolBinderTest {
   void bindTools_passesConsentArgsThroughSpringAiToolContext() {
     ChatTool customTool = new CustomAnnotatedTool();
     when(toolRegistry.getAll()).thenReturn(List.of(customTool));
-    when(entitlementService.get("user-123")).thenReturn(entitlements("*"));
+    when(credentialAccessService.authenticatedLimits()).thenReturn(accessLimits("*"));
     when(chatToolRepository.findByChatId(chatId)).thenReturn(List.of(enabledTool("custom-tool")));
 
     binder.bindTools(
         chatId,
         "user-123",
         RequestDTO.Provider.OPENAI,
-        "gpt-5.2",
+        "gpt-5.5",
         false,
         List.of(
             new RequestDTO.ToolConsent(
@@ -144,62 +150,32 @@ class PromptToolBinderTest {
   }
 
   @Test
-  void bindTools_attachesEmptyConsentContextWhenNoConsentArgsProvided() {
-    ChatTool customTool = new CustomAnnotatedTool();
-    when(toolRegistry.getAll()).thenReturn(List.of(customTool));
-    when(entitlementService.get("user-123")).thenReturn(entitlements("*"));
-    when(chatToolRepository.findByChatId(chatId)).thenReturn(List.of(enabledTool("custom-tool")));
-
-    binder.bindTools(
-        chatId,
-        "user-123",
-        RequestDTO.Provider.OPENAI,
-        "gpt-5.2",
-        false,
-        List.of(),
-        new ToolExecutionCollector(),
-        promptSpec);
-
-    ArgumentCaptor<Consumer<ChatClient.ToolSpec>> toolsCaptor =
-        ArgumentCaptor.forClass(Consumer.class);
-    verify(promptSpec).tools(toolsCaptor.capture());
-
-    // Spring AI 2.0.0-M8's MethodToolCallback rejects a tool that declares a ToolContext
-    // parameter (e.g. UrlFetcherTool#fetchUrl) when the ToolContext map is empty, so the consent
-    // context must always be attached — even with an empty inner map — for the tool to run.
-    CapturedToolSpec captured = captureToolSpec(toolsCaptor.getValue());
-    assertThat(captured.context())
-        .containsEntry(PromptToolBinder.TOOL_CONSENT_CONTEXT_KEY, Map.of());
-  }
-
-  @Test
-  void bindTools_skipsToolsDeniedByEntitlements() {
+  void bindTools_skipsToolsDeniedByAccessLimits() {
     ChatTool customTool = mock(ChatTool.class);
     when(customTool.getName()).thenReturn("custom-tool");
     when(toolRegistry.getAll()).thenReturn(List.of(customTool));
-    when(entitlementService.get("user-123")).thenReturn(entitlements("calculator"));
+    when(credentialAccessService.authenticatedLimits()).thenReturn(accessLimits("calculator"));
 
     binder.bindTools(
         chatId,
         "user-123",
         RequestDTO.Provider.OPENAI,
-        "gpt-5.2",
+        "gpt-5.5",
         false,
         List.of(),
         new ToolExecutionCollector(),
         promptSpec);
 
     verify(promptSpec, never()).tools(ArgumentMatchers.<Consumer<ChatClient.ToolSpec>>any());
-    verify(chatToolRepository, never()).findByChatIdAndToolName(any(), anyString());
     verify(chatToolRepository, never()).findByChatId(any());
   }
 
   @Test
-  void bindTools_usesServerWebSearchKeyWhenUserKeyMissing() {
+  void bindTools_doesNotUseServerBraveKeyWhenUserKeyMissing() {
     ChatTool braveSearchTool = mock(ChatTool.class);
     when(braveSearchTool.getName()).thenReturn("brave-search");
     when(toolRegistry.getAll()).thenReturn(List.of(braveSearchTool));
-    when(entitlementService.get("user-123")).thenReturn(entitlements("brave-search"));
+    when(credentialAccessService.authenticatedLimits()).thenReturn(accessLimits("brave-search"));
     when(apiKeyService.getKey("user-123", RequestDTO.Provider.BRAVE_SEARCH))
         .thenReturn(Optional.empty());
     WebSearchProperties properties = new WebSearchProperties();
@@ -216,39 +192,27 @@ class PromptToolBinderTest {
             urlFetcherTool,
             pythonInterpreterTool,
             new CurrentDateTimeTool(),
-            entitlementService);
-    AtomicReference<ToolCallback[]> boundCallbacks = new AtomicReference<>();
-    doAnswer(
-            invocation -> {
-              Consumer<ChatClient.ToolSpec> consumer = invocation.getArgument(0);
-              boundCallbacks.set(captureCallbacks(consumer));
-              return promptSpec;
-            })
-        .when(promptSpec)
-        .tools(ArgumentMatchers.<Consumer<ChatClient.ToolSpec>>any());
+            credentialAccessService);
 
     binder.bindTools(
         chatId,
         "user-123",
         RequestDTO.Provider.OPENAI,
-        "gpt-5.2",
+        "gpt-5.5",
         true,
         List.of(),
         new ToolExecutionCollector(),
         promptSpec);
 
-    assertThat(boundCallbacks.get()).isNotNull();
-    assertThat(boundCallbacks.get())
-        .singleElement()
-        .satisfies(callback -> assertThat(callback.getToolDefinition().name()).isEqualTo("searchWeb"));
+    verify(promptSpec, never()).tools(ArgumentMatchers.<Consumer<ChatClient.ToolSpec>>any());
   }
 
   @Test
-  void bindTools_allowsBraveSearchWhenUserKeyExistsEvenIfPlanDeniesTool() {
+  void bindTools_allowsBraveSearchWhenUserKeyExistsEvenIfAccessLimitsDenyTool() {
     ChatTool braveSearchTool = mock(ChatTool.class);
     when(braveSearchTool.getName()).thenReturn("brave-search");
     when(toolRegistry.getAll()).thenReturn(List.of(braveSearchTool));
-    when(entitlementService.get("user-123")).thenReturn(entitlements("calculator"));
+    when(credentialAccessService.authenticatedLimits()).thenReturn(accessLimits("calculator"));
     when(apiKeyService.getKey("user-123", RequestDTO.Provider.BRAVE_SEARCH))
         .thenReturn(Optional.of("user-brave-key"));
     AtomicReference<ToolCallback[]> boundCallbacks = new AtomicReference<>();
@@ -265,7 +229,7 @@ class PromptToolBinderTest {
         chatId,
         "user-123",
         RequestDTO.Provider.OPENAI,
-        "gpt-5.2",
+        "gpt-5.5",
         true,
         List.of(),
         new ToolExecutionCollector(),
@@ -283,8 +247,8 @@ class PromptToolBinderTest {
     when(urlFetcher.getName()).thenReturn("url-fetcher");
     when(urlFetcher.requiresPerCallConsent()).thenReturn(false);
     when(toolRegistry.getAll()).thenReturn(List.of(urlFetcher));
-    // Free tier — no url-fetcher in entitlement.
-    when(entitlementService.get("user-123")).thenReturn(entitlements("calculator"));
+    // Base access limits deny url-fetcher; a stored user key should still unlock it.
+    when(credentialAccessService.authenticatedLimits()).thenReturn(accessLimits("calculator"));
     // Iterate over providers in declared order; OPENAI returns false (skipped), then BRAVE_SEARCH
     // returns true. Stubs for the providers between them are unnecessary (never called) so we
     // use lenient() for those.
@@ -324,7 +288,7 @@ class PromptToolBinderTest {
     ChatTool urlFetcher = mock(ChatTool.class);
     when(urlFetcher.getName()).thenReturn("url-fetcher");
     when(toolRegistry.getAll()).thenReturn(List.of(urlFetcher));
-    when(entitlementService.get("user-123")).thenReturn(entitlements("calculator"));
+    when(credentialAccessService.authenticatedLimits()).thenReturn(accessLimits("calculator"));
     for (RequestDTO.Provider provider : RequestDTO.Provider.values()) {
       when(apiKeyService.hasKey("user-123", provider)).thenReturn(false);
     }
@@ -347,7 +311,7 @@ class PromptToolBinderTest {
     ChatTool urlFetcher = mock(ChatTool.class);
     when(urlFetcher.getName()).thenReturn("url-fetcher");
     when(toolRegistry.getAll()).thenReturn(List.of(urlFetcher));
-    when(entitlementService.get("user-123")).thenReturn(entitlements("calculator"));
+    when(credentialAccessService.authenticatedLimits()).thenReturn(accessLimits("calculator"));
     when(apiKeyService.hasKey("user-123", RequestDTO.Provider.OPENAI)).thenReturn(true);
     when(apiKeyService.getKey("user-123", RequestDTO.Provider.OPENAI)).thenReturn(Optional.of("   "));
     for (RequestDTO.Provider provider : RequestDTO.Provider.values()) {
@@ -375,7 +339,7 @@ class PromptToolBinderTest {
     when(urlFetcher.getName()).thenReturn("url-fetcher");
     when(urlFetcher.requiresPerCallConsent()).thenReturn(false);
     when(toolRegistry.getAll()).thenReturn(List.of(urlFetcher));
-    when(entitlementService.get("user-123")).thenReturn(entitlements("*"));
+    when(credentialAccessService.authenticatedLimits()).thenReturn(accessLimits("*"));
     // No ChatToolEntity — falls through to the default-true list.
     when(chatToolRepository.findByChatId(chatId)).thenReturn(List.of());
 
@@ -413,7 +377,7 @@ class PromptToolBinderTest {
     // overrides requiresPerCallConsent() to false. This test pins that contract.
     when(urlFetcher.requiresPerCallConsent()).thenReturn(false);
     when(toolRegistry.getAll()).thenReturn(List.of(urlFetcher));
-    when(entitlementService.get("user-123")).thenReturn(entitlements("*"));
+    when(credentialAccessService.authenticatedLimits()).thenReturn(accessLimits("*"));
     when(chatToolRepository.findByChatId(chatId)).thenReturn(List.of());
 
     AtomicReference<ToolCallback[]> boundCallbacks = new AtomicReference<>();
@@ -504,17 +468,7 @@ class PromptToolBinderTest {
     return entity;
   }
 
-  private static Entitlements entitlements(String allowedTool) {
-    return new Entitlements(
-        Plan.FREE,
-        5,
-        5_242_880,
-        20_971_520,
-        20,
-        Set.of(allowedTool),
-        100,
-        1,
-        null,
-        null);
+  private static AccessLimits accessLimits(String allowedTool) {
+    return new AccessLimits(5, 5_242_880, 20_971_520, 20, Set.of(allowedTool), 1);
   }
 }

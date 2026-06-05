@@ -87,9 +87,7 @@ const selectedModel = computed<ModelOption | null>({
   },
   set: value => {
     if (value && isModelLocked(value)) {
-      // Do not assign the locked model — route the user to the upgrade page
-      // instead (see FE-5). Keep the current selection untouched.
-      void navigateTo('/pricing')
+      void navigateTo(isGuestMode.value ? '/login' : '/settings')
       return
     }
     if (value && activeConversation.value) {
@@ -134,51 +132,6 @@ type ChatMessagePart = { type: string; text?: string; mediaType?: string; filena
 type ChatContentSlot = {
   parts: ChatMessagePart[]
   message: { role?: string; id?: string; createdAt?: string | Date }
-}
-
-// Up-sell banner (FE-6): shown when the backend rejects a send/stream request
-// with a DAILY_CAP_EXCEEDED reason (HTTP 402, see GlobalExceptionHandler). The
-// JSON body from the backend is surfaced verbatim in `conversation.error`, so
-// we look for the reason token substring — this keeps the trigger stable even
-// if the localized `message` text changes.
-const upgradeBannerDismissed = ref(false)
-function planRestrictionReason(errorText: string | null | undefined): string | null {
-  if (!errorText) return null
-  try {
-    const parsed = JSON.parse(errorText) as { reason?: unknown }
-    if (typeof parsed.reason === 'string') return parsed.reason
-  } catch {
-    // fall through — match reason token in plain text
-  }
-  const upper = errorText.toUpperCase()
-  if (upper.includes('DAILY_CAP_EXCEEDED')) return 'DAILY_CAP_EXCEEDED'
-  if (upper.includes('MODEL_NOT_ALLOWED')) return 'MODEL_NOT_ALLOWED'
-  if (upper.includes('PARALLEL_STREAMS_EXCEEDED')) return 'PARALLEL_STREAMS_EXCEEDED'
-  return null
-}
-
-const showUpgradeBanner = computed(() => {
-  if (upgradeBannerDismissed.value) return false
-  return planRestrictionReason(activeConversation.value?.error) === 'DAILY_CAP_EXCEEDED'
-})
-
-// Reset dismissal whenever the active chat changes or a new error is surfaced
-// so the banner reappears after subsequent quota-hit attempts.
-watch(
-  () => [activeChatId.value, activeConversation.value?.error] as const,
-  ([chatId, err], [prevChatId, prevErr]) => {
-    if (chatId !== prevChatId || err !== prevErr) {
-      upgradeBannerDismissed.value = false
-    }
-  }
-)
-
-const dismissUpgradeBanner = () => {
-  upgradeBannerDismissed.value = true
-}
-
-const goToPricing = () => {
-  void navigateTo('/pricing')
 }
 
 const firstText = (parts?: ChatMessagePart[]) =>
@@ -519,11 +472,6 @@ const handleReload = async () => {
   <UDashboardPanel class="h-full min-h-0 flex flex-col" :ui="{ body: 'p-2 sm:p-6' }">
     <template #body>
       <UContainer class="px-2 sm:px-6 lg:px-8 py-4 space-y-4 flex-1 min-h-0 overflow-hidden flex flex-col">
-        <ChatUpgradeBanner
-          :show="showUpgradeBanner"
-          @dismiss="dismissUpgradeBanner"
-          @upgrade="goToPricing"
-        />
         <UAlert
           v-if="translatedModelsError"
           color="warning"
@@ -786,7 +734,7 @@ const handleReload = async () => {
                   <UIcon name="i-heroicons-cpu-chip" />
                 </template>
                 <template #option="{ option }">
-                  <ModelSelectOption :option="option" :favorite="isFavorite(option)" />
+                  <ChatModelSelectOption :option="option" :favorite="isFavorite(option)" />
                 </template>
               </USelectMenu>
               <UTooltip

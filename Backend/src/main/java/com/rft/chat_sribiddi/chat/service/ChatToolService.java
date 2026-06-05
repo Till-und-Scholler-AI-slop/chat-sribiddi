@@ -1,5 +1,8 @@
 package com.rft.chat_sribiddi.chat.service;
 
+import com.rft.chat_sribiddi.access.AccessLimits;
+import com.rft.chat_sribiddi.access.AccessRestrictionException;
+import com.rft.chat_sribiddi.access.CredentialAccessService;
 import com.rft.chat_sribiddi.chat.dto.AvailableToolDTO;
 import com.rft.chat_sribiddi.chat.dto.ChatToolResponseDTO;
 import com.rft.chat_sribiddi.chat.dto.SetChatToolRequestDTO;
@@ -8,14 +11,10 @@ import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
-import com.rft.chat_sribiddi.billing.EntitlementService;
-import com.rft.chat_sribiddi.billing.Entitlements;
-import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
 import com.rft.chat_sribiddi.tools.ToolProperties;
-import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -36,19 +35,16 @@ public class ChatToolService {
   private final ChatToolRepository chatToolRepository;
   private final ToolRegistry toolRegistry;
   private final ApiKeyService apiKeyService;
-  private final EntitlementService entitlementService;
-  private final WebSearchProperties webSearchProperties;
+  private final CredentialAccessService credentialAccessService;
   private final ToolProperties toolProperties;
 
   @Transactional(readOnly = true)
   public List<AvailableToolDTO> listAvailableTools(UUID chatId, String userId) {
     ensureChatExists(chatId, userId);
     Collection<ChatTool> tools = toolRegistry.getAll();
-    Entitlements entitlements = entitlementService.get(userId);
+    AccessLimits accessLimits = credentialAccessService.authenticatedLimits();
     Map<String, Boolean> enabledByToolName = loadToolOverrides(chatId);
     boolean userBraveSearchConfigured = hasUserWebSearchKey(userId);
-    boolean serverBraveSearchConfigured =
-        isServerBraveSearchConfigNeeded(tools, entitlements) && hasServerWebSearchKey();
 
     return tools.stream()
         .map(
@@ -59,10 +55,9 @@ public class ChatToolService {
                     tool.getDescription(),
                     isToolAvailableAndEnabled(
                         tool,
-                        entitlements,
+                        accessLimits,
                         enabledByToolName,
-                        userBraveSearchConfigured,
-                        serverBraveSearchConfigured)))
+                        userBraveSearchConfigured)))
         .toList();
   }
 
@@ -72,12 +67,11 @@ public class ChatToolService {
     ensureChatExists(chatId, userId);
     String toolName = request.toolName().trim();
     ensureToolRegistered(toolName);
-    Entitlements entitlements = entitlementService.get(userId);
-    if (request.enabled() && !isToolAllowed(toolName, userId, entitlements)) {
-      throw new PlanRestrictionException(
-          PlanRestrictionException.Reason.TOOL_NOT_ALLOWED,
-          entitlements.plan(),
-          "Tool '%s' is not available on the current plan".formatted(toolName));
+    AccessLimits accessLimits = credentialAccessService.authenticatedLimits();
+    if (request.enabled() && !isToolAllowed(toolName, userId, accessLimits)) {
+      throw new AccessRestrictionException(
+          AccessRestrictionException.Reason.TOOL_NOT_ALLOWED,
+          "Tool '%s' is not available".formatted(toolName));
     }
 
     ChatToolEntity entity =
@@ -96,33 +90,30 @@ public class ChatToolService {
 
   private boolean isToolAvailableAndEnabled(
       ChatTool tool,
-      Entitlements entitlements,
+      AccessLimits accessLimits,
       Map<String, Boolean> enabledByToolName,
-      boolean userBraveSearchConfigured,
-      boolean serverBraveSearchConfigured) {
+      boolean userBraveSearchConfigured) {
     String toolName = tool.getName();
     return isToolAllowed(
             toolName,
-            entitlements,
+            accessLimits,
             userBraveSearchConfigured)
         && isToolEnabledForUser(
             toolName,
             tool.requiresUserConfig(),
-            userBraveSearchConfigured,
-            serverBraveSearchConfigured)
+            userBraveSearchConfigured)
         && isToolEnabledForChat(toolName, enabledByToolName);
   }
 
   private boolean isToolEnabledForUser(
       String toolName,
       boolean requiresUserConfig,
-      boolean userBraveSearchConfigured,
-      boolean serverBraveSearchConfigured) {
+      boolean userBraveSearchConfigured) {
     if (!requiresUserConfig) {
       return true;
     }
     return switch (toolName) {
-      case "brave-search" -> userBraveSearchConfigured || serverBraveSearchConfigured;
+      case "brave-search" -> userBraveSearchConfigured;
       default -> false;
     };
   }
@@ -150,23 +141,8 @@ public class ChatToolService {
     return enabledByToolName.getOrDefault(toolName, toolProperties.getDefaultEnabled().contains(toolName));
   }
 
-  private boolean isServerBraveSearchConfigNeeded(
-      Collection<ChatTool> tools, Entitlements entitlements) {
-    return tools.stream()
-        .anyMatch(
-            tool ->
-                "brave-search".equals(tool.getName())
-                    && tool.requiresUserConfig()
-                    && entitlements.allowsTool(tool.getName()));
-  }
-
-  private boolean hasServerWebSearchKey() {
-    String apiKey = webSearchProperties.getApiKey();
-    return apiKey != null && !apiKey.isBlank();
-  }
-
-  private boolean isToolAllowed(String toolName, String userId, Entitlements entitlements) {
-    if (entitlements.allowsTool(toolName)) {
+  private boolean isToolAllowed(String toolName, String userId, AccessLimits accessLimits) {
+    if (accessLimits.allowsTool(toolName)) {
       return true;
     }
     return "brave-search".equals(toolName) && hasUserWebSearchKey(userId);
@@ -174,9 +150,9 @@ public class ChatToolService {
 
   private boolean isToolAllowed(
       String toolName,
-      Entitlements entitlements,
+      AccessLimits accessLimits,
       boolean userBraveSearchConfigured) {
-    if (entitlements.allowsTool(toolName)) {
+    if (accessLimits.allowsTool(toolName)) {
       return true;
     }
     return "brave-search".equals(toolName) && userBraveSearchConfigured;

@@ -126,43 +126,29 @@ class UsageScreen extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.workspace_premium_outlined, color: palette.accent),
+                        Icon(Icons.key_outlined, color: palette.accent),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            strings.t('billing.currentPlanHeading'),
+                            strings.t('mobile.keyAccess'),
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                         ),
-                        Chip(label: Text(strings.t('billing.planBadge.free'))),
+                        Chip(label: Text(strings.t('mobile.byokOnly'))),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    LinearProgressIndicator(
-                      value: 33 / 50,
-                      minHeight: 8,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    const SizedBox(height: 10),
                     Text(
-                      strings.t('mobile.planUsage'),
+                      strings.t('mobile.usageKeyHint'),
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: palette.muted,
                           ),
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        FilledButton(
-                          onPressed: () => AppScope.read(context).setSection(AppSection.pricing),
-                          child: Text(strings.t('billing.upgradeCta')),
-                        ),
-                        const SizedBox(width: 8),
-                        OutlinedButton(
-                          onPressed: () {},
-                          child: Text(strings.t('billing.manageCta')),
-                        ),
-                      ],
+                    FilledButton.icon(
+                      onPressed: () => AppScope.read(context).setSection(AppSection.settings),
+                      icon: const Icon(Icons.settings_outlined),
+                      label: Text(strings.t('mobile.openSettings')),
                     ),
                   ],
                 ),

@@ -1,7 +1,6 @@
 package com.rft.chat_sribiddi.billing;
 
-import com.rft.chat_sribiddi.auth.BillingMode;
-import com.rft.chat_sribiddi.auth.Plan;
+import com.rft.chat_sribiddi.auth.CredentialSource;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -18,9 +17,7 @@ import lombok.Setter;
 
 /**
  * Per-call usage/cost event, mirrored from the {@code usage_events} table created by Flyway
- * migration {@code V7__billing_and_plans.sql}. Persistence is the responsibility of BILL-6; this
- * entity exists so BILL-11's {@code GET /billing/usage} endpoint can aggregate the table via a
- * JPA repository using the existing app persistence context.
+ * migration {@code V7__billing_and_plans.sql}. The table is kept for usage and cost analytics.
  */
 @Entity
 @Table(name = "usage_events")
@@ -58,12 +55,8 @@ public class UsageEventEntity {
   private Long costMicroCents;
 
   @Enumerated(EnumType.STRING)
-  @Column(name = "billing_mode")
-  private BillingMode billingMode;
-
-  @Enumerated(EnumType.STRING)
-  @Column(name = "tier_at_call")
-  private Plan tierAtCall;
+  @Column(name = "credential_source")
+  private CredentialSource credentialSource;
 
   @Column(name = "created_at", nullable = false, updatable = false)
   private Instant createdAt;

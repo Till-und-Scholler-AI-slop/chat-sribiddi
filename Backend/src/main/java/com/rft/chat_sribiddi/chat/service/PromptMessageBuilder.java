@@ -1,6 +1,6 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import com.rft.chat_sribiddi.billing.Entitlements;
+import com.rft.chat_sribiddi.access.AccessLimits;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.model.Role;
 import com.rft.chat_sribiddi.chat.repository.MessageRepository;
@@ -32,7 +32,7 @@ public class PromptMessageBuilder {
 
   PromptMessageBatch buildBatch(PromptMessageRequest request) {
     List<Message> requestMessages = requestMessages(request);
-    int memoryLimit = memoryMessageLimit(request.entitlements());
+    int memoryLimit = memoryMessageLimit(request.accessLimits());
     if (memoryLimit <= 0) {
       // Context limit leaves no room for prior history beyond the current message.
       return PromptMessageBatch.withSpringAiMemory(
@@ -66,7 +66,7 @@ public class PromptMessageBuilder {
         toUserMessage(
             request.currentContent(),
             request.media(),
-            request.entitlements(),
+            request.accessLimits(),
             request.targetUserMessageId()));
     return messages;
   }
@@ -98,7 +98,7 @@ public class PromptMessageBuilder {
     }
     allMessages.add(new StatelessChatMessage(Role.USER, request.currentContent()));
 
-    int limit = totalContextMessageLimit(request.entitlements());
+    int limit = totalContextMessageLimit(request.accessLimits());
     int from = Math.max(0, allMessages.size() - limit);
     List<StatelessChatMessage> limited = allMessages.subList(from, allMessages.size());
     for (int i = 0; i < limited.size(); i++) {
@@ -111,7 +111,7 @@ public class PromptMessageBuilder {
             toUserMessage(
                 item.content(),
                 request.media(),
-                request.entitlements()));
+                request.accessLimits()));
       } else {
         messages.add(toChatMessage(item.role(), item.content()));
       }
@@ -139,16 +139,16 @@ public class PromptMessageBuilder {
         : systemPrompt;
   }
 
-  private int totalContextMessageLimit(Entitlements entitlements) {
+  private int totalContextMessageLimit(AccessLimits accessLimits) {
     int configured = chatProperties.getContextMessageLimit();
-    if (entitlements == null || entitlements.contextMessageLimit() <= 0) {
+    if (accessLimits == null || accessLimits.contextMessageLimit() <= 0) {
       return Math.max(1, configured);
     }
-    return Math.max(1, Math.min(configured, entitlements.contextMessageLimit()));
+    return Math.max(1, Math.min(configured, accessLimits.contextMessageLimit()));
   }
 
-  private int memoryMessageLimit(Entitlements entitlements) {
-    return Math.max(0, totalContextMessageLimit(entitlements) - 1);
+  private int memoryMessageLimit(AccessLimits accessLimits) {
+    return Math.max(0, totalContextMessageLimit(accessLimits) - 1);
   }
 
   private Message toChatMessage(Role role, String text) {
@@ -160,14 +160,14 @@ public class PromptMessageBuilder {
   }
 
   private UserMessage toUserMessage(
-      String text, List<Media> media, Entitlements entitlements) {
-    return toUserMessage(text, media, entitlements, null);
+      String text, List<Media> media, AccessLimits accessLimits) {
+    return toUserMessage(text, media, accessLimits, null);
   }
 
   private UserMessage toUserMessage(
       String text,
       List<Media> media,
-      Entitlements entitlements,
+      AccessLimits accessLimits,
       Long sourceMessageId) {
     return UserMessage.builder()
         .text(text)
@@ -188,7 +188,7 @@ public class PromptMessageBuilder {
       String customInstructions,
       RequestDTO.Provider provider,
       String modelId,
-      Entitlements entitlements,
+      AccessLimits accessLimits,
       DocumentRetrievalContext documentRetrievalContext) {}
 
   record StatelessPromptMessageRequest(
@@ -198,7 +198,7 @@ public class PromptMessageBuilder {
       String customInstructions,
       RequestDTO.Provider provider,
       String modelId,
-      Entitlements entitlements,
+      AccessLimits accessLimits,
       DocumentRetrievalContext documentRetrievalContext) {}
 
   record StatelessChatMessage(Role role, String content) {}

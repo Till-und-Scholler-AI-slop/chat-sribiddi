@@ -178,9 +178,7 @@ app:
     enabled: ${RATE_LIMIT_ENABLED:true}
     backend: ${RATE_LIMIT_BACKEND:redis}
     anonymous-requests-per-minute: ${RATE_LIMIT_ANONYMOUS_PER_MINUTE:300}
-    free-requests-per-minute: ${RATE_LIMIT_FREE_PER_MINUTE:600}
-    premium-requests-per-minute: ${RATE_LIMIT_PREMIUM_PER_MINUTE:1200}
-    max-requests-per-minute: ${RATE_LIMIT_MAX_PER_MINUTE:2400}
+    authenticated-requests-per-minute: ${RATE_LIMIT_AUTHENTICATED_PER_MINUTE:600}
     bucket-ttl: ${RATE_LIMIT_BUCKET_TTL:10m}
     redis-failure-retry-after-seconds: ${RATE_LIMIT_REDIS_FAILURE_RETRY_AFTER_SECONDS:60}
     trusted-proxies: ${RATE_LIMIT_TRUSTED_PROXIES:127.0.0.1,::1}
@@ -223,80 +221,23 @@ app:
       pids-limit: ${TOOLS_PYTHON_PIDS_LIMIT:64}
       tmpfs: ${TOOLS_PYTHON_TMPFS:/tmp:rw,noexec,nosuid,size=16m}
   web-search:
-    api-key: ${BRAVE_SEARCH_API_KEY:}
     max-results: ${WEB_SEARCH_MAX_RESULTS:5}
     request-timeout: ${WEB_SEARCH_REQUEST_TIMEOUT:10s}
     user-agent: ${WEB_SEARCH_USER_AGENT:ChatSribiddi/1.0 (WebSearch)}
-  billing:
-    guest-daily-cap: ${BILLING_GUEST_DAILY_CAP:20}
-    # Per-tier entitlements. Values are consumed by BillingProperties / EntitlementService.
-    # Model access is NOT gated via hardcoded ID whitelists — it uses the price threshold
-    # defined under `model-access` below (see MONETIZATION_PLAN.md).
-    stripe:
-      # Server-side Stripe API key. Blank in dev disables the /billing/checkout-session and
-      # /billing/portal-session endpoints at the Stripe SDK boundary (they will return 503).
-      secret-key: ${STRIPE_SECRET_KEY:}
-      # Webhook signing secret (used by the BILL-10 webhook controller; included here so that
-      # the full `app.billing.stripe.*` namespace lives in one place per issue spec).
-      webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
-      # Stripe Price IDs for each (plan, interval) combination. Configure in the Stripe dashboard
-      # (Products → Pricing) and supply via environment variables in deployment.
-      price-id-premium-month: ${STRIPE_PRICE_ID_PREMIUM_MONTH:}
-      price-id-premium-year: ${STRIPE_PRICE_ID_PREMIUM_YEAR:}
-      price-id-max-month: ${STRIPE_PRICE_ID_MAX_MONTH:}
-      price-id-max-year: ${STRIPE_PRICE_ID_MAX_YEAR:}
-      # Redirect targets for Stripe Checkout and Customer Portal. Defaults append sensible paths
-      # to the configured frontend URL.
-      success-url: ${STRIPE_SUCCESS_URL:${APP_FRONTEND_URL:http://localhost:3000}/billing/success?session_id={CHECKOUT_SESSION_ID}}
-      cancel-url: ${STRIPE_CANCEL_URL:${APP_FRONTEND_URL:http://localhost:3000}/billing/cancel}
-      portal-return-url: ${STRIPE_PORTAL_RETURN_URL:${APP_FRONTEND_URL:http://localhost:3000}/settings}
-    managed-keys:
-      # Server-side API keys used by BillingModeResolver when a request is resolved to
-      # managed billing mode. Defaults read the conventional env vars — a blank value disables
-      # managed mode for that provider.
-      openai: ${OPENAI_API_KEY:}
-      google: ${GOOGLE_API_KEY:}
-      claude: ${CLAUDE_API_KEY:}
-      openrouter: ${OPENROUTER_API_KEY:}
-    model-access:
-      # Free tier allows only OpenRouter's free router model (`openrouter/free`) in managed mode
-      # unless the user stores a BYOK provider key. The thresholds still define the zero-cost
-      # price cap for that model and any future free-router equivalents.
-      free-max-input-usd-per-million: ${BILLING_FREE_MAX_INPUT_USD_PER_MILLION:0.0}
-      free-max-output-usd-per-million: ${BILLING_FREE_MAX_OUTPUT_USD_PER_MILLION:0.0}
-      # Premium tier allows all models under these thresholds (USD per 1,000,000 tokens). Models
-      # above the threshold — e.g. claude-opus-4-7 (~$15/$75 per 1M) — require Max. BILL-8.
-      premium-max-input-usd-per-million: ${BILLING_PREMIUM_MAX_INPUT_USD_PER_MILLION:5.0}
-      premium-max-output-usd-per-million: ${BILLING_PREMIUM_MAX_OUTPUT_USD_PER_MILLION:5.0}
-      # Providers that may be used in managed (platform-paid) billing mode. Paid tiers route 100%
-      # through OpenRouter, so direct OpenAI/Google/Claude are BYOK-only.
-      managed-providers:
-        - OPENROUTER
-    tiers:
-      free:
-        max-attachments: 2
-        max-attachment-bytes: 2097152        # 2 MB
-        max-total-attachment-bytes: 4194304  # 4 MB
-        context-message-limit: 10
-        tools: []
-        daily-cap: 50
-        parallel-streams: 1
-      premium:
-        max-attachments: 5
-        max-attachment-bytes: 5242880        # 5 MB
-        max-total-attachment-bytes: 20971520 # 20 MB
-        context-message-limit: 20
-        tools:
-          - brave-search
-          - url-fetcher
-        daily-cap: 500
-        parallel-streams: 2
-      max:
-        max-attachments: 10
-        max-attachment-bytes: 10485760       # 10 MB
-        max-total-attachment-bytes: 52428800 # 50 MB
-        context-message-limit: 40
-        tools:
-          - "*"
-        daily-cap: 2000
-        parallel-streams: 4
+  access:
+    guest-daily-cap: ${GUEST_OPENROUTER_FREE_DAILY_CAP:20}
+    authenticated:
+      max-attachments: ${ACCESS_AUTH_MAX_ATTACHMENTS:5}
+      max-attachment-bytes: ${ACCESS_AUTH_MAX_ATTACHMENT_BYTES:5242880}
+      max-total-attachment-bytes: ${ACCESS_AUTH_MAX_TOTAL_ATTACHMENT_BYTES:20971520}
+      context-message-limit: ${ACCESS_AUTH_CONTEXT_MESSAGE_LIMIT:20}
+      tools:
+        - "*"
+      parallel-streams: ${ACCESS_AUTH_PARALLEL_STREAMS:1}
+    guest:
+      max-attachments: ${ACCESS_GUEST_MAX_ATTACHMENTS:2}
+      max-attachment-bytes: ${ACCESS_GUEST_MAX_ATTACHMENT_BYTES:2097152}
+      max-total-attachment-bytes: ${ACCESS_GUEST_MAX_TOTAL_ATTACHMENT_BYTES:4194304}
+      context-message-limit: ${ACCESS_GUEST_CONTEXT_MESSAGE_LIMIT:10}
+      tools: []
+      parallel-streams: 1

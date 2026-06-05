@@ -14,7 +14,7 @@ const settingsMock = vi.hoisted(() => ({ value: { expertMode: false } }))
 
 vi.mock('~/composables/useChatApi', () => ({
   PROVIDERS: ['OPENAI', 'GOOGLE', 'CLAUDE', 'OPENROUTER'],
-  isModelLocked: (model: { availability?: string | null }) => model.availability === 'UPGRADE_REQUIRED',
+  isModelLocked: (model: { availability?: string | null }) => model.availability === 'BYOK_ONLY',
   useChatApi: () => apiMock
 }))
 

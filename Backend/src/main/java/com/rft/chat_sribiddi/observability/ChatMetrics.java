@@ -1,6 +1,5 @@
 package com.rft.chat_sribiddi.observability;
 
-import com.rft.chat_sribiddi.auth.Plan;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
@@ -27,12 +26,11 @@ public class ChatMetrics {
         .register(meterRegistry);
   }
 
-  public void recordRequest(Provider provider, String modelId, Plan plan, String status) {
+  public void recordRequest(Provider provider, String modelId, String status) {
     Counter.builder("chat.requests.total")
-        .description("Chat provider requests by provider, model, plan and status")
+        .description("Chat provider requests by provider, model and status")
         .tag("provider", tag(provider))
         .tag("model", tag(modelId))
-        .tag("plan", tag(plan))
         .tag("status", tag(status))
         .register(meterRegistry)
         .increment();
@@ -73,10 +71,6 @@ public class ChatMetrics {
 
   private static String tag(Provider provider) {
     return provider == null ? UNKNOWN : provider.name().toLowerCase(Locale.ROOT);
-  }
-
-  private static String tag(Plan plan) {
-    return plan == null ? UNKNOWN : plan.name().toLowerCase(Locale.ROOT);
   }
 
   private static String tag(String value) {

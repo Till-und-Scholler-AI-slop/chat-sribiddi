@@ -181,7 +181,7 @@ class _ComparePanel extends StatelessWidget {
                           enabled: !item.locked,
                           child: Text(
                             item.locked
-                                ? '${item.label} · ${strings.t('models.premiumRequired')}'
+                                ? '${item.label} · ${strings.t('models.keyRequired')}'
                                 : item.label,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -210,7 +210,7 @@ class _ComparePanel extends StatelessWidget {
                 if (model.locked)
                   Chip(
                     avatar: const Icon(Icons.lock_outline, size: 16),
-                    label: Text(strings.t('models.premiumRequired')),
+                    label: Text(strings.t('models.keyRequired')),
                   ),
               ],
             ),

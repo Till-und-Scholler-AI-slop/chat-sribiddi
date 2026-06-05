@@ -1,8 +1,6 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import com.rft.chat_sribiddi.auth.BillingMode;
-import com.rft.chat_sribiddi.auth.Plan;
-import com.rft.chat_sribiddi.billing.ManagedQuotaReservation;
+import com.rft.chat_sribiddi.auth.CredentialSource;
 import com.rft.chat_sribiddi.billing.QuotaReservation;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.dto.StreamEventDTO;
@@ -77,8 +75,7 @@ public class ChatStreamSubscriber {
                                 subscription.modelId(),
                                 tokenUsage,
                                 null,
-                                subscription.billingMode(),
-                                subscription.plan(),
+                                subscription.credentialSource(),
                                 false))),
             (fullText, lastUsage, streamSample) ->
                 handleStreamCompletion(subscription, fullText, lastUsage, streamSample)));
@@ -122,7 +119,7 @@ public class ChatStreamSubscriber {
                             StreamErrorHandler.extractProviderMessage(error)),
                     tokenUsage ->
                         chatUsageRecorder.recordRequestMetric(
-                            subscription.provider(), subscription.modelId(), Plan.FREE, false)),
+                            subscription.provider(), subscription.modelId(), false)),
             (fullText, lastUsage, streamSample) ->
                 handleStatelessStreamCompletion(subscription, lastUsage, streamSample)));
   }
@@ -401,8 +398,7 @@ public class ChatStreamSubscriber {
               subscription.modelId(),
               tokenUsage,
               savedMessageId.get(),
-              subscription.billingMode(),
-              subscription.plan(),
+              subscription.credentialSource(),
               streamCompletedSuccessfully));
       chatMetrics.recordStreamEnd(streamSample);
     }
@@ -517,7 +513,7 @@ public class ChatStreamSubscriber {
       }
     } finally {
       chatUsageRecorder.recordRequestMetric(
-          subscription.provider(), subscription.modelId(), Plan.FREE, true);
+          subscription.provider(), subscription.modelId(), true);
       chatMetrics.recordStreamEnd(streamSample);
     }
   }
@@ -549,13 +545,12 @@ public class ChatStreamSubscriber {
       String userId,
       Provider provider,
       String modelId,
-      BillingMode billingMode,
-      Plan plan,
+      CredentialSource credentialSource,
       UUID chatId,
       String assistantContext,
       String updatedTitle,
       ToolExecutionCollector toolExecutionCollector,
-      ManagedQuotaReservation quotaReservation) {}
+      QuotaReservation quotaReservation) {}
 
   record StatelessStreamSubscription(
       ChatClient.ChatClientRequestSpec promptSpec,

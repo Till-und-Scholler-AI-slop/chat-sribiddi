@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum AppSection { chat, models, compare, usage, pricing, settings }
+enum AppSection { chat, models, compare, usage, settings }
 
 enum MessageRole { user, assistant }
 
@@ -123,7 +123,6 @@ class AppController extends ChangeNotifier {
   String _activeConversationId;
   String _selectedModelId;
   bool _webSearchEnabled = false;
-  String _billingMode = 'AUTO';
   bool _showPreSendCost = true;
   final List<AiModel> _models;
   final List<Conversation> _conversations;
@@ -136,7 +135,6 @@ class AppController extends ChangeNotifier {
   List<Conversation> get conversations => List.unmodifiable(_conversations);
   List<ComparePanelData> get comparePanels => List.unmodifiable(_comparePanels);
   bool get webSearchEnabled => _webSearchEnabled;
-  String get billingMode => _billingMode;
   bool get showPreSendCost => _showPreSendCost;
 
   Conversation get activeConversation => _conversations.firstWhere(
@@ -204,7 +202,7 @@ class AppController extends ChangeNotifier {
   void selectModel(String modelId) {
     final model = modelById(modelId);
     if (model.locked) {
-      _section = AppSection.pricing;
+      _section = AppSection.settings;
     } else {
       _selectedModelId = modelId;
       _section = AppSection.chat;
@@ -255,7 +253,7 @@ class AppController extends ChangeNotifier {
   void setComparePanelModel(String panelId, String modelId) {
     final model = modelById(modelId);
     if (model.locked) {
-      _section = AppSection.pricing;
+      _section = AppSection.settings;
       notifyListeners();
       return;
     }
@@ -330,11 +328,6 @@ class AppController extends ChangeNotifier {
     );
     _activeConversationId = id;
     _section = AppSection.chat;
-    notifyListeners();
-  }
-
-  void setBillingMode(String mode) {
-    _billingMode = mode;
     notifyListeners();
   }
 

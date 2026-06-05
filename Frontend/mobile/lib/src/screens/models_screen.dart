@@ -164,7 +164,7 @@ class _ModelCard extends StatelessWidget {
                             ),
                             if (model.locked)
                               Tooltip(
-                                message: strings.t('models.premiumRequired'),
+                                message: strings.t('models.keyRequired'),
                                 child: const Icon(Icons.lock_outline, size: 18),
                               ),
                           ],

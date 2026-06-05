@@ -1,5 +1,4 @@
 import type { ModelOption } from '~/composables/useChatApi'
-import type { BillingMode } from '~/composables/useEntitlements'
 import { DEFAULT_BACKEND_BASE_URL } from '~/composables/useChatApi'
 
 type UserSettings = {
@@ -71,17 +70,8 @@ export function useUserSettings() {
     )
   }
 
-  const saveBillingMode = async (mode: BillingMode): Promise<{ billingMode: BillingMode }> => {
-    const { requestJson } = useChatApi()
-    return requestJson<{ billingMode: BillingMode }>('/settings/billing-mode', {
-      method: 'PATCH',
-      body: JSON.stringify({ billingMode: mode })
-    })
-  }
-
   return {
     settings: state,
-    hydrated,
-    saveBillingMode
+    hydrated
   }
 }

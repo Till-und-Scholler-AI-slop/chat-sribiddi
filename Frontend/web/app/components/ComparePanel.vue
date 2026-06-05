@@ -95,7 +95,7 @@ const canDiscard = computed(() =>
             <UIcon name="i-heroicons-cpu-chip" />
           </template>
           <template #option="{ option }">
-            <ModelSelectOption :option="option" />
+            <ChatModelSelectOption :option="option" />
           </template>
         </USelectMenu>
 

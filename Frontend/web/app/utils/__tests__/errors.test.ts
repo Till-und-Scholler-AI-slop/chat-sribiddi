@@ -25,7 +25,7 @@ describe('friendlyErrorKey', () => {
     expect(friendlyErrorKey('{"reason":"PARALLEL_STREAMS_EXCEEDED"}').key)
       .toBe('errors.parallelStreamsExceeded')
     expect(friendlyErrorKey('{"reason":"TOOL_NOT_ALLOWED"}').key).toBe('errors.toolNotAllowed')
-    expect(friendlyErrorKey('billing unavailable').key).toBe('errors.billingUnavailable')
+    expect(friendlyErrorKey('{"reason":"API_KEY_REQUIRED"}').key).toBe('errors.apiKeyRequired')
     expect(friendlyErrorKey('Request cancelled').key).toBe('errors.cancelled')
     expect(friendlyErrorKey('{"reason":"MANAGED_PROVIDER_UNCONFIGURED"}').key)
       .toBe('errors.managedProviderUnconfigured')

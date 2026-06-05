@@ -65,10 +65,7 @@ public class SecurityConfig {
             csrf ->
                 csrf.csrfTokenRepository(csrfTokenRepository)
                     .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
-                    // Stripe authenticates webhook calls via the Stripe-Signature header, not a
-                    // CSRF token; the endpoint is also called from outside the browser so there
-                    // is no XSRF-TOKEN cookie available.
-                    .ignoringRequestMatchers("/billing/webhook", "/anonymous/chats/stream"))
+                    .ignoringRequestMatchers("/anonymous/chats/stream"))
         .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
         .authorizeHttpRequests(
             auth -> {
@@ -82,7 +79,6 @@ public class SecurityConfig {
                       "/agb",
                       "/models/**",
                       "/anonymous/**",
-                      "/billing/webhook",
                       "/actuator/health",
                       "/actuator/info")
                   .permitAll();

@@ -1,10 +1,8 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import com.rft.chat_sribiddi.auth.BillingMode;
-import com.rft.chat_sribiddi.billing.BillingModeResolver;
-import com.rft.chat_sribiddi.billing.EntitlementService;
-import com.rft.chat_sribiddi.billing.Entitlements;
-import com.rft.chat_sribiddi.billing.ManagedQuotaReservation;
+import com.rft.chat_sribiddi.access.AccessLimits;
+import com.rft.chat_sribiddi.access.CredentialAccessService;
+import com.rft.chat_sribiddi.billing.QuotaReservation;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
@@ -29,8 +27,7 @@ public class ChatRequestResolver {
 
   private static final String ATTACHMENTS_PREFIX = "attachments:";
 
-  private final BillingModeResolver billingModeResolver;
-  private final EntitlementService entitlementService;
+  private final CredentialAccessService credentialAccessService;
   private final ProviderClientFactory providerClientFactory;
   private final DocumentRetrievalService documentRetrievalService;
   private final DocumentContextFormatter documentContextFormatter;
@@ -41,19 +38,14 @@ public class ChatRequestResolver {
   private final ChatMessageService chatMessageService;
 
   public ResolvedCall resolveCall(String userId, RequestDTO requestDTO) {
-    BillingMode requestedMode = entitlementService.resolveBillingMode(userId);
-    BillingModeResolver.ResolvedKey resolvedKey =
-        billingModeResolver.resolve(
-            userId, requestDTO.provider(), requestDTO.modelId(), requestedMode);
-    ManagedQuotaReservation reservation = ManagedQuotaReservation.noop();
-    if (resolvedKey.effectiveMode() == BillingMode.MANAGED) {
-      reservation = entitlementService.reserveManagedCall(userId);
-    }
+    var resolvedCredential =
+        credentialAccessService.resolveUserCredential(
+            userId, requestDTO.provider(), requestDTO.modelId());
     return new ResolvedCall(
-        resolvedKey.apiKey(),
-        resolvedKey.effectiveMode(),
-        entitlementService.get(userId),
-        reservation);
+        resolvedCredential.apiKey(),
+        resolvedCredential.credentialSource(),
+        resolvedCredential.limits(),
+        QuotaReservation.noop());
   }
 
   public MessagePreparation prepareUserMessage(
@@ -61,9 +53,9 @@ public class ChatRequestResolver {
       ChatEntity chat,
       String userId,
       RequestDTO requestDTO,
-      Entitlements entitlements) {
+      AccessLimits accessLimits) {
     List<ValidatedMediaAttachment> validatedMedia =
-        mediaValidationService.validateAndConvertAttachments(requestDTO.media(), entitlements);
+        mediaValidationService.validateAndConvertAttachments(requestDTO.media(), accessLimits);
     String userContext = buildMediaContext(validatedMedia);
     MessageEntity persistedUserMessage =
         chatMessageService.persistUserMessage(chatId, requestDTO.content(), userContext);
@@ -79,7 +71,7 @@ public class ChatRequestResolver {
                 customInstructions,
                 requestDTO.provider(),
                 requestDTO.modelId(),
-                entitlements,
+                accessLimits,
                 new DocumentRetrievalContext(chatId, userId)));
     return new MessagePreparation(updatedTitle, promptBatch);
   }
@@ -88,7 +80,7 @@ public class ChatRequestResolver {
       UUID chatId,
       String userId,
       RequestDTO requestDTO,
-      Entitlements entitlements,
+      AccessLimits accessLimits,
       Long messageId,
       List<ValidatedMediaAttachment> validatedMedia) {
     String customInstructions = userSettingsService.getCustomInstructions(userId).orElse(null);
@@ -101,7 +93,7 @@ public class ChatRequestResolver {
             customInstructions,
             requestDTO.provider(),
             requestDTO.modelId(),
-            entitlements,
+            accessLimits,
             new DocumentRetrievalContext(chatId, userId)));
   }
 
@@ -115,8 +107,8 @@ public class ChatRequestResolver {
   }
 
   public List<ValidatedMediaAttachment> validateMedia(
-      List<RequestDTO.MediaAttachment> media, Entitlements entitlements) {
-    return mediaValidationService.validateAndConvertAttachments(media, entitlements);
+      List<RequestDTO.MediaAttachment> media, AccessLimits accessLimits) {
+    return mediaValidationService.validateAndConvertAttachments(media, accessLimits);
   }
 
   public org.springframework.ai.chat.prompt.ChatOptions buildOptions(
