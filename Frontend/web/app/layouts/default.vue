@@ -40,8 +40,6 @@ const mobileHeaderTitle = computed(() => {
   if (path.startsWith('/models')) return t('sidebar.models')
   if (path.startsWith('/compare')) return t('sidebar.compare')
   if (path.startsWith('/usage')) return t('sidebar.usage')
-  if (path.startsWith('/billing')) return t('billing.title')
-  if (path.startsWith('/pricing')) return t('billing.pricing')
   return ''
 })
 </script>

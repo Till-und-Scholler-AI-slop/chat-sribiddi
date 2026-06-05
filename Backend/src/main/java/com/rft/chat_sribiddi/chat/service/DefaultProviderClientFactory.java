@@ -12,7 +12,7 @@ import com.openai.client.OpenAIClientAsync;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.client.okhttp.OpenAIOkHttpClientAsync;
 import com.openai.core.Timeout;
-import com.rft.chat_sribiddi.auth.BillingMode;
+import com.rft.chat_sribiddi.auth.CredentialSource;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.ChatRuntimeOptions;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import io.micrometer.observation.ObservationRegistry;
@@ -85,16 +85,14 @@ public class DefaultProviderClientFactory implements ProviderClientFactory {
 
   @Override
   public ProviderClientHandle getClient(
-      Provider provider, String apiKey, BillingMode billingMode) {
+      Provider provider, String apiKey, CredentialSource credentialSource) {
     if (apiKey == null || apiKey.isBlank()) {
       throw new IllegalArgumentException("API key is required for provider %s".formatted(provider));
     }
-    if (billingMode == null) {
-      throw new IllegalArgumentException("billingMode must not be null");
+    if (credentialSource == null) {
+      throw new IllegalArgumentException("credentialSource must not be null");
     }
-    // Prefix the cache key with the billing mode so that user-supplied (BYOK) keys and
-    // server-managed (MANAGED) keys never share cache entries, even if their raw values collide.
-    String cacheKey = billingMode.name() + ":" + hashApiKey(apiKey);
+    String cacheKey = credentialSource.name() + ":" + hashApiKey(apiKey);
 
     return switch (provider) {
       case OPENAI ->

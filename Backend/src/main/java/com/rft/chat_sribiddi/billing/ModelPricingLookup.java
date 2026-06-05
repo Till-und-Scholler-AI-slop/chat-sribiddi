@@ -12,9 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * Resolves model pricing (USD per 1,000,000 tokens) for a given {@code (provider, modelId)} pair
- * so that {@link EntitlementService} can enforce price-based plan-gating without hardcoded model
- * ID whitelists.
+ * Resolves model pricing (USD per 1,000,000 tokens) for usage analytics.
  *
  * <p>Pricing is read from the fallback catalog configured in {@code ai.models.*}
  * ({@link ModelCatalogProperties}), which stores OpenRouter-style USD-per-token strings on
@@ -69,8 +67,8 @@ public class ModelPricingLookup {
   }
 
   /**
-   * Stores pricing discovered from live provider catalogs so later plan checks for those same model
-   * ids can use the provider-reported prices instead of treating them as unknown.
+   * Stores pricing discovered from live provider catalogs so later usage events for those same
+   * model ids can use provider-reported prices.
    */
   public void remember(Provider provider, List<ModelOption> models) {
     if (provider == null || models == null || models.isEmpty()) {

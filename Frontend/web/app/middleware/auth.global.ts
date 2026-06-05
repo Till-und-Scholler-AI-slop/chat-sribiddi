@@ -3,7 +3,7 @@ export default defineNuxtRouteMiddleware(async to => {
   // Allow public pages without auth checks.
   const normalizedPath = to.path.replace(/\/+$/, '') || '/'
   if (
-    ['/', '/chat', '/login', '/impressum', '/datenschutz', '/agb', '/pricing', '/models']
+    ['/', '/chat', '/login', '/impressum', '/datenschutz', '/agb', '/models']
       .includes(normalizedPath)
   ) return
 

@@ -2,7 +2,7 @@ package com.rft.chat_sribiddi.config;
 
 import com.anthropic.errors.AnthropicServiceException;
 import com.openai.errors.OpenAIServiceException;
-import com.rft.chat_sribiddi.billing.PlanRestrictionException;
+import com.rft.chat_sribiddi.access.AccessRestrictionException;
 import com.rft.chat_sribiddi.chat.exception.ChatNotFoundException;
 import com.rft.chat_sribiddi.chat.service.StreamErrorHandler;
 import java.net.http.HttpTimeoutException;
@@ -35,20 +35,17 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiError(ex.getMessage()));
   }
 
-  @ExceptionHandler(PlanRestrictionException.class)
-  public ResponseEntity<ApiError> handlePlanRestriction(PlanRestrictionException ex) {
+  @ExceptionHandler(AccessRestrictionException.class)
+  public ResponseEntity<ApiError> handleAccessRestriction(AccessRestrictionException ex) {
     HttpStatus status =
         switch (ex.getReason()) {
-          case MODEL_NOT_ALLOWED, DAILY_CAP_EXCEEDED -> HttpStatus.PAYMENT_REQUIRED;
+          case API_KEY_REQUIRED, MODEL_NOT_ALLOWED, TOOL_NOT_ALLOWED -> HttpStatus.FORBIDDEN;
+          case DAILY_CAP_EXCEEDED -> HttpStatus.PAYMENT_REQUIRED;
           case PARALLEL_STREAMS_EXCEEDED -> HttpStatus.TOO_MANY_REQUESTS;
-          case TOOL_NOT_ALLOWED -> HttpStatus.FORBIDDEN;
           case MANAGED_PROVIDER_UNCONFIGURED -> HttpStatus.SERVICE_UNAVAILABLE;
         };
-    Map<String, String> details = new HashMap<>();
-    if (ex.getPlan() != null) {
-      details.put("plan", ex.getPlan().name());
-    }
-    return ResponseEntity.status(status).body(new ApiError(ex.getMessage(), ex.getReason().name(), details));
+    return ResponseEntity.status(status)
+        .body(new ApiError(ex.getMessage(), ex.getReason().name(), Map.of()));
   }
 
   @ExceptionHandler(DataIntegrityViolationException.class)

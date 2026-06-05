@@ -1,6 +1,6 @@
-export const managedLoadOptions = {
+export const byokLoadOptions = {
   scenarios: {
-    managed_mode_chat_load: {
+    byok_chat_load: {
       executor: 'shared-iterations',
       vus: Number(__ENV.K6_VUS || 100),
       iterations: Number(__ENV.K6_ITERATIONS || 1000),

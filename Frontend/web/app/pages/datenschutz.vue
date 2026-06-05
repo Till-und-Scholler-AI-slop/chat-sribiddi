@@ -58,8 +58,8 @@ definePageMeta({
         </p>
 
         <p>
-          <strong>{{ t('legal.datenschutz.stripeHeading') }}</strong><br>
-          {{ t('legal.datenschutz.stripeBody') }}
+          <strong>{{ t('legal.datenschutz.providerKeysHeading') }}</strong><br>
+          {{ t('legal.datenschutz.providerKeysBody') }}
         </p>
 
         <p>

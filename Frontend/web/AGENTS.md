@@ -7,7 +7,7 @@ SPA frontend for AI chat platform. Nuxt 4 with file-based routing, Nuxt UI v4 co
 ```
 Frontend/web/
 ├── app/
-│   ├── composables/    # 19 files: state stores + API clients (see composables/AGENTS.md)
+│   ├── composables/    # 17 files: state stores + API clients (see composables/AGENTS.md)
 │   ├── pages/          # 12 flat pages (no dynamic routes, no nesting)
 │   ├── components/     # 11 total: ChatSidebar, ComparePanel, MarkdownMessage, ToolCallDisplay
 │   │   ├── chat/       # ChatMessageEditor, ChatMessageFooter, ChatMessageReasoning, etc.
@@ -32,7 +32,7 @@ Frontend/web/
 | Chat state machine | `app/composables/useChatStore.ts` | 993 lines, god composable |
 | API client + types | `app/composables/useChatApi.ts` | 684 lines, HTTP + 16 type exports |
 | Auth flow | `app/composables/useAuth.ts` | Module-level dedup promise |
-| Billing/entitlements | `app/composables/useEntitlements.ts` | 317 lines, SSR/client dual-context |
+| Usage analytics | `app/pages/usage.vue` | Calls authenticated `GET /usage` |
 | Model catalog | `app/composables/useModelStore.ts` | Model list + favorites |
 | Main chat page | `app/pages/chat.vue` | 911 lines, message editor + streaming UI |
 | Settings page | `app/pages/settings.vue` | 860 lines, 5 tabs, repetitive provider cards |
@@ -56,7 +56,7 @@ Frontend/web/
 - **`useChatApi.ts` (684 lines)** — conflates type definitions with API client
 - **Module-level mutable state** in `useAuth.ts` and `useIsMobile.ts` — shared singletons, SSR hazard
 - **`chat-helpers.ts` and `chat-stream.ts`** in composables/ — not composables, defeat auto-import convention
-- **`auth.vue` layout** — misnamed, used for pricing/legal pages (not auth flows)
+- **`auth.vue` layout** — misnamed, used for legal pages (not auth flows)
 - **`index.vue`** — redirect-only shell (`navigateTo('/chat')`), could be config-level redirect
 - **`format.ts`** re-exports from `chat-helpers.ts` — circular dependency risk
 - **`markstreamCodeRenderer.ts`** in utils/ — stateful Shiki renderer, belongs in plugin

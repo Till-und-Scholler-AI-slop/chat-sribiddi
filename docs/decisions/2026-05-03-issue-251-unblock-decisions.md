@@ -25,16 +25,15 @@ implementation tickets can proceed without rediscovering product or architecture
 - In-memory rate limiting is acceptable only for local/development use.
 - Redis outages must fail closed with HTTP 429 instead of falling back to in-memory limits.
 - Trusted proxy headers such as `X-Forwarded-For` must be controlled by a configurable whitelist.
-- Concrete per-plan quotas will be defined in a follow-up ticket after pricing tiers are final.
+- Product-tier quotas are superseded by the BYOK-only v1 strategy. Keep anonymous guest quotas
+  separate from authenticated DDoS-oriented request limits.
 
 ## Monetization
 
-- Free-tier and BYOK users may receive third-party ads, expected to be Google AdSense unless a later
-  vendor decision changes this.
-- Free-tier and BYOK users may also receive internal upgrade promotion.
-- Paid tiers must not receive third-party ads.
-- Paid tiers may receive internal feature hints or upsell promotion.
-- Tracking/privacy constraints and the approved vendor list must be defined before ad integration.
+- Superseded for v1: the app no longer processes in-app payments.
+- Signed-in users bring their own provider keys. Guests can use only the configured OpenRouter Free
+  path.
+- Any future ads, provider account linking, or paid product packaging requires a new decision record.
 
 ## E2E Test Environment
 
@@ -42,7 +41,8 @@ implementation tickets can proceed without rediscovering product or architecture
 - External LLM/OpenRouter/provider calls are mocked.
 - The release-blocking happy path is: create a new chat, send a message, receive a mocked response.
 - Backend and frontend run against the same mocked infrastructure, ideally through Docker Compose.
-- Seed data must include at least one Free user, one paid user, and one admin.
+- Seed data should include an anonymous guest path, a signed-in user without provider keys, a
+  signed-in user with provider keys, and one admin if admin features are under test.
 
 ## Model Comparison
 

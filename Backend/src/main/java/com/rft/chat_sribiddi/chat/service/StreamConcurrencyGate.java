@@ -1,23 +1,22 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import com.rft.chat_sribiddi.auth.Plan;
-import com.rft.chat_sribiddi.billing.EntitlementService;
-import com.rft.chat_sribiddi.billing.Entitlements;
-import com.rft.chat_sribiddi.billing.PlanRestrictionException;
+import com.rft.chat_sribiddi.access.AccessLimits;
+import com.rft.chat_sribiddi.access.AccessRestrictionException;
+import com.rft.chat_sribiddi.access.CredentialAccessService;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
- * Tracks in-flight chat streams per user so parallel stream limits from entitlements can be
+ * Tracks in-flight chat streams per user so parallel stream limits can be
  * enforced before a new stream starts.
  */
 @Component
 @RequiredArgsConstructor
 public class StreamConcurrencyGate {
 
-  private final EntitlementService entitlementService;
+  private final CredentialAccessService credentialAccessService;
   private final ConcurrentHashMap<String, AtomicInteger> activeStreams = new ConcurrentHashMap<>();
 
   /**
@@ -25,8 +24,8 @@ public class StreamConcurrencyGate {
    * {@code parallelStreams} (or more) in-flight streams.
    */
   public void acquire(String userId) {
-    Entitlements entitlements = entitlementService.get(userId);
-    int limit = entitlements.parallelStreams();
+    AccessLimits accessLimits = credentialAccessService.authenticatedLimits();
+    int limit = accessLimits.parallelStreams();
     if (limit <= 0) {
       return;
     }
@@ -38,10 +37,9 @@ public class StreamConcurrencyGate {
       if (counter.get() <= 0) {
         activeStreams.remove(userId, counter);
       }
-      throw new PlanRestrictionException(
-          PlanRestrictionException.Reason.PARALLEL_STREAMS_EXCEEDED,
-          entitlements.plan(),
-          "Parallel stream limit (%d) reached for plan %s".formatted(limit, entitlements.plan()));
+      throw new AccessRestrictionException(
+          AccessRestrictionException.Reason.PARALLEL_STREAMS_EXCEEDED,
+          "Parallel stream limit (%d) reached".formatted(limit));
     }
   }
 

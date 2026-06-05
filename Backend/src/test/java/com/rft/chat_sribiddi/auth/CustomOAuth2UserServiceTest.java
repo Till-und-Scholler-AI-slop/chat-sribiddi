@@ -7,23 +7,11 @@ import org.junit.jupiter.api.Test;
 class CustomOAuth2UserServiceTest {
 
   @Test
-  void newUser_hasDefaultPlanFree() {
-    User user = new User();
-    assertThat(user.getPlan()).isEqualTo(Plan.FREE);
-  }
-
-  @Test
-  void newUser_hasDefaultBillingModeAuto() {
-    User user = new User();
-    assertThat(user.getBillingModePreference()).isEqualTo(BillingMode.AUTO);
-  }
-
-  @Test
   void newUser_nullableFieldsAreNull() {
     User user = new User();
-    assertThat(user.getPlanStatus()).isNull();
-    assertThat(user.getPlanValidUntil()).isNull();
-    assertThat(user.getStripeCustomerId()).isNull();
+    assertThat(user.getEmail()).isNull();
+    assertThat(user.getProviderId()).isNull();
+    assertThat(user.getCustomInstructions()).isNull();
   }
 
   @Test
@@ -35,10 +23,6 @@ class CustomOAuth2UserServiceTest {
 
     assertThat(user.getEmail()).isEqualTo("test@example.com");
     assertThat(user.getProviderId()).isEqualTo("google-sub-123");
-    assertThat(user.getPlan()).isEqualTo(Plan.FREE);
-    assertThat(user.getBillingModePreference()).isEqualTo(BillingMode.AUTO);
-    assertThat(user.getPlanStatus()).isNull();
-    assertThat(user.getPlanValidUntil()).isNull();
-    assertThat(user.getStripeCustomerId()).isNull();
+    assertThat(user.getCustomInstructions()).isNull();
   }
 }

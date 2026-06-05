@@ -1,7 +1,7 @@
 # app/composables/ — State Stores + API Clients
 
 ## OVERVIEW
-19 files implementing all frontend state management and API communication. No Pinia — uses raw `useState()` with composables calling each other, creating implicit coupling. Two non-composable utility files (`chat-helpers.ts`, `chat-stream.ts`) break the `use*` naming convention.
+17 files implementing all frontend state management and API communication. No Pinia — uses raw `useState()` with composables calling each other, creating implicit coupling. Two non-composable utility files (`chat-helpers.ts`, `chat-stream.ts`) break the `use*` naming convention.
 
 ## WHERE TO LOOK
 | File | Lines | Role |
@@ -9,11 +9,9 @@
 | `useChatStore.ts` | 993 | **God composable** — chat CRUD, streaming, guest sync, message editing, 6 computed refs |
 | `useChatApi.ts` | 684 | **API client + type definitions** — 16 type exports + 16 API methods + generic HTTP layer |
 | `useCompareStore.ts` | 458 | Model comparison state — panels, sync, runComparison |
-| `useEntitlements.ts` | 317 | Plan entitlements — SSR/client dual-context in-flight promise holder |
 | `useAuth.ts` | ~150 | Auth state — module-level dedup promise for `/secured` check |
-| `useUserSettings.ts` | ~120 | User preferences — custom instructions, billing mode, auto-title |
+| `useUserSettings.ts` | ~120 | User preferences — custom instructions, favorites, auto-title |
 | `useModelStore.ts` | ~100 | Model catalog — list, favorites, provider filtering |
-| `useBillingApi.ts` | ~80 | Billing API — checkout, portal, usage, entitlements fetch |
 | `useKeyApi.ts` | ~60 | API key management — PUT/DELETE/GET per provider |
 | `useInstructionsApi.ts` | ~50 | Custom instructions CRUD |
 | `useToolCallStore.ts` | ~80 | Tool call logs per message |
@@ -39,16 +37,14 @@
 - **Module-level mutable state**:
   - `useAuth.ts`: shared `authCheckPromise` — null reset in `finally` can race with concurrent calls
   - `useIsMobile.ts`: shared `sharedIsMobile` + `listenerAttached` — SSR hydration mismatch risk
-  - `useEntitlements.ts`: dual-context holder (SSR via `useNuxtApp()` vs client module-level) — fragile fallback
 - **`chat-helpers.ts` and `chat-stream.ts`** — utility files in composables dir, defeat Nuxt auto-import convention; move to `app/utils/` or rename to `use*`
-- **Implicit coupling** — `useChatStore` internally calls `useAuth`, `useChatApi`, `useModelStore`, `useToolCallStore`, `useUserSettings`, `useEntitlements`; import one and you transitively import half the app
+- **Implicit coupling** — `useChatStore` internally calls `useAuth`, `useChatApi`, `useModelStore`, `useToolCallStore`, `useUserSettings`; import one and you transitively import half the app
 - **No Pinia** — `useState()` sprawl doesn't scale for this level of cross-composable state
 
 ## DEPENDENCY GRAPH (simplified)
 ```
-useChatStore ──→ useAuth, useChatApi, useModelStore, useToolCallStore, useUserSettings, useEntitlements
-useCompareStore ──→ useChatApi, useModelStore, useEntitlements
-useEntitlements ──→ useBillingApi, useAuth
+useChatStore ──→ useAuth, useChatApi, useModelStore, useToolCallStore, useUserSettings
+useCompareStore ──→ useChatApi, useModelStore
 useModelStore ──→ useChatApi
 useAuth ──→ useChatApi
 useChatApi ──→ (leaf — generic HTTP + types)

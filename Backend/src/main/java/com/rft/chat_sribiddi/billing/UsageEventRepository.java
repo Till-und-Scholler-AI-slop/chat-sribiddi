@@ -12,7 +12,7 @@ public interface UsageEventRepository extends JpaRepository<UsageEventEntity, Lo
 
   /**
    * Aggregates usage events for the given user since {@code since}, grouped by provider and
-   * model. Used by {@code GET /billing/usage} to render a per-model summary for the trailing
+   * model. Used by {@code GET /usage} to render a per-model summary for the trailing
    * 30 days.
    *
    * <p>{@code totalTokens} falls back per-row to {@code promptTokens + completionTokens} when

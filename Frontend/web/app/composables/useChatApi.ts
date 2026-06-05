@@ -1,9 +1,9 @@
 import { isTerminalStreamEvent, normalizeSsePayload, parseSseEvents } from '~/composables/chat-stream'
 import type { StreamEvent } from '~/composables/chat-stream'
 import type { PROVIDERS} from '~/utils/model-utils';
-import { modelEndpointPath, normalizeAvailability, normalizeRequiredPlan } from '~/utils/model-utils'
+import { modelEndpointPath, normalizeAvailability } from '~/utils/model-utils'
 
-export { isModelLocked, normalizeAvailability, normalizeRequiredPlan, modelEndpointPath } from '~/utils/model-utils'
+export { isModelLocked, normalizeAvailability, modelEndpointPath } from '~/utils/model-utils'
 export { type AvailabilityFlag, MODEL_ENDPOINTS, PROVIDERS } from '~/utils/model-utils'
 
  
@@ -28,10 +28,8 @@ export type ModelOption = {
   inputModalities?: string[]
   outputModalities?: string[]
   supportedParameters?: string[]
-  /** Plan-awareness hint set by the backend (see {@link AvailabilityFlag}). */
+  /** Credential availability hint set by the backend (see {@link AvailabilityFlag}). */
   availability?: AvailabilityFlag | null
-  /** Minimum plan required to unlock this model when {@code availability === 'UPGRADE_REQUIRED'}. */
-  requiredPlan?: 'PREMIUM' | 'MAX' | null
 }
 
 export type MediaAttachment = {
@@ -628,7 +626,6 @@ export function useChatApi() {
       outputModalities?: string[] | null
       supportedParameters?: string[] | null
       availability?: string | null
-      requiredPlan?: string | null
     }>>(`${modelEndpointPath(provider)}?expert=${expert ? 'true' : 'false'}`, {
       method: 'GET'
     })
@@ -652,8 +649,7 @@ export function useChatApi() {
       inputModalities: model.inputModalities ?? [],
       outputModalities: model.outputModalities ?? [],
       supportedParameters: model.supportedParameters ?? [],
-      availability: normalizeAvailability(model.availability),
-      requiredPlan: normalizeRequiredPlan(model.requiredPlan)
+      availability: normalizeAvailability(model.availability)
     }))
   }
 

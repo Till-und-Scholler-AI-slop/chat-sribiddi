@@ -2,12 +2,15 @@ package com.rft.chat_sribiddi.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-import com.rft.chat_sribiddi.auth.Plan;
-import com.rft.chat_sribiddi.billing.EntitlementService;
-import com.rft.chat_sribiddi.billing.Entitlements;
-import com.rft.chat_sribiddi.billing.PlanRestrictionException;
+import com.rft.chat_sribiddi.access.AccessLimits;
+import com.rft.chat_sribiddi.access.AccessRestrictionException;
+import com.rft.chat_sribiddi.access.CredentialAccessService;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.SetChatToolRequestDTO;
 import com.rft.chat_sribiddi.chat.model.ChatEntity;
@@ -15,10 +18,9 @@ import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
 import com.rft.chat_sribiddi.chat.repository.ChatRepository;
 import com.rft.chat_sribiddi.chat.repository.ChatToolRepository;
 import com.rft.chat_sribiddi.keyring.ApiKeyService;
+import com.rft.chat_sribiddi.tools.ToolProperties;
 import com.rft.chat_sribiddi.tools.api.ChatTool;
 import com.rft.chat_sribiddi.tools.api.ToolRegistry;
-import com.rft.chat_sribiddi.tools.ToolProperties;
-import com.rft.chat_sribiddi.websearch.WebSearchProperties;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -36,25 +38,22 @@ class ChatToolServiceTest {
   @Mock private ChatToolRepository chatToolRepository;
   @Mock private ToolRegistry toolRegistry;
   @Mock private ApiKeyService apiKeyService;
-  @Mock private EntitlementService entitlementService;
+  @Mock private CredentialAccessService credentialAccessService;
   @Mock private ChatTool tool;
 
   private ChatToolService service;
-  private WebSearchProperties webSearchProperties;
   private UUID chatId;
   private String userId;
 
   @BeforeEach
   void setUp() {
-    webSearchProperties = new WebSearchProperties();
     service =
         new ChatToolService(
             chatRepository,
             chatToolRepository,
             toolRegistry,
             apiKeyService,
-            entitlementService,
-            webSearchProperties,
+            credentialAccessService,
             new ToolProperties());
     chatId = UUID.randomUUID();
     userId = "user-123";
@@ -72,23 +71,23 @@ class ChatToolServiceTest {
   }
 
   @Test
-  void setToolEnabled_rejectsToolOutsidePlan() {
-    when(entitlementService.get(userId)).thenReturn(entitlements(Plan.FREE, Set.of("calculator")));
+  void setToolEnabled_rejectsToolOutsideAccessLimits() {
+    when(credentialAccessService.authenticatedLimits())
+        .thenReturn(new AccessLimits(5, 1, 1, 20, Set.of("calculator"), 1));
 
     assertThatThrownBy(
             () -> service.setToolEnabled(chatId, userId, new SetChatToolRequestDTO("url-fetcher", true)))
         .isInstanceOfSatisfying(
-            PlanRestrictionException.class,
-            ex ->
-                assertThat(ex.getReason())
-                    .isEqualTo(PlanRestrictionException.Reason.TOOL_NOT_ALLOWED));
+            AccessRestrictionException.class,
+            ex -> assertThat(ex.getReason()).isEqualTo(AccessRestrictionException.Reason.TOOL_NOT_ALLOWED));
 
     verify(chatToolRepository, never()).save(any());
   }
 
   @Test
-  void listAvailableTools_marksToolUnavailableWhenPlanDoesNotAllowIt() {
-    when(entitlementService.get(userId)).thenReturn(entitlements(Plan.FREE, Set.of("calculator")));
+  void listAvailableTools_marksToolUnavailableWhenAccessLimitsDoNotAllowIt() {
+    when(credentialAccessService.authenticatedLimits())
+        .thenReturn(new AccessLimits(5, 1, 1, 20, Set.of("calculator"), 1));
 
     var tools = service.listAvailableTools(chatId, userId);
 
@@ -97,26 +96,11 @@ class ChatToolServiceTest {
   }
 
   @Test
-  void listAvailableTools_marksBraveSearchEnabledWhenServerKeyExists() {
+  void listAvailableTools_marksBraveSearchEnabledOnlyWithUserKey() {
     when(tool.getName()).thenReturn("brave-search");
     when(tool.requiresUserConfig()).thenReturn(true);
-    when(entitlementService.get(userId))
-        .thenReturn(entitlements(Plan.PREMIUM, Set.of("brave-search")));
-    when(apiKeyService.getKey(userId, RequestDTO.Provider.BRAVE_SEARCH))
-        .thenReturn(Optional.empty());
-    webSearchProperties.setApiKey("server-brave-key");
-
-    var tools = service.listAvailableTools(chatId, userId);
-
-    assertThat(tools).hasSize(1);
-    assertThat(tools.getFirst().enabled()).isTrue();
-  }
-
-  @Test
-  void listAvailableTools_marksBraveSearchEnabledWhenUserKeyExistsEvenIfPlanDeniesTool() {
-    when(tool.getName()).thenReturn("brave-search");
-    when(tool.requiresUserConfig()).thenReturn(true);
-    when(entitlementService.get(userId)).thenReturn(entitlements(Plan.FREE, Set.of("calculator")));
+    when(credentialAccessService.authenticatedLimits())
+        .thenReturn(new AccessLimits(5, 1, 1, 20, Set.of("*"), 1));
     when(apiKeyService.getKey(userId, RequestDTO.Provider.BRAVE_SEARCH))
         .thenReturn(Optional.of("user-brave-key"));
 
@@ -127,9 +111,10 @@ class ChatToolServiceTest {
   }
 
   @Test
-  void setToolEnabled_allowsBraveSearchWhenUserKeyExistsEvenIfPlanDeniesTool() {
+  void setToolEnabled_allowsBraveSearchWhenUserKeyExists() {
     when(toolRegistry.has("brave-search")).thenReturn(true);
-    when(entitlementService.get(userId)).thenReturn(entitlements(Plan.FREE, Set.of("calculator")));
+    when(credentialAccessService.authenticatedLimits())
+        .thenReturn(new AccessLimits(5, 1, 1, 20, Set.of("calculator"), 1));
     when(apiKeyService.getKey(userId, RequestDTO.Provider.BRAVE_SEARCH))
         .thenReturn(Optional.of("user-brave-key"));
     when(chatToolRepository.findByChatIdAndToolName(chatId, "brave-search"))
@@ -140,9 +125,5 @@ class ChatToolServiceTest {
     service.setToolEnabled(chatId, userId, new SetChatToolRequestDTO("brave-search", true));
 
     verify(chatToolRepository).save(any());
-  }
-
-  private static Entitlements entitlements(Plan plan, Set<String> tools) {
-    return new Entitlements(plan, 5, 5_242_880, 20_971_520, 20, tools, 100, 1, null, null);
   }
 }

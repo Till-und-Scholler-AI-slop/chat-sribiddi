@@ -1,26 +1,23 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import com.rft.chat_sribiddi.auth.BillingMode;
+import com.rft.chat_sribiddi.auth.CredentialSource;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.ChatRuntimeOptions;
 import org.springframework.ai.chat.prompt.ChatOptions;
 
 public interface ProviderClientFactory {
   /**
-   * Returns a cached client handle for the given provider+apiKey combo, defaulting to
-   * {@link BillingMode#BYOK} cache partitioning to preserve the existing BYOK path behaviour.
+   * Returns a cached client handle for the given provider+apiKey combo, defaulting to user-key
+   * cache partitioning.
    */
   default ProviderClientHandle getClient(Provider provider, String apiKey) {
-    return getClient(provider, apiKey, BillingMode.BYOK);
+    return getClient(provider, apiKey, CredentialSource.USER_KEY);
   }
 
   /**
-   * Returns a cached client handle for the given provider+apiKey+billingMode triple. The
-   * {@link BillingMode} is part of the cache key so that user-supplied (BYOK) keys and
-   * server-managed (MANAGED) keys never share cache entries, even if their raw string values were
-   * to collide.
+   * Returns a cached client handle for the given provider+apiKey+credential source triple.
    */
-  ProviderClientHandle getClient(Provider provider, String apiKey, BillingMode billingMode);
+  ProviderClientHandle getClient(Provider provider, String apiKey, CredentialSource credentialSource);
 
   /** Builds provider-specific chat options including per-request API key/header. */
   ChatOptions buildOptions(Provider provider, String modelId, String apiKey);

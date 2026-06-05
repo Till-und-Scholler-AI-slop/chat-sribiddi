@@ -1,7 +1,7 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import com.rft.chat_sribiddi.billing.EntitlementService;
-import com.rft.chat_sribiddi.billing.Entitlements;
+import com.rft.chat_sribiddi.access.AccessLimits;
+import com.rft.chat_sribiddi.access.CredentialAccessService;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.model.ChatToolEntity;
@@ -52,13 +52,13 @@ public class PromptToolBinder {
   private final UrlFetcherTool urlFetcherTool;
   private final PythonInterpreterTool pythonInterpreterTool;
   private final CurrentDateTimeTool currentDateTimeTool;
-  private final EntitlementService entitlementService;
+  private final CredentialAccessService credentialAccessService;
 
   /**
    * Binds the currently enabled chat tools to a Spring AI prompt request.
    *
-   * <p>Most tools are registered once and gated by entitlements plus per-chat settings. Brave Search
-   * is request-scoped because it needs the user's stored Brave API key.
+   * <p>Most tools are registered once and gated by access limits plus per-chat settings. Brave
+   * Search is request-scoped because it needs the user's stored Brave API key.
    */
   void bindTools(
       UUID chatId,
@@ -76,15 +76,12 @@ public class PromptToolBinder {
           modelId);
       return;
     }
-    Entitlements entitlements = resolveEntitlements(userId);
-    if (entitlements == null) {
-      return;
-    }
+    AccessLimits accessLimits = credentialAccessService.authenticatedLimits();
 
     List<ToolCallback> toolCallbacks = new ArrayList<>();
     Map<String, Boolean> enabledByToolName = null;
     for (ChatTool tool : toolRegistry.getAll()) {
-      if (!isToolAllowed(tool, userId, entitlements)) {
+      if (!isToolAllowed(tool, userId, accessLimits)) {
         continue;
       }
       if (enabledByToolName == null) {
@@ -189,17 +186,11 @@ public class PromptToolBinder {
   }
 
   private Optional<String> resolveWebSearchApiKey(String userId) {
-    Optional<String> userKey =
-        resolveUserWebSearchApiKey(userId);
-    if (userKey.isPresent()) {
-      return userKey;
-    }
-    String serverKey = webSearchProperties.getApiKey();
-    return serverKey == null || serverKey.isBlank() ? Optional.empty() : Optional.of(serverKey);
+    return resolveUserWebSearchApiKey(userId);
   }
 
-  private boolean isToolAllowed(ChatTool tool, String userId, Entitlements entitlements) {
-    if (entitlements.allowsTool(tool.getName())) {
+  private boolean isToolAllowed(ChatTool tool, String userId, AccessLimits accessLimits) {
+    if (accessLimits.allowsTool(tool.getName())) {
       return true;
     }
     return "brave-search".equals(tool.getName()) && resolveUserWebSearchApiKey(userId).isPresent();
@@ -250,15 +241,6 @@ public class PromptToolBinder {
       patternIndex++;
     }
     return patternIndex == pattern.length();
-  }
-
-  private Entitlements resolveEntitlements(String userId) {
-    try {
-      return entitlementService.get(userId);
-    } catch (RuntimeException ex) {
-      log.debug("Unable to resolve tool entitlements user={}", userId, ex);
-      return null;
-    }
   }
 
   private Map<String, Boolean> loadToolOverrides(UUID chatId) {

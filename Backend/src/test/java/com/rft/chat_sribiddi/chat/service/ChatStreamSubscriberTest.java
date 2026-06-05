@@ -13,9 +13,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.rft.chat_sribiddi.auth.BillingMode;
-import com.rft.chat_sribiddi.auth.Plan;
-import com.rft.chat_sribiddi.billing.ManagedQuotaReservation;
+import com.rft.chat_sribiddi.auth.CredentialSource;
+import com.rft.chat_sribiddi.billing.QuotaReservation;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.dto.StreamEventDTO;
 import com.rft.chat_sribiddi.chat.model.MessageEntity;
@@ -62,7 +61,7 @@ class ChatStreamSubscriberTest {
   @Mock private ToolCallLogRecorder toolCallLogRecorder;
   @Mock private ChatMetrics chatMetrics;
   @Mock private SseEmitter emitter;
-  @Mock private ManagedQuotaReservation quotaReservation;
+  @Mock private QuotaReservation quotaReservation;
   @Mock private ChatMetrics.StreamSample streamSample;
 
   private ChatStreamSubscriber subscriber;
@@ -455,8 +454,7 @@ class ChatStreamSubscriberTest {
     assertThat(recordedUsage.tokenUsage().generationTokens()).isEqualTo(5L);
     assertThat(recordedUsage.tokenUsage().totalTokens()).isEqualTo(15L);
     assertThat(recordedUsage.messageId()).isEqualTo(123L);
-    assertThat(recordedUsage.billingMode()).isEqualTo(BillingMode.BYOK);
-    assertThat(recordedUsage.plan()).isEqualTo(Plan.FREE);
+    assertThat(recordedUsage.credentialSource()).isEqualTo(CredentialSource.USER_KEY);
     assertThat(recordedUsage.providerCallSucceeded()).isTrue();
   }
 
@@ -544,8 +542,7 @@ class ChatStreamSubscriberTest {
         "user-123",
         Provider.OPENAI,
         "gpt-5.2",
-        BillingMode.BYOK,
-        Plan.FREE,
+        CredentialSource.USER_KEY,
         UUID.randomUUID(),
         "assistant-context",
         "updated-title",

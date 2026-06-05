@@ -1,16 +1,11 @@
 package com.rft.chat_sribiddi.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
 
-import com.rft.chat_sribiddi.auth.Plan;
 import jakarta.servlet.ServletException;
 import java.io.IOException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -18,10 +13,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
-@ExtendWith(MockitoExtension.class)
 class RateLimitFilterTest {
-
-  @Mock private RateLimitPlanResolver planResolver;
 
   @AfterEach
   void clearSecurityContext() {
@@ -33,7 +25,7 @@ class RateLimitFilterTest {
     RateLimitProperties properties = new RateLimitProperties();
     properties.setAnonymousRequestsPerMinute(1);
     InMemoryRateLimiter limiter = new InMemoryRateLimiter(properties, java.time.Clock.systemUTC());
-    RateLimitFilter filter = new RateLimitFilter(properties, limiter, planResolver);
+    RateLimitFilter filter = new RateLimitFilter(properties, limiter);
 
     MockHttpServletRequest firstRequest = new MockHttpServletRequest("GET", "/chats");
     firstRequest.setRemoteAddr("203.0.113.10");
@@ -51,27 +43,27 @@ class RateLimitFilterTest {
   }
 
   @Test
-  void rateLimitForCurrentRequest_usesPlanSpecificAuthenticatedLimit() {
+  void rateLimitForCurrentRequest_usesAuthenticatedLimit() {
     RateLimitProperties properties = new RateLimitProperties();
+    properties.setAuthenticatedRequestsPerMinute(777);
     RateLimitFilter filter =
-        new RateLimitFilter(properties, (key, limit) -> RateLimitDecision.allow(), planResolver);
+        new RateLimitFilter(properties, (key, limit) -> RateLimitDecision.allow());
     TestingAuthenticationToken authentication = new TestingAuthenticationToken("provider-1", "n/a");
     authentication.setAuthenticated(true);
     SecurityContextHolder.getContext().setAuthentication(authentication);
-    when(planResolver.resolvePlan("provider-1")).thenReturn(Plan.PREMIUM);
 
     RateLimitFilter.RateLimit rateLimit =
         filter.rateLimitForCurrentRequest(new MockHttpServletRequest("GET", "/chats"));
 
     assertThat(rateLimit.key()).isEqualTo("user:provider-1");
-    assertThat(rateLimit.limit()).isEqualTo(1200);
+    assertThat(rateLimit.limit()).isEqualTo(777);
   }
 
   @Test
   void clientIp_trustsForwardedForOnlyFromTrustedProxy() {
     RateLimitProperties properties = new RateLimitProperties();
     RateLimitFilter filter =
-        new RateLimitFilter(properties, (key, limit) -> RateLimitDecision.allow(), planResolver);
+        new RateLimitFilter(properties, (key, limit) -> RateLimitDecision.allow());
 
     MockHttpServletRequest trustedProxyRequest = new MockHttpServletRequest("GET", "/chats");
     trustedProxyRequest.setRemoteAddr("127.0.0.1");
@@ -86,12 +78,12 @@ class RateLimitFilterTest {
   }
 
   @Test
-  void shouldNotFilter_skipsBillingWebhook() throws ServletException {
+  void shouldNotFilter_doesNotSkipRemovedWebhookPath() throws ServletException {
     RateLimitProperties properties = new RateLimitProperties();
     RateLimitFilter filter =
-        new RateLimitFilter(properties, (key, limit) -> RateLimitDecision.allow(), planResolver);
+        new RateLimitFilter(properties, (key, limit) -> RateLimitDecision.allow());
 
-    assertThat(filter.shouldNotFilter(new MockHttpServletRequest("POST", "/billing/webhook")))
-        .isTrue();
+    assertThat(filter.shouldNotFilter(new MockHttpServletRequest("POST", "/removed-webhook")))
+        .isFalse();
   }
 }

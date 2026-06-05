@@ -1,13 +1,9 @@
 package com.rft.chat_sribiddi.chat.service;
 
-import com.rft.chat_sribiddi.auth.BillingMode;
-import com.rft.chat_sribiddi.auth.Plan;
-import com.rft.chat_sribiddi.billing.BillingModeResolver;
-import com.rft.chat_sribiddi.billing.EntitlementService;
-import com.rft.chat_sribiddi.billing.Entitlements;
+import com.rft.chat_sribiddi.access.AccessRestrictionException;
+import com.rft.chat_sribiddi.access.CredentialAccessService;
 import com.rft.chat_sribiddi.billing.GuestQuotaService;
 import com.rft.chat_sribiddi.billing.GuestQuotaService.GuestQuotaReservation;
-import com.rft.chat_sribiddi.billing.PlanRestrictionException;
 import com.rft.chat_sribiddi.chat.dto.AnonymousChatRequestDTO;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
 import com.rft.chat_sribiddi.chat.model.Role;
@@ -34,25 +30,22 @@ public class AnonymousChatService {
   private final MediaValidationService mediaValidationService;
   private final PromptMessageBuilder promptMessageBuilder;
   private final DocumentContextFormatter documentContextFormatter;
-  private final BillingModeResolver billingModeResolver;
-  private final EntitlementService entitlementService;
+  private final CredentialAccessService credentialAccessService;
   private final GuestQuotaService guestQuotaService;
   private final ChatStreamSubscriber chatStreamSubscriber;
 
   public SseEmitter streamMessage(
       AnonymousChatRequestDTO request, String guestId, HttpServletRequest servletRequest) {
     if (request.provider() != Provider.OPENROUTER) {
-      throw new PlanRestrictionException(
-          PlanRestrictionException.Reason.MODEL_NOT_ALLOWED,
-          Plan.FREE,
-          "Anonymous chat is only available through OpenRouter managed models");
+      throw new AccessRestrictionException(
+          AccessRestrictionException.Reason.MODEL_NOT_ALLOWED,
+          "Anonymous chat is only available through OpenRouter Free");
     }
 
-    Entitlements entitlements = entitlementService.get(null);
-    BillingModeResolver.ResolvedKey resolvedKey =
-        billingModeResolver.resolve(null, request.provider(), request.modelId(), BillingMode.MANAGED);
+    var resolvedCredential = credentialAccessService.resolveGuestOpenRouterFree(request.modelId());
     List<ValidatedMediaAttachment> validatedMedia =
-        mediaValidationService.validateAndConvertAttachments(request.media(), entitlements);
+        mediaValidationService.validateAndConvertAttachments(
+            request.media(), resolvedCredential.limits());
     List<StatelessChatMessage> history = toHistory(request.history());
     PromptMessageBatch promptBatch =
         promptMessageBuilder.buildStatelessBatch(
@@ -63,7 +56,7 @@ public class AnonymousChatService {
                 null,
                 request.provider(),
                 request.modelId(),
-                entitlements,
+                resolvedCredential.limits(),
                 null));
 
     GuestQuotaReservation quotaReservation =
@@ -73,8 +66,9 @@ public class AnonymousChatService {
     try {
       clientHandle =
           providerClientFactory.getClient(
-              request.provider(), resolvedKey.apiKey(), resolvedKey.effectiveMode());
-      var promptSpec = preparePromptSpec(request, promptBatch, resolvedKey.apiKey(), clientHandle);
+              request.provider(), resolvedCredential.apiKey(), resolvedCredential.credentialSource());
+      var promptSpec =
+          preparePromptSpec(request, promptBatch, resolvedCredential.apiKey(), clientHandle);
       chatStreamSubscriber.subscribeStateless(
           new StatelessStreamSubscription(
               promptSpec,

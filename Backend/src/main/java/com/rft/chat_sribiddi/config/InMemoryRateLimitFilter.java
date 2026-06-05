@@ -33,7 +33,6 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
     String path = request.getRequestURI();
     return !properties.isEnabled()
         || "OPTIONS".equalsIgnoreCase(request.getMethod())
-        || "/billing/webhook".equals(path)
         || "/actuator/health".equals(path)
         || "/actuator/info".equals(path);
   }

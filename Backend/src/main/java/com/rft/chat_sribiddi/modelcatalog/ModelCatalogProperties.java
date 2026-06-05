@@ -1,6 +1,5 @@
 package com.rft.chat_sribiddi.modelcatalog;
 
-import com.rft.chat_sribiddi.auth.Plan;
 import java.io.Serial;
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -60,26 +59,15 @@ public class ModelCatalogProperties {
     private List<String> outputModalities = new ArrayList<>();
     private List<String> supportedParameters = new ArrayList<>();
 
-    /**
-     * Plan-aware availability flag (see {@link AvailabilityFlag}). Populated by
-     * {@link com.rft.chat_sribiddi.billing.EntitlementService#annotateModelsForPlan} before the
-     * option is returned to clients; {@code null} when the catalog is still raw (e.g. cached
-     * fallback from YAML / live fetch).
-     */
+    /** Credential-aware availability flag populated before the option is returned to clients. */
     private AvailabilityFlag availability;
-
-    /**
-     * Minimum plan required to unlock this model when {@link #availability} is
-     * {@link AvailabilityFlag#UPGRADE_REQUIRED}. {@code null} otherwise.
-     */
-    private Plan requiredPlan;
 
     public ModelOption(String id, String label) {
       this.id = id;
       this.label = label;
     }
 
-    /** Shallow copy used by {@code annotateModelsForPlan} to avoid mutating cached entries. */
+    /** Shallow copy used by credential annotation to avoid mutating cached entries. */
     public ModelOption copy() {
       ModelOption c = new ModelOption();
       c.id = this.id;
@@ -98,7 +86,6 @@ public class ModelCatalogProperties {
       c.outputModalities = this.outputModalities;
       c.supportedParameters = this.supportedParameters;
       c.availability = this.availability;
-      c.requiredPlan = this.requiredPlan;
       return c;
     }
   }

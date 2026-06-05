@@ -3,9 +3,9 @@
 This document is the repository-owned source of truth for production operations
 that affect deployment, routing, OAuth login, and incident triage.
 
-Do not store passwords, API keys, OAuth client secrets, Stripe secrets, or other
-credentials in this file. Keep secrets in the relevant deployment secret store
-or on the VPS in the deployment `.env` files.
+Do not store passwords, API keys, OAuth client secrets, or other credentials in
+this file. Keep secrets in the relevant deployment secret store or on the VPS in
+the deployment `.env` files.
 
 ## Production Topology
 
@@ -24,9 +24,6 @@ Caddy routing conventions:
   callback. This path is used by Spring Security's default redirect endpoint.
 - `/oauth2/*` is routed directly to the backend as an optional non-`/api`
   authorization entrypoint.
-- `/billing/webhook` is routed directly to the backend for Stripe webhook
-  deliveries. Stripe authenticates this path with the `Stripe-Signature`
-  header; do not put secrets in Caddy config.
 - Everything else is routed to the Nuxt frontend.
 
 Frontend/backend URL conventions:
@@ -41,15 +38,18 @@ Frontend/backend URL conventions:
 Public/authenticated application paths:
 
 - `/` redirects to `/chat`.
-- `/chat`, `/pricing`, legal pages, `/models/*`, and
-  `/api/anonymous/chats/stream` are public. Anonymous chat uses Free-tier
-  managed OpenRouter access and stores chat history in browser localStorage.
-  The backend must have `OPENROUTER_API_KEY` configured for this managed path;
-  otherwise anonymous and Free-plan `OpenRouter Free` calls return HTTP `503`
-  with `MANAGED_PROVIDER_UNCONFIGURED`.
-- `/settings`, `/billing`, `/usage`, `/compare`, `/api/chats/import`, account
-  endpoints, key endpoints, usage endpoints, and authenticated chat endpoints
-  require a valid session.
+- `/chat`, legal pages, `/models/*`, and `/api/anonymous/chats/stream` are
+  public. Anonymous chat uses only `OPENROUTER/openrouter/free` and stores chat
+  history in browser localStorage.
+- The backend must have `OPENROUTER_API_KEY` configured only for this guest
+  OpenRouter Free path; otherwise anonymous calls return HTTP `503` with
+  `MANAGED_PROVIDER_UNCONFIGURED`.
+- Signed-in chat is BYOK-only. A user must store a provider API key in Settings
+  before sending authenticated model requests for that provider; missing keys
+  return `API_KEY_REQUIRED`.
+- `/settings`, `/usage`, `/compare`, `/api/chats/import`, account endpoints,
+  key endpoints, usage endpoints, and authenticated chat endpoints require a
+  valid session.
 - After a guest logs in, the frontend can call `POST /api/chats/import` to
   persist selected local guest chats without re-calling the AI provider.
 
@@ -63,21 +63,18 @@ Session lifetime:
 Rate and quota defaults:
 
 - Per-minute request limits are intentionally DDoS-oriented:
-  anonymous `RATE_LIMIT_ANONYMOUS_PER_MINUTE=300`, Free
-  `RATE_LIMIT_FREE_PER_MINUTE=600`, Premium
-  `RATE_LIMIT_PREMIUM_PER_MINUTE=1200`, and Max
-  `RATE_LIMIT_MAX_PER_MINUTE=2400`.
-- Anonymous chat has a separate daily managed-call cap,
-  `BILLING_GUEST_DAILY_CAP=20` by default. Production should keep Redis
+  anonymous `RATE_LIMIT_ANONYMOUS_PER_MINUTE=300` and authenticated
+  `RATE_LIMIT_AUTHENTICATED_PER_MINUTE=600`.
+- Anonymous chat has a separate daily guest OpenRouter Free cap,
+  `ACCESS_GUEST_DAILY_CAP=20` by default. Production should keep Redis
   available because Redis-backed rate limiting and guest quota checks fail
   closed when Redis is configured but unavailable.
 
 Tool configuration:
 
-- Web search uses Brave Search. Set `BRAVE_SEARCH_API_KEY` in the backend
-  deployment environment to provide the managed web-search tool for eligible
-  plans. Users can still store their own `BRAVE_SEARCH` BYOK key in Settings;
-  that user key takes precedence over the server-side key.
+- Web search uses Brave Search only with the signed-in user's stored
+  `BRAVE_SEARCH` key from Settings. There is no managed Brave Search key in
+  production config.
 
 ## Repo-Owned Infra
 
@@ -106,10 +103,9 @@ Backend deploy:
 2. The workflow builds `Backend/app.jar` on GitHub Actions, then uploads the
    backend bundle and `infra/caddy`.
 3. On the VPS it writes `Backend/.env` from `BACKEND_ENV_FILE`.
-4. Optional single GitHub secrets `OPENROUTER_API_KEY` and
-   `BRAVE_SEARCH_API_KEY` override the matching keys in `Backend/.env` when
-   they are set, so rotating those provider keys does not require editing the
-   whole multiline `BACKEND_ENV_FILE` secret.
+4. Optional single GitHub secret `OPENROUTER_API_KEY` overrides the matching
+   key in `Backend/.env` when it is set, so rotating the guest OpenRouter Free
+   key does not require editing the whole multiline `BACKEND_ENV_FILE` secret.
 5. It runs `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build --remove-orphans`.
    The production compose file uses `Backend/Dockerfile.prod`, which copies the
    prebuilt JAR instead of running Gradle on the VPS.
@@ -134,7 +130,6 @@ startup:
 curl -sS https://germinai.de/api/actuator/health
 curl -sS -D - -o /tmp/germinai-secured.txt https://germinai.de/api/secured
 curl -sS -D - -o /tmp/germinai-oauth.txt https://germinai.de/api/oauth2/authorization/google
-curl -sS -D - -o /tmp/germinai-stripe-webhook.txt -X POST https://germinai.de/billing/webhook
 curl -sS -D - -o /tmp/germinai-login.html https://germinai.de/login
 curl -sS -D - -o /tmp/germinai-chat.html https://germinai.de/chat
 ```
@@ -145,21 +140,19 @@ Expected results:
 - `/api/secured`: HTTP `401` without a session. This proves the backend is
   reachable and auth protection is active.
 - `/api/oauth2/authorization/google`: HTTP `302` to `accounts.google.com`.
-- `/billing/webhook`: HTTP `400` without a `Stripe-Signature` header, or HTTP
-  `503` if `STRIPE_WEBHOOK_SECRET` is intentionally unset. This proves the
-  public Stripe path reaches the backend rather than Nuxt.
 - `/login`: HTTP `200` from Nuxt.
 - `/chat`: HTTP `200` from Nuxt without requiring a session.
 
 For an end-to-end browser smoke check, an anonymous visitor should land on the
 chat UI, see only the theme toggle plus Google login button in the sidebar
-footer, send a message with `OpenRouter Free` without a plan-restriction alert,
+footer, send a message with `OpenRouter Free` without a key-required alert,
 and a login button click should navigate to `accounts.google.com`.
 
-Also smoke-check the signed-in Free-plan path after backend deploys: with no
-stored BYOK key, the model picker should expose `OpenRouter Free`, sending a
-message should succeed, and paid models should still be rejected with HTTP `402`
-and `MODEL_NOT_ALLOWED`.
+Also smoke-check the signed-in BYOK path after backend deploys: with no stored
+provider key, sending a non-guest model request should fail with
+`API_KEY_REQUIRED`; after storing a valid provider key in Settings, the same
+provider should stream successfully. The web-search tool should bind only after
+a user stores a `BRAVE_SEARCH` key.
 
 ## VPS Triage Commands
 

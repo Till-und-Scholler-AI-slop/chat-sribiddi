@@ -9,7 +9,6 @@ import {
   modelEndpointPath,
   normalizeAvailability,
   normalizeBaseUrl,
-  normalizeRequiredPlan,
   REQUEST_USER_ID_HEADER,
   useChatApi,
   withRequestUserId
@@ -315,14 +314,13 @@ describe('useChatApi.logout', () => {
 })
 
 describe('normalizeAvailability', () => {
-  it('accepts the three known availability flags', () => {
+  it('accepts the known availability flags', () => {
     expect(normalizeAvailability('ALWAYS')).toBe('ALWAYS')
     expect(normalizeAvailability('BYOK_ONLY')).toBe('BYOK_ONLY')
-    expect(normalizeAvailability('UPGRADE_REQUIRED')).toBe('UPGRADE_REQUIRED')
   })
 
   it('is case-insensitive', () => {
-    expect(normalizeAvailability('upgrade_required')).toBe('UPGRADE_REQUIRED')
+    expect(normalizeAvailability('byok_only')).toBe('BYOK_ONLY')
   })
 
   it('falls back to ALWAYS for unknown / null / missing values', () => {
@@ -334,25 +332,10 @@ describe('normalizeAvailability', () => {
   })
 })
 
-describe('normalizeRequiredPlan', () => {
-  it('accepts PREMIUM and MAX (any case)', () => {
-    expect(normalizeRequiredPlan('PREMIUM')).toBe('PREMIUM')
-    expect(normalizeRequiredPlan('max')).toBe('MAX')
-  })
-
-  it('returns null for unknown or missing values', () => {
-    expect(normalizeRequiredPlan(null)).toBeNull()
-    expect(normalizeRequiredPlan(undefined)).toBeNull()
-    expect(normalizeRequiredPlan('FREE')).toBeNull()
-    expect(normalizeRequiredPlan(123)).toBeNull()
-  })
-})
-
 describe('isModelLocked', () => {
-  it('returns true only for UPGRADE_REQUIRED models', () => {
-    expect(isModelLocked({ availability: 'UPGRADE_REQUIRED' })).toBe(true)
+  it('returns true only for BYOK_ONLY models', () => {
     expect(isModelLocked({ availability: 'ALWAYS' })).toBe(false)
-    expect(isModelLocked({ availability: 'BYOK_ONLY' })).toBe(false)
+    expect(isModelLocked({ availability: 'BYOK_ONLY' })).toBe(true)
     expect(isModelLocked({ availability: null })).toBe(false)
     expect(isModelLocked({})).toBe(false)
   })

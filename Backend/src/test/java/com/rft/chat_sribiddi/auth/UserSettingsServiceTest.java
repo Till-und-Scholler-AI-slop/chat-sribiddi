@@ -1,7 +1,6 @@
 package com.rft.chat_sribiddi.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -20,63 +19,58 @@ class UserSettingsServiceTest {
   @Mock private UserRepository userRepository;
 
   @Test
-  void saveBillingModePreference_persistsByokForFreeUser() {
+  void saveCustomInstructions_persistsTrimmedValue() {
     User user = new User();
     user.setProviderId(USER_ID);
-    user.setPlan(Plan.FREE);
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(user));
 
     UserSettingsService service = new UserSettingsService(userRepository);
 
-    BillingMode updated = service.saveBillingModePreference(USER_ID, BillingMode.BYOK);
+    service.saveCustomInstructions(USER_ID, "  be concise  ");
 
-    assertThat(updated).isEqualTo(BillingMode.BYOK);
-    assertThat(user.getBillingModePreference()).isEqualTo(BillingMode.BYOK);
+    assertThat(user.getCustomInstructions()).isEqualTo("be concise");
     verify(userRepository).save(user);
   }
 
   @Test
-  void saveBillingModePreference_persistsManagedForPremiumUser() {
+  void saveCustomInstructions_clearsBlankValue() {
     User user = new User();
     user.setProviderId(USER_ID);
-    user.setPlan(Plan.PREMIUM);
+    user.setCustomInstructions("old");
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(user));
 
     UserSettingsService service = new UserSettingsService(userRepository);
 
-    BillingMode updated = service.saveBillingModePreference(USER_ID, BillingMode.MANAGED);
+    service.saveCustomInstructions(USER_ID, "   ");
 
-    assertThat(updated).isEqualTo(BillingMode.MANAGED);
-    assertThat(user.getBillingModePreference()).isEqualTo(BillingMode.MANAGED);
+    assertThat(user.getCustomInstructions()).isNull();
     verify(userRepository).save(user);
   }
 
   @Test
-  void saveBillingModePreference_rejectsManagedForFreeUser() {
-    User user = new User();
-    user.setProviderId(USER_ID);
-    user.setPlan(Plan.FREE);
-    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(user));
-
-    UserSettingsService service = new UserSettingsService(userRepository);
-
-    assertThatThrownBy(() -> service.saveBillingModePreference(USER_ID, BillingMode.MANAGED))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("Premium or Max");
-  }
-
-  @Test
-  void saveBillingModePreference_createsMissingUserForNonManagedMode() {
+  void saveCustomInstructions_createsMissingUser() {
     when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.empty());
     when(userRepository.save(org.mockito.ArgumentMatchers.any(User.class)))
         .thenAnswer(invocation -> invocation.getArgument(0));
     UserSettingsService service = new UserSettingsService(userRepository);
     ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
 
-    service.saveBillingModePreference(USER_ID, BillingMode.AUTO);
+    service.saveCustomInstructions(USER_ID, "hello");
 
     verify(userRepository, org.mockito.Mockito.times(2)).save(captor.capture());
     assertThat(captor.getAllValues().getLast().getProviderId()).isEqualTo(USER_ID);
-    assertThat(captor.getAllValues().getLast().getBillingModePreference()).isEqualTo(BillingMode.AUTO);
+    assertThat(captor.getAllValues().getLast().getCustomInstructions()).isEqualTo("hello");
+  }
+
+  @Test
+  void getCustomInstructions_readsFromUser() {
+    User user = new User();
+    user.setProviderId(USER_ID);
+    user.setCustomInstructions("existing");
+    when(userRepository.findByProviderId(USER_ID)).thenReturn(Optional.of(user));
+
+    UserSettingsService service = new UserSettingsService(userRepository);
+
+    assertThat(service.getCustomInstructions(USER_ID)).contains("existing");
   }
 }
