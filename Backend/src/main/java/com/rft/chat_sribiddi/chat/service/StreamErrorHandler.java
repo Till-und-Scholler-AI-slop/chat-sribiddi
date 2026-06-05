@@ -1,8 +1,6 @@
 package com.rft.chat_sribiddi.chat.service;
 
 import com.anthropic.errors.AnthropicServiceException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.errors.OpenAIServiceException;
 import com.openai.models.ErrorObject;
 import com.rft.chat_sribiddi.chat.dto.RequestDTO.Provider;
@@ -13,23 +11,27 @@ import org.springframework.ai.retry.TransientAiException;
 import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 @Slf4j
 public final class StreamErrorHandler {
 
   public static final String EVENT_ERROR = "error";
-  private static final ObjectMapper ERROR_MAPPER = new ObjectMapper();
+  private static final JsonMapper ERROR_MAPPER = new JsonMapper();
 
   private StreamErrorHandler() {}
 
   public static StreamErrorDetails describe(
       Provider provider, String modelId, long streamedTextUtf8Bytes, Throwable error) {
     Integer statusCode = extractStatusCode(error);
+    String providerMessage = extractProviderMessage(error);
     return new StreamErrorDetails(
         provider,
         modelId,
         statusCode,
         classify(error, statusCode),
+        providerMessage,
         streamedTextUtf8Bytes);
   }
 
@@ -84,6 +86,14 @@ public final class StreamErrorHandler {
   }
 
   public static String formatProviderError(OpenAIServiceException ex) {
+    String rawBody = ex.body() == null ? null : ex.body().toString();
+    if (rawBody != null && !rawBody.isBlank()) {
+      log.warn("Upstream OpenAI-compatible provider rejected request (HTTP {}): {}",
+          ex.statusCode(), rawBody);
+    }
+    // 1) Try the SDK's typed ErrorObject accessor first. This works when the
+    //    SDK successfully deserialized the wire body (native OpenAI, and
+    //    most test scenarios that build the exception from an ErrorObject).
     try {
       String message = ex.body().convert(ErrorObject.class).message();
       if (message != null && !message.isBlank()) {
@@ -92,10 +102,56 @@ public final class StreamErrorHandler {
     } catch (Exception e) {
       log.debug("Failed to extract OpenAI SDK error body", e);
     }
-    return formatProviderError(ex.body().toString(), ex.statusCode());
+    // 2) Fall back to the generic JSON parser. Handles OpenRouter's nested
+    //    {"error":{"message":"..."}} shape that the SDK's strict deserializer
+    //    either misparses (returning a placeholder message) or rejects.
+    if (rawBody != null) {
+      String parsed = parseErrorMessage(rawBody);
+      if (parsed != null && !parsed.isBlank()) {
+        return parsed;
+      }
+    }
+    return formatProviderError(rawBody, ex.statusCode());
+  }
+
+  /**
+   * Extract the human-readable error message from a raw OpenAI / OpenAI-compatible error body.
+   *
+   * <p>The generic JSON parser handles both OpenAI's flat
+   * {@code {"message": "..."}} shape AND OpenRouter's nested
+   * {@code {"error": {"message": "..."}}} shape. The OpenAI Java SDK's
+   * {@link ErrorObject} deserializer only understands the OpenAI shape; for OpenRouter it
+   * returns a placeholder "Provider returned error" message that hides the real reason.
+   *
+   * <p>Package-private for unit tests; not part of the public API.
+   */
+  static String extractOpenAiStyleErrorMessage(String rawBody) {
+    if (rawBody == null || rawBody.isBlank()) {
+      return null;
+    }
+    String parsed = parseErrorMessage(rawBody);
+    if (parsed != null && !parsed.isBlank()) {
+      return parsed;
+    }
+    // Fall back to the SDK's ErrorObject for native OpenAI responses whose body
+    // doesn't match our generic parser (rare — the generic parser usually wins).
+    try {
+      ErrorObject obj = ERROR_MAPPER.readValue(rawBody, ErrorObject.class);
+      if (obj != null && obj.message() != null && !obj.message().isBlank()) {
+        return obj.message();
+      }
+    } catch (Exception ignored) {
+      // Body doesn't match the OpenAI ErrorObject schema — expected for OpenRouter.
+    }
+    return null;
   }
 
   public static String formatProviderError(AnthropicServiceException ex) {
+    String rawBody = ex.body() == null ? null : ex.body().toString();
+    if (rawBody != null && !rawBody.isBlank()) {
+      log.warn("Upstream Anthropic provider rejected request (HTTP {}): {}",
+          ex.statusCode(), rawBody);
+    }
     return formatProviderError(ex.body().toString(), ex.statusCode());
   }
 
@@ -178,6 +234,10 @@ public final class StreamErrorHandler {
           case "TOOL_ERROR" -> "A tool failed while processing the request.";
           default -> "An unexpected streaming error occurred.";
         });
+    String providerMessage = details.providerMessage();
+    if (providerMessage != null && !providerMessage.isBlank()) {
+      builder.append(": ").append(providerMessage.trim());
+    }
     if (details.receivedBytes() > 0) {
       builder.append(" Partial response shown.");
     }
@@ -284,13 +344,13 @@ public final class StreamErrorHandler {
       JsonNode errorNode = root.path(EVENT_ERROR);
       if (!errorNode.isMissingNode()) {
         JsonNode messageNode = errorNode.path("message");
-        if (messageNode.isTextual() && !messageNode.asText().isBlank()) {
-          return messageNode.asText();
+        if (messageNode.isString() && !messageNode.asString().isBlank()) {
+          return messageNode.asString();
         }
       }
       JsonNode messageNode = root.path("message");
-      if (messageNode.isTextual() && !messageNode.asText().isBlank()) {
-        return messageNode.asText();
+      if (messageNode.isString() && !messageNode.asString().isBlank()) {
+        return messageNode.asString();
       }
     } catch (Exception e) {
       log.debug("Failed to parse provider error response as JSON", e);
@@ -314,5 +374,6 @@ public final class StreamErrorHandler {
       String modelId,
       Integer statusCode,
       String errorType,
+      String providerMessage,
       Long receivedBytes) {}
 }

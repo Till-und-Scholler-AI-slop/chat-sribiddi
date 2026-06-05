@@ -48,6 +48,8 @@ dependencies {
     implementation("org.springframework.ai:spring-ai-starter-model-anthropic")
     implementation("org.springframework.ai:spring-ai-rag")
     implementation("org.springframework.ai:spring-ai-pdf-document-reader")
+    implementation("org.jsoup:jsoup:1.18.1")
+    implementation("com.vladsch.flexmark:flexmark-html2md-converter:0.64.8")
     compileOnly("org.projectlombok:lombok")
     developmentOnly("org.springframework.boot:spring-boot-devtools")
     developmentOnly("org.springframework.boot:spring-boot-docker-compose")
@@ -55,6 +57,7 @@ dependencies {
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    testImplementation("org.wiremock:wiremock-standalone:3.9.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
 }

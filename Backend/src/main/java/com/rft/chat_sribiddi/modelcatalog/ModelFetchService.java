@@ -1,10 +1,7 @@
 package com.rft.chat_sribiddi.modelcatalog;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rft.chat_sribiddi.chat.service.OpenRouterProviderProperties;
 import com.rft.chat_sribiddi.modelcatalog.ModelCatalogProperties.ModelOption;
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.util.ArrayList;
@@ -19,6 +16,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @Slf4j
 @Service
@@ -45,7 +44,7 @@ public class ModelFetchService {
 
       List<ModelOption> models = new ArrayList<>();
       for (JsonNode model : response.get("data")) {
-        String id = model.get("id").asText();
+        String id = model.get("id").asString();
         if (isRelevantOpenAiModel(id)) {
           models.add(new ModelOption(id, id));
         }
@@ -74,10 +73,10 @@ public class ModelFetchService {
 
       List<ModelOption> models = new ArrayList<>();
       for (JsonNode model : response.get("models")) {
-        String fullName = model.get("name").asText();
+        String fullName = model.get("name").asString();
         String id = fullName.startsWith("models/") ? fullName.substring(7) : fullName;
         String displayName =
-            model.has("displayName") ? model.get("displayName").asText() : id;
+            model.has("displayName") ? model.get("displayName").asString() : id;
 
         if (isRelevantGoogleModel(id)) {
           models.add(new ModelOption(id, displayName));
@@ -108,9 +107,9 @@ public class ModelFetchService {
 
       List<ModelOption> models = new ArrayList<>();
       for (JsonNode model : response.get("data")) {
-        String id = model.get("id").asText();
+        String id = model.get("id").asString();
         String displayName =
-            model.has("display_name") ? model.get("display_name").asText() : id;
+            model.has("display_name") ? model.get("display_name").asString() : id;
         models.add(new ModelOption(id, displayName));
       }
       models.sort(Comparator.comparing(ModelOption::getId));
@@ -193,7 +192,7 @@ public class ModelFetchService {
    * Parses provider responses from a raw JSON string because these endpoints can fail when
    * {@link RestClient} is asked to deserialize directly to {@link JsonNode}.
    */
-  private JsonNode getJson(RestClient.RequestHeadersSpec<?> request) throws IOException {
+  private JsonNode getJson(RestClient.RequestHeadersSpec<?> request) {
     String responseBody = request.retrieve().body(String.class);
     if (responseBody == null || responseBody.isBlank()) {
       return null;
@@ -239,7 +238,7 @@ public class ModelFetchService {
     if (value.isMissingNode() || value.isNull()) {
       return null;
     }
-    String text = value.asText();
+    String text = value.asString();
     return text == null || text.isBlank() ? null : text;
   }
 
@@ -271,7 +270,7 @@ public class ModelFetchService {
     }
     List<String> values = new ArrayList<>();
     for (JsonNode item : node) {
-      String value = item.asText();
+      String value = item.asString();
       if (value != null && !value.isBlank()) {
         values.add(value);
       }
