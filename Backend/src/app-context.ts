@@ -14,6 +14,7 @@ import { ChatService } from "./services/chat-service.js";
 import { CredentialAccessService } from "./services/credential-access-service.js";
 import { CryptoService } from "./services/crypto-service.js";
 import { DocumentService } from "./services/document-service.js";
+import { GrokCliBridgeService } from "./services/grok-cli-bridge-service.js";
 import { GuestQuotaService } from "./services/guest-quota-service.js";
 import { ModelCatalogService } from "./services/model-catalog-service.js";
 import { ProviderCatalogService } from "./services/provider-catalog-service.js";
@@ -44,10 +45,12 @@ export function createAppContext(input?: { db?: Db; shutdown?: () => Promise<voi
 
   const crypto = new CryptoService();
   const providerCatalog = new ProviderCatalogService();
+  const grokCli = new GrokCliBridgeService();
   const providerConnections = new ProviderConnectionService(
     providerConnectionRepository,
     providerCatalog,
     crypto,
+    grokCli,
   );
   const apiKeys = new ApiKeyService(apiKeyRepository, crypto, providerConnections);
   const credentialAccess = new CredentialAccessService(apiKeys, providerConnections);
@@ -62,7 +65,7 @@ export function createAppContext(input?: { db?: Db; shutdown?: () => Promise<voi
   const chat = new ChatService(
     chats,
     messages,
-    new AiChatService(),
+    new AiChatService(grokCli),
     credentialAccess,
     providerConnections,
     apiKeys,
@@ -97,6 +100,7 @@ export function createAppContext(input?: { db?: Db; shutdown?: () => Promise<voi
       chat,
       credentialAccess,
       documents: documentService,
+      grokCli,
       models,
       providerCatalog,
       providerConnections,

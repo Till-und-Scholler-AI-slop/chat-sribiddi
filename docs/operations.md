@@ -106,6 +106,24 @@ Provider execution:
   the enabled provider OAuth/device flows. OpenAI, Anthropic, Qwen, and MiniMax
   deliberately do not show OAuth buttons because there is no supported
   reusable third-party user-OAuth API flow for this product.
+- xAI has two separate profiles. **API billing** uses the user's own xAI API key
+  against `https://api.x.ai/v1`. **Grok Build subscription** is an experimental
+  per-user CLI bridge; it is disabled unless `GROK_CLI_ENABLED=true`, the
+  official `grok` binary is installed, and `GROK_CLI_SESSIONS_DIR` points at a
+  private server-owned directory. The backend must never provide a shared xAI
+  subscription, shared Grok login, managed xAI API key, or fallback token for
+  this profile. Each user must complete the connection flow with their own xAI
+  account, and entitlement validation happens through that user's own Grok
+  Build session.
+- The Grok Build bridge must run with isolated per-user `HOME`, an isolated temp
+  `cwd`, no MCP servers, no terminal capability, no file-write capability,
+  deny-by-default permissions, bounded output, bounded request timeouts, and
+  one concurrent request per user by default. Do not point the bridge at the app
+  repo or mount production secrets into the Grok process environment.
+- Composer is not exposed through this bridge until official xAI/Grok Build or
+  ACP documentation confirms a stable model selection path. Do not add
+  third-party Composer model IDs, raw CLI token reuse, cookie reuse, or
+  unofficial Grok web endpoints.
 - Qwen portal and MiniMax portal are profile options under their base provider,
   not separate visible providers. They remain documented/experimental until a
   supported implementation exists.

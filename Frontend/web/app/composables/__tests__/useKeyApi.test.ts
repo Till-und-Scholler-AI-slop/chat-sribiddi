@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useKeyApi } from '../useKeyApi'
+import {
+  completeDeviceConnectionRequest,
+  startConnectionRequest,
+  useKeyApi
+} from '../useKeyApi'
 
 const apiMock = vi.hoisted(() => ({
   requestJson: vi.fn()
@@ -101,5 +105,28 @@ describe('useKeyApi provider profiles', () => {
         body: JSON.stringify({ deviceCode: 'device-123', connectionProfileId: 'github-oauth' })
       }
     )
+  })
+
+  it('builds xAI subscription CLI connection requests as pure payloads', () => {
+    expect(startConnectionRequest('xai', 'SUBSCRIPTION_CLI', 'grok-build-subscription')).toEqual({
+      path: '/provider-connections/xai/connect',
+      options: {
+        method: 'POST',
+        body: JSON.stringify({
+          authMethod: 'SUBSCRIPTION_CLI',
+          connectionProfileId: 'grok-build-subscription'
+        })
+      }
+    })
+    expect(completeDeviceConnectionRequest('xai', 'grok-login-123', 'grok-build-subscription')).toEqual({
+      path: '/provider-connections/xai/device-code',
+      options: {
+        method: 'POST',
+        body: JSON.stringify({
+          deviceCode: 'grok-login-123',
+          connectionProfileId: 'grok-build-subscription'
+        })
+      }
+    })
   })
 })

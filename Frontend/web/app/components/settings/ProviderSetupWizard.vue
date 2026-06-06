@@ -279,7 +279,11 @@ function needsEndpointOverride(profile: ProviderConnectionProfile | undefined) {
 }
 
 function isRedirectingProfile(profile: ProviderConnectionProfile | undefined) {
-  return Boolean(profile?.oauthEnabled && profile.authMethod !== 'DEVICE_CODE')
+  return Boolean(profile?.oauthEnabled && !isDeviceLikeProfile(profile))
+}
+
+function isDeviceLikeProfile(profile: ProviderConnectionProfile | undefined) {
+  return profile?.authMethod === 'DEVICE_CODE' || profile?.authMethod === 'SUBSCRIPTION_CLI'
 }
 
 function isConnectableProfile(profile: ProviderConnectionProfile | undefined) {
@@ -778,10 +782,12 @@ function startChatting() {
           </p>
         </div>
 
-        <div v-else-if="currentProfile.authMethod === 'DEVICE_CODE'" class="flex gap-3 rounded-xl border border-gray-200 bg-white/45 p-4 dark:border-gray-800 dark:bg-gray-900/35">
+        <div v-else-if="isDeviceLikeProfile(currentProfile)" class="flex gap-3 rounded-xl border border-gray-200 bg-white/45 p-4 dark:border-gray-800 dark:bg-gray-900/35">
           <UIcon name="i-heroicons-device-phone-mobile" class="mt-0.5 size-5 shrink-0 text-gray-500" />
           <p class="text-sm leading-relaxed text-gray-600 dark:text-gray-300">
-            {{ t('settings.setup.deviceCodeHint') }}
+            {{ currentProfile.authMethod === 'SUBSCRIPTION_CLI'
+              ? t('settings.setup.subscriptionCliHint')
+              : t('settings.setup.deviceCodeHint') }}
           </p>
         </div>
 
@@ -935,7 +941,7 @@ function startChatting() {
           <UButton
             type="button"
             color="primary"
-            :icon="currentProfile?.oauthEnabled ? 'i-heroicons-link' : 'i-heroicons-check-circle'"
+            :icon="isDeviceLikeProfile(currentProfile) ? 'i-heroicons-device-phone-mobile' : currentProfile?.oauthEnabled ? 'i-heroicons-link' : 'i-heroicons-check-circle'"
             :label="primaryActionLabel"
             :loading="currentForm?.saving || currentForm?.connecting"
             :disabled="!canUsePrimaryAction"

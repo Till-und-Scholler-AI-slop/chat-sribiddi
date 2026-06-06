@@ -405,7 +405,22 @@ function buildCatalog(): ProviderDescriptor[] {
       "https://api.groq.com/openai/v1",
       "https://console.groq.com/docs/overview",
     ),
-    gateway("xai", "xAI", "https://api.x.ai/v1", "https://docs.x.ai/docs"),
+    descriptor("xai", "xAI", "llm", true, false, false, "gateway", "NEEDS_CONNECTION", [
+      openAiCompatibleProfile(
+        "api",
+        "API billing",
+        "https://api.x.ai/v1",
+        "https://docs.x.ai/developers/rest-api-reference/inference",
+      ),
+      profile({
+        id: "grok-build-subscription",
+        label: "Grok Build subscription",
+        authMethod: "SUBSCRIPTION_CLI",
+        oauthEnabled: true,
+        status: "EXPERIMENTAL",
+        docsUrl: "https://docs.x.ai/build/enterprise",
+      }),
+    ]),
     gateway(
       "perplexity",
       "Perplexity AI",
