@@ -120,6 +120,7 @@ export interface ProviderConnectionsTable {
   id: Generated<number>;
   user_id: string;
   provider_id: string;
+  connection_profile_id: string;
   auth_method: string;
   status: string;
   display_name: string | null;

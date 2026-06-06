@@ -75,6 +75,12 @@ const envSchema = z.object({
     .default(
       "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/generative-language.retriever",
     ),
+  GITHUB_COPILOT_OAUTH_CLIENT_ID: z.string().optional(),
+  GITHUB_COPILOT_OAUTH_SCOPES: z.string().default("read:user"),
+  GITHUB_COPILOT_DEVICE_CODE_URI: z.string().default("https://github.com/login/device/code"),
+  GITHUB_COPILOT_ACCESS_TOKEN_URI: z
+    .string()
+    .default("https://github.com/login/oauth/access_token"),
   ENCRYPTION_SECRET: z.string().optional(),
   ENCRYPTION_ACTIVE_KEY_VERSION: z.coerce.number().int().positive().default(1),
   ENCRYPTION_DECRYPTION_SECRETS: z.string().optional(),

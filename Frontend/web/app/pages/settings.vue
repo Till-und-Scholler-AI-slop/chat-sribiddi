@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import type {Provider} from '~/composables/useChatApi'
 import type {
   ProviderAuthMethod,
   ProviderCatalogItem,
+  ProviderConnectionProfile,
+  ProviderConnectionSummary,
   ProviderConnectionStatus,
   SaveProviderCredentialInput
 } from '~/composables/useKeyApi'
-import { providerLabel } from '~/utils/format'
 
 const { t, locale, locales, setLocale } = useI18n()
 const tt = useTranslatedError()
@@ -15,66 +15,20 @@ definePageMeta({
   layout: 'default'
 })
 
-const { settings, hydrated } = useUserSettings()
-const {getProviders, saveKey, saveProviderCredential, deleteKey, startConnection} = useKeyApi()
+const { settings } = useUserSettings()
+const {
+  getProviders,
+  saveProviderCredential,
+  startConnection,
+  completeDeviceConnection,
+  deleteConnection
+} = useKeyApi()
 const {getCustomInstructions, saveCustomInstructions} = useInstructionsApi()
 const {deleteAccount} = useChatApi()
 const {models, ensureModels} = useChatStore()
 const {status: authStatus} = useAuth()
 const toast = useToast()
 const router = useRouter()
-
-type KeyProviderStatus = {
-  openai: boolean
-  google: boolean
-  claude: boolean
-  openrouter: boolean
-  brave_search: boolean
-}
-
-type ProviderCard = {
-  provider: Provider
-  key: keyof KeyProviderStatus
-  titleKey: string
-  labelKey: string
-  placeholder: string
-  descriptionKey: string
-}
-
-const providerCards: ProviderCard[] = [
-  {
-    provider: 'OPENAI',
-    key: 'openai',
-    titleKey: 'settings.openaiTitle',
-    labelKey: 'settings.openaiLabel',
-    placeholder: 'sk-...',
-    descriptionKey: 'settings.openaiDescription'
-  },
-  {
-    provider: 'GOOGLE',
-    key: 'google',
-    titleKey: 'settings.googleTitle',
-    labelKey: 'settings.googleLabel',
-    placeholder: 'AIza...',
-    descriptionKey: 'settings.googleDescription'
-  },
-  {
-    provider: 'CLAUDE',
-    key: 'claude',
-    titleKey: 'settings.claudeTitle',
-    labelKey: 'settings.claudeLabel',
-    placeholder: 'sk-ant-...',
-    descriptionKey: 'settings.claudeDescription'
-  },
-  {
-    provider: 'OPENROUTER',
-    key: 'openrouter',
-    titleKey: 'settings.openrouterTitle',
-    labelKey: 'settings.openrouterLabel',
-    placeholder: 'sk-or-...',
-    descriptionKey: 'settings.openrouterDescription'
-  }
-]
 
 const localeItems = computed(() =>
   (locales.value as Array<{ code: string; name?: string }>).map(l => ({
@@ -139,94 +93,48 @@ const handleExpertModeChange = async (next: boolean | 'indeterminate') => {
 }
 
 const loadingStatus = ref(true)
-const status = ref<KeyProviderStatus | null>(null)
+const settingsPageReady = ref(false)
 const providerCatalog = ref<ProviderCatalogItem[]>([])
-const extraConnectionForms = reactive<Record<string, {
+
+type ProviderFormState = {
+  selectedProfileId: string
   apiKey: string
   baseUrl: string
   modelId: string
   reveal: boolean
+  advanced: boolean
   saving: boolean
-}>>({})
-
-const legacyProviderIds: Record<Provider | 'BRAVE_SEARCH', string> = {
-  OPENAI: 'openai',
-  GOOGLE: 'google',
-  CLAUDE: 'anthropic',
-  OPENROUTER: 'openrouter',
-  BRAVE_SEARCH: 'brave-search'
+  connecting: boolean
+  deletingConnectionId: number | null
 }
 
-const catalogById = computed(() => new Map(providerCatalog.value.map(provider => [provider.id, provider])))
-
-const extraProviderCatalog = computed(() => {
-  const hidden = new Set(Object.values(legacyProviderIds))
-  return providerCatalog.value.filter(provider => !hidden.has(provider.id))
-})
-
-const form = reactive<Record<Provider, string>>({
-  OPENAI: '',
-  GOOGLE: '',
-  CLAUDE: '',
-  OPENROUTER: ''
-})
-
-const reveal = reactive<Record<Provider, boolean>>({
-  OPENAI: false,
-  GOOGLE: false,
-  CLAUDE: false,
-  OPENROUTER: false
-})
-
-const savingProvider = reactive<Record<Provider, boolean>>({
-  OPENAI: false,
-  GOOGLE: false,
-  CLAUDE: false,
-  OPENROUTER: false
-})
-
-const deletingProvider = reactive<Record<Provider, boolean>>({
-  OPENAI: false,
-  GOOGLE: false,
-  CLAUDE: false,
-  OPENROUTER: false
-})
-
-const connectingProvider = reactive<Record<Provider, boolean>>({
-  OPENAI: false,
-  GOOGLE: false,
-  CLAUDE: false,
-  OPENROUTER: false
-})
-
-const braveSearchKey = ref('')
-const braveSearchReveal = ref(false)
-const savingBraveSearch = ref(false)
-const deletingBraveSearch = ref(false)
-
-const braveSearchStatus = computed(() => status.value?.brave_search ?? false)
-
-const statusByProvider = (provider: Provider) => {
-  if (!status.value) return false
-  return provider === 'OPENAI'
-      ? status.value.openai
-      : provider === 'GOOGLE'
-          ? status.value.google
-          : provider === 'CLAUDE'
-            ? status.value.claude
-            : status.value.openrouter
+type DeviceFlowState = {
+  providerId: string
+  providerLabel: string
+  connectionProfileId: string
+  deviceCode: string
+  userCode: string
+  verificationUri: string
+  verificationUriComplete?: string | null
+  expiresAt?: string | null
+  intervalSeconds: number
+  message?: string | null
+  polling: boolean
 }
 
-const providerCatalogEntry = (provider: Provider | 'BRAVE_SEARCH') =>
-  catalogById.value.get(legacyProviderIds[provider])
-
-const providerAuthMethods = (provider: Provider | 'BRAVE_SEARCH') =>
-  providerCatalogEntry(provider)?.authMethods ?? ['API_KEY']
+const providerForms = reactive<Record<string, ProviderFormState>>({})
+const deviceFlow = ref<DeviceFlowState | null>(null)
+let devicePollToken = 0
 
 const authMethodLabel = (method: ProviderAuthMethod) => {
   const key = `settings.authMethods.${method}`
   const translated = t(key)
   return translated === key ? method.replaceAll('_', ' ') : translated
+}
+
+const connectionStatusLabel = (provider: ProviderCatalogItem, profile: ProviderConnectionProfile) => {
+  const connection = connectionForProfile(provider, profile)
+  return connection?.status ? statusLabel(connection.status) : statusLabel(profile.status)
 }
 
 const statusLabel = (value: ProviderConnectionStatus) => {
@@ -242,39 +150,114 @@ const statusColor = (value: ProviderConnectionStatus) => {
   return 'neutral'
 }
 
-const extraForm = (providerId: string) => {
-  if (!extraConnectionForms[providerId]) {
-    extraConnectionForms[providerId] = {
+const profileStatusColor = (provider: ProviderCatalogItem, profile: ProviderConnectionProfile) => {
+  const connection = connectionForProfile(provider, profile)
+  return statusColor(connection?.status ?? profile.status)
+}
+
+const usableProfiles = (provider: ProviderCatalogItem) =>
+  provider.connectionProfiles.filter(profile => profile.status !== 'DISABLED')
+
+const primaryProfile = (provider: ProviderCatalogItem) =>
+  usableProfiles(provider)[0] ?? provider.connectionProfiles[0]
+
+const profileItems = (provider: ProviderCatalogItem) =>
+  provider.connectionProfiles.map(profile => ({
+    label: profile.label,
+    value: profile.id,
+    disabled: profile.status === 'DISABLED'
+  }))
+
+const providerForm = (provider: ProviderCatalogItem) => {
+  if (!providerForms[provider.id]) {
+    const profile = primaryProfile(provider)
+    providerForms[provider.id] = {
+      selectedProfileId: profile?.id ?? '',
       apiKey: '',
-      baseUrl: '',
-      modelId: '',
+      baseUrl: profile?.defaultBaseUrl ?? '',
+      modelId: connectionForProfile(provider, profile)?.defaultModelId ?? '',
       reveal: false,
-      saving: false
+      advanced: false,
+      saving: false,
+      connecting: false,
+      deletingConnectionId: null
     }
   }
-  return extraConnectionForms[providerId]
+  return providerForms[provider.id]
 }
 
-const extraProviderMethod = (provider: ProviderCatalogItem): ProviderAuthMethod => {
-  if (provider.authMethods.includes('LOCAL_ENDPOINT')) return 'LOCAL_ENDPOINT'
-  if (provider.authMethods.includes('OPENAI_COMPATIBLE')) return 'OPENAI_COMPATIBLE'
-  return 'API_KEY'
-}
-
-const canConfigureExtraProvider = (provider: ProviderCatalogItem) => {
-  if (provider.experimental || provider.status === 'DISABLED') return false
-  return provider.authMethods.some(method =>
-    ['API_KEY', 'OPENAI_COMPATIBLE', 'LOCAL_ENDPOINT'].includes(method)
+const selectedProfile = (provider: ProviderCatalogItem) => {
+  const form = providerForm(provider)
+  return (
+    provider.connectionProfiles.find(profile => profile.id === form.selectedProfileId) ??
+    primaryProfile(provider)
   )
 }
 
-const needsEndpoint = (provider: ProviderCatalogItem) =>
-  provider.authMethods.includes('OPENAI_COMPATIBLE') || provider.authMethods.includes('LOCAL_ENDPOINT')
+const connectionForProfile = (
+  provider: ProviderCatalogItem,
+  profile: ProviderConnectionProfile | undefined
+) => {
+  if (!profile) return undefined
+  return provider.connections.find(connection => connection.connectionProfileId === profile.id)
+}
 
-const keyPresent = (provider: Provider) => form[provider].trim().length > 0
+const providerReady = (provider: ProviderCatalogItem) =>
+  provider.connections.some(connection => connection.status === 'READY')
 
-const isProviderBusy = (provider: Provider) => {
-  return savingProvider[provider] || deletingProvider[provider] || connectingProvider[provider]
+const isProfileConfigurable = (profile: ProviderConnectionProfile | undefined) =>
+  Boolean(
+    profile &&
+      profile.status !== 'DISABLED' &&
+      (profile.requiresApiKey ||
+        profile.requiresModelId ||
+        profile.baseUrlEditable ||
+        profile.defaultBaseUrl)
+  )
+
+const needsEndpointOverride = (profile: ProviderConnectionProfile | undefined) =>
+  Boolean(profile?.baseUrlEditable || profile?.defaultBaseUrl)
+
+const saveDisabled = (provider: ProviderCatalogItem) => {
+  const form = providerForm(provider)
+  const profile = selectedProfile(provider)
+  if (!isProfileConfigurable(profile) || form.saving || form.connecting || form.deletingConnectionId) return true
+  if (profile?.requiresApiKey && !form.apiKey.trim()) return true
+  if (profile?.requiresModelId && !form.modelId.trim()) return true
+  if (needsEndpointOverride(profile) && !form.baseUrl.trim()) return true
+  return false
+}
+
+const connectLabel = (profile: ProviderConnectionProfile | undefined) =>
+  profile?.authMethod === 'DEVICE_CODE' ? t('settings.connectDevice') : t('settings.connectOAuth')
+
+const syncProviderForms = (providers: ProviderCatalogItem[]) => {
+  for (const provider of providers) {
+    const form = providerForm(provider)
+    const current = provider.connectionProfiles.find(profile => profile.id === form.selectedProfileId)
+    const profile = current ?? primaryProfile(provider)
+    if (profile && !current) {
+      form.selectedProfileId = profile.id
+    }
+    const connection = connectionForProfile(provider, profile)
+    if (!form.baseUrl && profile?.defaultBaseUrl) {
+      form.baseUrl = profile.defaultBaseUrl
+    }
+    if (!form.modelId && connection?.defaultModelId) {
+      form.modelId = connection.defaultModelId
+    }
+  }
+}
+
+const handleProfileChange = (provider: ProviderCatalogItem, nextProfileId: string) => {
+  const form = providerForm(provider)
+  const profile = provider.connectionProfiles.find(item => item.id === nextProfileId)
+  if (!profile) return
+  form.selectedProfileId = profile.id
+  form.baseUrl = profile.defaultBaseUrl ?? ''
+  form.modelId = connectionForProfile(provider, profile)?.defaultModelId ?? ''
+  form.apiKey = ''
+  form.advanced = false
 }
 
 const refreshStatus = async () => {
@@ -282,20 +265,14 @@ const refreshStatus = async () => {
   try {
     const providers = await getProviders()
     providerCatalog.value = providers
-    const ready = (id: string) => providers.find(provider => provider.id === id)?.status === 'READY'
-    status.value = {
-      openai: ready('openai'),
-      google: ready('google'),
-      claude: ready('anthropic'),
-      openrouter: ready('openrouter'),
-      brave_search: ready('brave-search')
-    }
+    syncProviderForms(providers)
   } finally {
     loadingStatus.value = false
   }
 }
 
 onMounted(async () => {
+  settingsPageReady.value = true
   await Promise.allSettled([
     refreshStatus().catch(err => {
       console.error(err)
@@ -309,151 +286,19 @@ onMounted(async () => {
   ])
 })
 
-async function handleSave(provider: Provider) {
-  const key = form[provider].trim()
-  if (!key) {
-    toast.add({
-      title: t('settings.missingKeyTitle'),
-      description: t('settings.missingKeyDescription', { provider: providerLabel(provider) }),
-      color: 'warning'
-    })
-    return
-  }
+onUnmounted(() => {
+  devicePollToken += 1
+})
 
-  savingProvider[provider] = true
-  try {
-    await saveKey(provider, key)
-    form[provider] = ''
-    models.value = []
-    await refreshStatus()
-    toast.add({
-      title: t('settings.keySavedTitle', { provider: providerLabel(provider) }),
-      description: t('settings.keySavedDescription'),
-      color: 'primary'
-    })
-  } catch (err) {
-    toast.add({
-      title: t('settings.keySaveFailed', { provider: providerLabel(provider) }),
-      description: tt(err),
-      color: 'error'
-    })
-  } finally {
-    savingProvider[provider] = false
-  }
-}
+async function handleSaveProvider(provider: ProviderCatalogItem) {
+  const form = providerForm(provider)
+  const profile = selectedProfile(provider)
+  if (!profile) return
 
-async function handleDelete(provider: Provider) {
-  deletingProvider[provider] = true
-  try {
-    await deleteKey(provider)
-    models.value = []
-    await refreshStatus()
-    toast.add({
-      title: t('settings.keyRemovedTitle', { provider: providerLabel(provider) }),
-      color: 'neutral'
-    })
-  } catch (err) {
-    toast.add({
-      title: t('settings.keyRemoveFailed', { provider: providerLabel(provider) }),
-      description: tt(err),
-      color: 'error'
-    })
-  } finally {
-    deletingProvider[provider] = false
-  }
-}
-
-async function handleConnect(provider: Provider, authMethod: ProviderAuthMethod) {
-  connectingProvider[provider] = true
-  try {
-    const response = await startConnection(provider, authMethod)
-    if (response?.mode === 'REDIRECT' && response.authorizationUrl) {
-      window.location.assign(response.authorizationUrl)
-      return
-    }
-    toast.add({
-      title: t('settings.connectionUnavailableTitle'),
-      description: response?.message || t('settings.connectionUnavailableDescription'),
-      color: 'warning'
-    })
-  } catch (err) {
-    toast.add({
-      title: t('settings.connectionStartFailed'),
-      description: tt(err),
-      color: 'error'
-    })
-  } finally {
-    connectingProvider[provider] = false
-  }
-}
-
-async function handleSaveBraveSearch() {
-  const key = braveSearchKey.value.trim()
-  if (!key) {
-    toast.add({
-      title: t('settings.missingKeyTitle'),
-      description: t('settings.missingBraveKeyDescription'),
-      color: 'warning'
-    })
-    return
-  }
-
-  savingBraveSearch.value = true
-  try {
-    await saveKey('BRAVE_SEARCH', key)
-    braveSearchKey.value = ''
-    await refreshStatus()
-    toast.add({
-      title: t('settings.braveSavedTitle'),
-      description: t('settings.keySavedDescription'),
-      color: 'primary'
-    })
-  } catch (err) {
-    toast.add({
-      title: t('settings.braveSaveFailed'),
-      description: tt(err),
-      color: 'error'
-    })
-  } finally {
-    savingBraveSearch.value = false
-  }
-}
-
-async function handleDeleteBraveSearch() {
-  deletingBraveSearch.value = true
-  try {
-    await deleteKey('BRAVE_SEARCH')
-    await refreshStatus()
-    toast.add({
-      title: t('settings.braveRemovedTitle'),
-      color: 'neutral'
-    })
-  } catch (err) {
-    toast.add({
-      title: t('settings.braveRemoveFailed'),
-      description: tt(err),
-      color: 'error'
-    })
-  } finally {
-    deletingBraveSearch.value = false
-  }
-}
-
-async function handleSaveExtraProvider(provider: ProviderCatalogItem) {
-  const form = extraForm(provider.id)
-  const method = extraProviderMethod(provider)
   const apiKey = form.apiKey.trim()
   const baseUrl = form.baseUrl.trim()
   const modelId = form.modelId.trim()
-  if (needsEndpoint(provider) && !baseUrl) {
-    toast.add({
-      title: t('settings.missingEndpointTitle'),
-      description: t('settings.missingEndpointDescription'),
-      color: 'warning'
-    })
-    return
-  }
-  if (method === 'API_KEY' && !apiKey) {
+  if (profile.requiresApiKey && !apiKey) {
     toast.add({
       title: t('settings.missingKeyTitle'),
       description: t('settings.missingKeyDescription', { provider: provider.label }),
@@ -461,7 +306,15 @@ async function handleSaveExtraProvider(provider: ProviderCatalogItem) {
     })
     return
   }
-  if (!modelId) {
+  if (needsEndpointOverride(profile) && !baseUrl) {
+    toast.add({
+      title: t('settings.missingEndpointTitle'),
+      description: t('settings.missingEndpointDescription'),
+      color: 'warning'
+    })
+    return
+  }
+  if (profile.requiresModelId && !modelId) {
     toast.add({
       title: t('settings.missingModelIdTitle'),
       description: t('settings.missingModelIdDescription'),
@@ -473,15 +326,16 @@ async function handleSaveExtraProvider(provider: ProviderCatalogItem) {
   form.saving = true
   try {
     const payload: SaveProviderCredentialInput = {
-      authMethod: method,
+      connectionProfileId: profile.id,
+      authMethod: profile.authMethod,
       apiKey: apiKey || undefined,
       baseUrl: baseUrl || undefined,
-      defaultModelId: modelId,
-      displayName: provider.label
+      defaultModelId: modelId || undefined,
+      displayName: `${provider.label} (${profile.label})`
     }
     await saveProviderCredential(provider.id, payload)
     form.apiKey = ''
-    form.modelId = ''
+    models.value = []
     await refreshStatus()
     toast.add({
       title: t('settings.connectionSavedTitle', { provider: provider.label }),
@@ -497,6 +351,150 @@ async function handleSaveExtraProvider(provider: ProviderCatalogItem) {
   } finally {
     form.saving = false
   }
+}
+
+async function handleStartConnection(provider: ProviderCatalogItem) {
+  const form = providerForm(provider)
+  const profile = selectedProfile(provider)
+  if (!profile) return
+  form.connecting = true
+  try {
+    const response = await startConnection(provider.id, profile.authMethod, profile.id)
+    if (response?.mode === 'REDIRECT' && response.authorizationUrl) {
+      window.location.assign(response.authorizationUrl)
+      return
+    }
+    if (
+      response?.mode === 'DEVICE_CODE' &&
+      response.deviceCode &&
+      response.userCode &&
+      response.verificationUri
+    ) {
+      devicePollToken += 1
+      const token = devicePollToken
+      deviceFlow.value = {
+        providerId: provider.id,
+        providerLabel: provider.label,
+        connectionProfileId: response.connectionProfileId ?? profile.id,
+        deviceCode: response.deviceCode,
+        userCode: response.userCode,
+        verificationUri: response.verificationUri,
+        verificationUriComplete: response.verificationUriComplete,
+        expiresAt: response.expiresAt,
+        intervalSeconds: response.intervalSeconds ?? 5,
+        message: response.message,
+        polling: true
+      }
+      pollDeviceConnection(token)
+      return
+    }
+    toast.add({
+      title: t('settings.connectionUnavailableTitle'),
+      description: response?.message || t('settings.connectionUnavailableDescription'),
+      color: 'warning'
+    })
+  } catch (err) {
+    toast.add({
+      title: t('settings.connectionStartFailed'),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    form.connecting = false
+  }
+}
+
+async function pollDeviceConnection(token: number) {
+  while (deviceFlow.value && token === devicePollToken) {
+    const current = deviceFlow.value
+    await new Promise(resolve => setTimeout(resolve, Math.max(5, current.intervalSeconds) * 1000))
+    if (!deviceFlow.value || token !== devicePollToken) return
+    try {
+      const response = await completeDeviceConnection(
+        current.providerId,
+        current.deviceCode,
+        current.connectionProfileId
+      )
+      if (response?.mode === 'READY') {
+        deviceFlow.value = null
+        models.value = []
+        await refreshStatus()
+        toast.add({
+          title: t('settings.deviceConnectedTitle', { provider: current.providerLabel }),
+          description: t('settings.keySavedDescription'),
+          color: 'primary'
+        })
+        return
+      }
+      if (response?.mode === 'PENDING') {
+        deviceFlow.value = {
+          ...current,
+          intervalSeconds: response.intervalSeconds ?? current.intervalSeconds,
+          expiresAt: response.expiresAt ?? current.expiresAt,
+          message: response.message,
+          polling: true
+        }
+        continue
+      }
+      deviceFlow.value = { ...current, message: response?.message, polling: false }
+      toast.add({
+        title: t('settings.connectionUnavailableTitle'),
+        description: response?.message || t('settings.connectionUnavailableDescription'),
+        color: 'warning'
+      })
+      return
+    } catch (err) {
+      deviceFlow.value = { ...current, polling: false }
+      toast.add({
+        title: t('settings.connectionStartFailed'),
+        description: tt(err),
+        color: 'error'
+      })
+      return
+    }
+  }
+}
+
+const closeDeviceFlow = () => {
+  devicePollToken += 1
+  deviceFlow.value = null
+}
+
+const deviceFlowOpen = computed({
+  get: () => Boolean(deviceFlow.value),
+  set: (open: boolean) => {
+    if (!open) closeDeviceFlow()
+  }
+})
+
+async function handleDeleteConnection(provider: ProviderCatalogItem, connection: ProviderConnectionSummary) {
+  const form = providerForm(provider)
+  form.deletingConnectionId = connection.id
+  try {
+    await deleteConnection(connection.id)
+    if (connection.defaultModelId && form.modelId === connection.defaultModelId) {
+      form.modelId = ''
+    }
+    models.value = []
+    await refreshStatus()
+    toast.add({
+      title: t('settings.keyRemovedTitle', { provider: provider.label }),
+      color: 'neutral'
+    })
+  } catch (err) {
+    toast.add({
+      title: t('settings.keyRemoveFailed', { provider: provider.label }),
+      description: tt(err),
+      color: 'error'
+    })
+  } finally {
+    form.deletingConnectionId = null
+  }
+}
+
+const openProviderDocs = (profile: ProviderConnectionProfile) => {
+  if (!profile.docsUrl) return
+  window.open(profile.docsUrl, '_blank', 'noopener,noreferrer')
 }
 
 const showDeleteAccountModal = ref(false)
@@ -579,7 +577,7 @@ async function handleDeleteAccount() {
           </p>
         </header>
 
-        <div v-if="!hydrated" class="space-y-4">
+        <div v-if="!settingsPageReady" class="space-y-4">
           <div class="skeleton-shimmer h-14"/>
           <div class="skeleton-shimmer h-14"/>
           <div class="skeleton-shimmer h-14"/>
@@ -600,325 +598,319 @@ async function handleDeleteAccount() {
           <div class="space-y-8 mt-8">
             <template v-if="activeTab === 'connections'">
               <UCard class="card-elevated">
-            <div class="flex items-start justify-between gap-4 mb-8 flex-wrap">
-              <div class="space-y-1">
-                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.modelKeysHeading') }}</h2>
-                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-xl">
-                  {{ t('settings.modelKeysDescription') }}
-                </p>
-              </div>
-              <UButton
-                  to="/models"
-                  color="neutral"
-                  variant="outline"
-                  size="sm"
-                  icon="i-heroicons-cpu-chip"
-                  :label="t('settings.browseModels')"
-              />
-            </div>
-
-            <div class="grid grid-cols-1 gap-6 stagger-children">
-              <UCard v-for="item in providerCards" :key="item.provider" class="flex flex-col card-elevated">
-                <div class="flex flex-col gap-5 h-full">
-                  <div class="flex items-center justify-between gap-3 flex-wrap">
-                    <div class="flex items-center gap-2">
-                      <span class="status-dot" :class="statusByProvider(item.provider) ? 'status-dot-active' : 'status-dot-inactive'" />
-                      <div class="text-base font-semibold">{{ t(item.titleKey) }}</div>
-                    </div>
-                    <UBadge
-                        variant="soft"
-                        :color="statusByProvider(item.provider) ? 'primary' : 'neutral'"
-                        :label="statusByProvider(item.provider) ? t('settings.stored') : t('settings.notStored')"
-                    />
+                <div class="flex items-start justify-between gap-4 mb-8 flex-wrap">
+                  <div class="space-y-1">
+                    <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">
+                      {{ t('settings.ourProvidersHeading') }}
+                    </h2>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 max-w-2xl">
+                      {{ t('settings.ourProvidersDescription') }}
+                    </p>
                   </div>
-
-                  <UFormField
-                      :label="t(item.labelKey)"
-                      :description="t(item.descriptionKey)"
-                      :name="item.provider.toLowerCase()"
-                  >
-                    <UInput
-                        v-model="form[item.provider]"
-                        :type="reveal[item.provider] ? 'text' : 'password'"
-                        :placeholder="item.placeholder"
-                        icon="i-heroicons-lock-closed"
-                        autocomplete="off"
-                        class="w-full"
-                    />
-                  </UFormField>
-
                   <div class="flex items-center gap-2 flex-wrap">
                     <UBadge
-                      v-for="method in providerAuthMethods(item.provider)"
-                      :key="`${item.provider}-${method}`"
-                      variant="soft"
                       color="neutral"
-                      :label="authMethodLabel(method)"
+                      variant="soft"
+                      :label="t('settings.providersCount', { count: providerCatalog.length })"
+                    />
+                    <UButton
+                      to="/models"
+                      color="neutral"
+                      variant="outline"
+                      size="sm"
+                      icon="i-heroicons-cpu-chip"
+                      :label="t('settings.browseModels')"
                     />
                   </div>
+                </div>
 
-                  <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
-                    <div class="flex items-center justify-between gap-3 flex-wrap">
-                      <div class="flex items-center gap-3 flex-wrap">
+                <div v-if="loadingStatus" class="space-y-3">
+                  <div class="skeleton-shimmer h-20" />
+                  <div class="skeleton-shimmer h-20" />
+                  <div class="skeleton-shimmer h-20" />
+                </div>
+
+                <div
+                  v-else
+                  class="divide-y divide-gray-200 dark:divide-gray-800 rounded-md border border-gray-200 dark:border-gray-800"
+                >
+                  <div
+                    v-for="provider in providerCatalog"
+                    :key="provider.id"
+                    class="grid grid-cols-1 gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)] lg:items-start"
+                  >
+                    <div class="min-w-0 space-y-3">
+                      <div class="flex items-start justify-between gap-3 flex-wrap">
+                        <div class="min-w-0 space-y-1">
+                          <div class="flex items-center gap-2 flex-wrap">
+                            <span
+                              class="status-dot"
+                              :class="providerReady(provider) ? 'status-dot-active' : 'status-dot-inactive'"
+                            />
+                            <span class="font-semibold text-gray-900 dark:text-gray-50">
+                              {{ provider.label }}
+                            </span>
+                            <UBadge
+                              v-if="provider.experimental"
+                              color="warning"
+                              variant="soft"
+                              :label="t('settings.experimental')"
+                            />
+                            <UBadge
+                              v-if="provider.localOnly"
+                              color="neutral"
+                              variant="soft"
+                              :label="t('settings.localOnly')"
+                            />
+                            <UBadge
+                              :color="statusColor(provider.status)"
+                              variant="soft"
+                              :label="statusLabel(provider.status)"
+                            />
+                          </div>
+                          <p class="text-xs text-gray-500 dark:text-gray-400">
+                            {{ provider.category }} · {{ provider.execution }}
+                          </p>
+                        </div>
+                        <UBadge
+                          variant="soft"
+                          :color="providerReady(provider) ? 'primary' : 'neutral'"
+                          :label="providerReady(provider) ? t('settings.stored') : t('settings.notStored')"
+                        />
+                      </div>
+
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <UBadge
+                          v-for="profile in provider.connectionProfiles"
+                          :key="`${provider.id}-${profile.id}`"
+                          :color="profileStatusColor(provider, profile)"
+                          variant="soft"
+                          :label="profile.label"
+                        />
+                      </div>
+
+                      <div
+                        v-if="provider.connections.length"
+                        class="flex items-center gap-2 flex-wrap text-xs text-gray-500 dark:text-gray-400"
+                      >
+                        <span>{{ t('settings.activeConnections') }}</span>
+                        <UBadge
+                          v-for="connection in provider.connections"
+                          :key="connection.id"
+                          color="primary"
+                          variant="soft"
+                          :label="connection.defaultModelId || connection.displayName || authMethodLabel(connection.authMethod)"
+                        />
+                      </div>
+                    </div>
+
+                    <div class="space-y-3">
+                      <UFormField
+                        :label="t('settings.connectionProfileLabel')"
+                        :name="`${provider.id}-profile`"
+                      >
+                        <USelect
+                          :model-value="providerForm(provider).selectedProfileId"
+                          :items="profileItems(provider)"
+                          value-key="value"
+                          label-key="label"
+                          icon="i-heroicons-adjustments-horizontal"
+                          class="w-full"
+                          :aria-label="t('settings.connectionProfileAria', { provider: provider.label })"
+                          @update:model-value="value => handleProfileChange(provider, String(value))"
+                        />
+                      </UFormField>
+
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <UBadge
+                          color="neutral"
+                          variant="soft"
+                          :label="authMethodLabel(selectedProfile(provider)?.authMethod ?? 'API_KEY')"
+                        />
+                        <UBadge
+                          :color="profileStatusColor(provider, selectedProfile(provider)!)"
+                          variant="soft"
+                          :label="connectionStatusLabel(provider, selectedProfile(provider)!)"
+                        />
+                      </div>
+
+                      <UFormField
+                        v-if="selectedProfile(provider)?.requiresModelId"
+                        :label="t('settings.gatewayModelIdLabel')"
+                        :name="`${provider.id}-model`"
+                      >
+                        <UInput
+                          v-model="providerForm(provider).modelId"
+                          :placeholder="t('settings.gatewayModelIdPlaceholder')"
+                          icon="i-heroicons-cpu-chip"
+                          autocomplete="off"
+                          class="w-full"
+                        />
+                      </UFormField>
+
+                      <UFormField
+                        v-if="selectedProfile(provider)?.requiresApiKey"
+                        :label="t('settings.gatewayApiKeyLabel')"
+                        :description="t('settings.providerApiKeyDescription')"
+                        :name="`${provider.id}-api-key`"
+                      >
+                        <UInput
+                          v-model="providerForm(provider).apiKey"
+                          :type="providerForm(provider).reveal ? 'text' : 'password'"
+                          :placeholder="t('settings.gatewayApiKeyPlaceholder')"
+                          icon="i-heroicons-lock-closed"
+                          autocomplete="off"
+                          class="w-full"
+                        />
+                      </UFormField>
+
+                      <div v-if="needsEndpointOverride(selectedProfile(provider))" class="space-y-2">
                         <UButton
+                          type="button"
+                          variant="ghost"
+                          color="neutral"
+                          size="sm"
+                          icon="i-heroicons-link"
+                          :label="providerForm(provider).advanced ? t('settings.hideEndpointOverride') : t('settings.showEndpointOverride')"
+                          @click="providerForm(provider).advanced = !providerForm(provider).advanced"
+                        />
+                        <UFormField
+                          v-if="providerForm(provider).advanced"
+                          :label="t('settings.endpointUrlLabel')"
+                          :description="t('settings.endpointOverrideDescription')"
+                          :name="`${provider.id}-endpoint`"
+                        >
+                          <UInput
+                            v-model="providerForm(provider).baseUrl"
+                            :placeholder="selectedProfile(provider)?.defaultBaseUrl || 'https://api.provider.com/v1'"
+                            icon="i-heroicons-link"
+                            autocomplete="off"
+                            class="w-full"
+                          />
+                        </UFormField>
+                      </div>
+
+                      <p
+                        v-if="!isProfileConfigurable(selectedProfile(provider)) && !selectedProfile(provider)?.oauthEnabled"
+                        class="text-xs text-gray-500 dark:text-gray-400"
+                      >
+                        {{ t('settings.profileNotConfigurable') }}
+                      </p>
+
+                      <div class="flex items-center justify-between gap-3 flex-wrap pt-2">
+                        <div class="flex items-center gap-2 flex-wrap">
+                          <UButton
+                            v-if="selectedProfile(provider)?.requiresApiKey"
                             type="button"
                             variant="ghost"
                             color="neutral"
                             size="sm"
-                            :icon="reveal[item.provider] ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
-                            :label="reveal[item.provider] ? t('common.hide') : t('common.show')"
-                            @click="reveal[item.provider] = !reveal[item.provider]"
-                        />
-                        <UButton
+                            :icon="providerForm(provider).reveal ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
+                            :label="providerForm(provider).reveal ? t('common.hide') : t('common.show')"
+                            @click="providerForm(provider).reveal = !providerForm(provider).reveal"
+                          />
+                          <UButton
+                            v-if="isProfileConfigurable(selectedProfile(provider))"
                             type="button"
                             color="primary"
                             size="sm"
                             icon="i-heroicons-check-circle"
-                            :label="t('settings.saveKey')"
+                            :label="t('settings.saveConnection')"
                             class="btn-interactive"
-                            :loading="savingProvider[item.provider]"
-                            :disabled="!keyPresent(item.provider) || isProviderBusy(item.provider)"
-                            @click="handleSave(item.provider)"
-                        />
-                        <UButton
-                            v-if="item.provider === 'OPENROUTER'"
+                            :loading="providerForm(provider).saving"
+                            :disabled="saveDisabled(provider)"
+                            @click="handleSaveProvider(provider)"
+                          />
+                          <UButton
+                            v-if="selectedProfile(provider)?.oauthEnabled"
                             type="button"
                             variant="outline"
                             color="neutral"
                             size="sm"
                             icon="i-heroicons-link"
-                            :label="t('settings.connectProvider')"
-                            :loading="connectingProvider[item.provider]"
-                            :disabled="isProviderBusy(item.provider)"
-                            @click="handleConnect(item.provider, 'OAUTH_PKCE')"
-                        />
-                        <UButton
-                            v-if="item.provider === 'GOOGLE'"
+                            :label="connectLabel(selectedProfile(provider))"
+                            :loading="providerForm(provider).connecting"
+                            :disabled="providerForm(provider).saving || Boolean(providerForm(provider).deletingConnectionId)"
+                            @click="handleStartConnection(provider)"
+                          />
+                          <UButton
+                            v-if="selectedProfile(provider)?.docsUrl"
                             type="button"
-                            variant="outline"
+                            variant="ghost"
                             color="neutral"
                             size="sm"
-                            icon="i-heroicons-link"
-                            :label="t('settings.connectProvider')"
-                            :loading="connectingProvider[item.provider]"
-                            :disabled="isProviderBusy(item.provider)"
-                            @click="handleConnect(item.provider, 'OAUTH_AUTH_CODE')"
-                        />
-                      </div>
-                      <UButton
+                            icon="i-heroicons-book-open"
+                            :label="t('settings.providerDocs')"
+                            @click="openProviderDocs(selectedProfile(provider)!)"
+                          />
+                        </div>
+                        <UButton
+                          v-if="connectionForProfile(provider, selectedProfile(provider))"
                           type="button"
                           variant="outline"
                           color="error"
                           size="sm"
                           icon="i-heroicons-trash"
                           :label="t('common.remove')"
-                          :loading="deletingProvider[item.provider]"
-                          :disabled="isProviderBusy(item.provider)"
-                          @click="handleDelete(item.provider)"
-                      />
+                          :loading="providerForm(provider).deletingConnectionId === connectionForProfile(provider, selectedProfile(provider))?.id"
+                          :disabled="providerForm(provider).saving || providerForm(provider).connecting"
+                          @click="handleDeleteConnection(provider, connectionForProfile(provider, selectedProfile(provider))!)"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
               </UCard>
-            </div>
-          </UCard>
 
-          <UCard class="card-elevated">
-            <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
-              <div class="space-y-1">
-                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.openClawCatalogHeading') }}</h2>
-                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-xl">
-                  {{ t('settings.openClawCatalogDescription') }}
-                </p>
-              </div>
-              <UBadge
-                color="neutral"
-                variant="soft"
-                :label="t('settings.providersCount', { count: providerCatalog.length })"
-              />
-            </div>
-
-            <div v-if="loadingStatus" class="space-y-3">
-              <div class="skeleton-shimmer h-12" />
-              <div class="skeleton-shimmer h-12" />
-              <div class="skeleton-shimmer h-12" />
-            </div>
-            <div v-else class="max-h-[32rem] overflow-y-auto divide-y divide-gray-200 dark:divide-gray-800 rounded-md border border-gray-200 dark:border-gray-800">
-              <div
-                v-for="provider in extraProviderCatalog"
-                :key="provider.id"
-                class="grid grid-cols-1 gap-3 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,28rem)] lg:items-start"
+              <UModal
+                v-if="deviceFlow"
+                v-model:open="deviceFlowOpen"
+                :title="t('settings.deviceFlowTitle', { provider: deviceFlow.providerLabel })"
+                :description="t('settings.deviceFlowDescription')"
+                :ui="{ width: 'max-w-md' }"
               >
-                <div class="min-w-0 space-y-2">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-medium text-gray-900 dark:text-gray-50">{{ provider.label }}</span>
-                    <UBadge
-                      v-if="provider.experimental"
-                      color="warning"
-                      variant="soft"
-                      :label="t('settings.experimental')"
-                    />
-                    <UBadge
-                      v-if="provider.localOnly"
-                      color="neutral"
-                      variant="soft"
-                      :label="t('settings.localOnly')"
-                    />
-                    <UBadge
-                      :color="statusColor(provider.status)"
-                      variant="soft"
-                      :label="statusLabel(provider.status)"
-                    />
-                  </div>
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <UBadge
-                      v-for="method in provider.authMethods"
-                      :key="`${provider.id}-${method}`"
-                      color="neutral"
-                      variant="soft"
-                      :label="authMethodLabel(method)"
-                    />
-                  </div>
-                </div>
+                <template #body>
+                  <div class="space-y-5">
+                    <div class="rounded-md border border-gray-200 dark:border-gray-800 px-4 py-3">
+                      <div class="text-xs uppercase text-gray-500 dark:text-gray-400">
+                        {{ t('settings.deviceUserCodeLabel') }}
+                      </div>
+                      <div class="mt-1 font-mono text-2xl tracking-widest text-gray-900 dark:text-gray-50">
+                        {{ deviceFlow.userCode }}
+                      </div>
+                    </div>
 
-                <div v-if="canConfigureExtraProvider(provider)" class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                  <div class="grid grid-cols-1 gap-2">
-                    <UInput
-                      v-if="needsEndpoint(provider)"
-                      v-model="extraForm(provider.id).baseUrl"
-                      :placeholder="provider.localOnly ? 'http://127.0.0.1:1234/v1' : 'https://api.provider.com/v1'"
-                      icon="i-heroicons-link"
-                      autocomplete="off"
-                      class="w-full"
-                      :aria-label="t('settings.endpointUrlLabel')"
+                    <UButton
+                      :to="deviceFlow.verificationUriComplete || deviceFlow.verificationUri"
+                      target="_blank"
+                      color="primary"
+                      icon="i-heroicons-arrow-top-right-on-square"
+                      :label="t('settings.deviceVerificationLink')"
+                      block
                     />
-                    <UInput
-                      v-model="extraForm(provider.id).modelId"
-                      :placeholder="t('settings.gatewayModelIdPlaceholder')"
-                      icon="i-heroicons-cpu-chip"
-                      autocomplete="off"
-                      class="w-full"
-                      :aria-label="t('settings.gatewayModelIdLabel')"
-                    />
-                    <UInput
-                      v-model="extraForm(provider.id).apiKey"
-                      :type="extraForm(provider.id).reveal ? 'text' : 'password'"
-                      :placeholder="t('settings.gatewayApiKeyPlaceholder')"
-                      icon="i-heroicons-lock-closed"
-                      autocomplete="off"
-                      class="w-full"
-                      :aria-label="t('settings.gatewayApiKeyLabel')"
+
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ deviceFlow.message || t('settings.devicePolling') }}
+                    </p>
+                    <UBadge
+                      :color="deviceFlow.polling ? 'primary' : 'neutral'"
+                      variant="soft"
+                      :label="deviceFlow.polling ? t('settings.devicePollingBadge') : t('settings.devicePausedBadge')"
                     />
                   </div>
-                  <div class="flex items-center gap-2 sm:flex-col sm:items-stretch">
+                </template>
+                <template #footer>
+                  <div class="flex justify-end">
                     <UButton
                       type="button"
                       variant="ghost"
                       color="neutral"
-                      size="sm"
-                      :icon="extraForm(provider.id).reveal ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
-                      :label="extraForm(provider.id).reveal ? t('common.hide') : t('common.show')"
-                      @click="extraForm(provider.id).reveal = !extraForm(provider.id).reveal"
-                    />
-                    <UButton
-                      type="button"
-                      color="primary"
-                      size="sm"
-                      icon="i-heroicons-check-circle"
-                      :label="t('settings.saveConnection')"
-                      :loading="extraForm(provider.id).saving"
-                      :disabled="extraForm(provider.id).saving"
-                      @click="handleSaveExtraProvider(provider)"
+                      :label="t('common.cancel')"
+                      @click="closeDeviceFlow"
                     />
                   </div>
-                </div>
-              </div>
-            </div>
-          </UCard>
-
-
-          <UCard class="card-elevated">
-            <div class="flex items-start justify-between gap-4 mb-8 flex-wrap">
-              <div class="space-y-1">
-                <h2 class="font-serif-display text-2xl text-gray-900 dark:text-gray-50">{{ t('settings.webSearchHeading') }}</h2>
-                <p class="text-sm text-gray-500 dark:text-gray-400 max-w-xl">
-                  {{ t('settings.webSearchDescription') }}
-                </p>
-              </div>
-              <UBadge
-                  color="primary"
-                  variant="soft"
-                  :label="braveSearchStatus ? t('settings.braveStatusKeySet') : t('settings.braveStatusKeyMissing')"
-              />
-            </div>
-
-            <div class="flex flex-col gap-5">
-              <div class="flex items-center justify-between gap-3 flex-wrap">
-                <div class="flex items-center gap-2">
-                  <span class="status-dot" :class="braveSearchStatus ? 'status-dot-active' : 'status-dot-inactive'" />
-                  <div class="text-base font-semibold">{{ t('settings.braveTitle') }}</div>
-                </div>
-                <UBadge
-                    variant="soft"
-                    :color="braveSearchStatus ? 'primary' : 'neutral'"
-                    :label="braveSearchStatus ? t('settings.stored') : t('settings.notStored')"
-                />
-              </div>
-
-              <UFormField
-                  :label="t('settings.braveLabel')"
-                  :description="t('settings.braveDescription')"
-                  name="brave_search"
-              >
-                <UInput
-                    v-model="braveSearchKey"
-                    :type="braveSearchReveal ? 'text' : 'password'"
-                    placeholder="BSA..."
-                    icon="i-heroicons-lock-closed"
-                    autocomplete="off"
-                    class="w-full"
-                />
-              </UFormField>
-
-              <div class="pt-4 border-t border-gray-200 dark:border-gray-800">
-                <div class="flex items-center justify-between gap-3 flex-wrap">
-                  <div class="flex items-center gap-3 flex-wrap">
-                    <UButton
-                        type="button"
-                        variant="ghost"
-                        color="neutral"
-                        size="sm"
-                        :icon="braveSearchReveal ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'"
-                        :label="braveSearchReveal ? t('common.hide') : t('common.show')"
-                        @click="braveSearchReveal = !braveSearchReveal"
-                    />
-                    <UButton
-                        type="button"
-                        color="primary"
-                        size="sm"
-                        icon="i-heroicons-check-circle"
-                        :label="t('settings.saveKey')"
-                        class="btn-interactive"
-                        :loading="savingBraveSearch"
-                        :disabled="!braveSearchKey.trim() || savingBraveSearch || deletingBraveSearch"
-                        @click="handleSaveBraveSearch"
-                    />
-                  </div>
-                  <UButton
-                      type="button"
-                      variant="outline"
-                      color="error"
-                      size="sm"
-                      icon="i-heroicons-trash"
-                      :label="t('common.remove')"
-                      :loading="deletingBraveSearch"
-                      :disabled="savingBraveSearch || deletingBraveSearch"
-                      @click="handleDeleteBraveSearch"
-                  />
-                </div>
-              </div>
-            </div>
-          </UCard>
+                </template>
+              </UModal>
             </template>
 
             <template v-if="activeTab === 'interface'">

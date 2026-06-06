@@ -53,11 +53,19 @@ Public/authenticated application paths:
   selected provider in Settings via API key, OAuth, device flow, local endpoint,
   or the provider-supported method that is enabled in the catalog. Missing
   connections return `API_KEY_REQUIRED`.
+- Settings shows these connections in one unified **Our providers / Unsere
+  Anbieter** area. `ProviderCatalogService` is the backend source of truth for
+  provider names, connection profiles, default endpoint URLs, OAuth/device-code
+  capability, and docs links. Do not add a second UI catalog for new providers.
 - Google Provider OAuth is separate from Google login OAuth. Configure
   `GOOGLE_PROVIDER_OAUTH_CLIENT_ID` and `GOOGLE_PROVIDER_OAUTH_CLIENT_SECRET`
   when they differ from `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`; set
   `GOOGLE_PROVIDER_OAUTH_USER_PROJECT` to the billed Google Cloud project used
   for `x-goog-user-project`.
+- GitHub Copilot provider OAuth uses the official GitHub device-code flow.
+  Configure `GITHUB_COPILOT_OAUTH_CLIENT_ID` only after registering a GitHub
+  OAuth app with device flow enabled. `GITHUB_COPILOT_OAUTH_SCOPES` defaults to
+  `read:user`; add only scopes that the Copilot integration actually needs.
 - `/settings`, `/usage`, `/compare`, `/api/chats/import`, account endpoints,
   provider connection endpoints, usage endpoints, and authenticated chat
   endpoints require a valid session.
@@ -94,9 +102,36 @@ Provider execution:
 - Native providers use the Vercel AI SDK provider packages. Catalog providers
   with OpenAI-compatible or local endpoint credentials execute through the AI
   SDK OpenAI-compatible adapter.
-- OpenRouter PKCE and Google provider OAuth are enabled for model credentials.
-  Other provider-specific OAuth/device flows are cataloged but still require
-  explicit implementation before use.
+- OpenRouter PKCE, Google provider OAuth, and GitHub Copilot device code are
+  the enabled provider OAuth/device flows. OpenAI, Anthropic, Qwen, and MiniMax
+  deliberately do not show OAuth buttons because there is no supported
+  reusable third-party user-OAuth API flow for this product.
+- Qwen portal and MiniMax portal are profile options under their base provider,
+  not separate visible providers. They remain documented/experimental until a
+  supported implementation exists.
+- Existing API-key payloads still work and map to the default `api-key` profile.
+  New provider connections are unique by `(user_id, provider_id,
+  connection_profile_id)`.
+
+Provider profile defaults:
+
+- Native API-key providers without manual endpoint fields: OpenAI,
+  Anthropic Claude, Google Gemini, OpenRouter, and Brave Search.
+- OpenAI-compatible gateway defaults:
+  OpenRouter `https://openrouter.ai/api/v1`, Qwen API
+  `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`, Qwen Coding Plan
+  `https://coding-intl.dashscope.aliyuncs.com/v1`, MiniMax
+  `https://api.minimax.io/v1`, Z.AI API `https://api.z.ai/api/paas/v4`,
+  Z.AI Coding Plan `https://api.z.ai/api/coding/paas/v4`, Mistral
+  `https://api.mistral.ai/v1`, DeepSeek `https://api.deepseek.com`, Groq
+  `https://api.groq.com/openai/v1`, xAI `https://api.x.ai/v1`, Perplexity
+  `https://api.perplexity.ai`, and Together `https://api.together.ai/v1`.
+- Local defaults: Ollama `http://localhost:11434/v1`, LM Studio
+  `http://localhost:1234/v1`, llama.cpp `http://localhost:8080/v1`, and vLLM
+  `http://localhost:8000/v1`.
+- Endpoint defaults are prefilled by the backend when the user leaves the field
+  blank, but the Settings UI keeps an advanced override for provider-specific
+  plans and temporary gateway/proxy corrections.
 
 ## Repo-Owned Infra
 
@@ -230,7 +265,14 @@ configuration includes:
 ```text
 https://germinai.de/login/oauth2/code/google
 https://germinai.de/provider-connections/google/callback
+https://germinai.de/provider-connections/openrouter/callback
 ```
+
+The first URL is for app login. The `/provider-connections/google/callback`
+URL is for Google as a model provider. OpenRouter PKCE passes its callback URL
+at connection-start time, but keep the direct callback route routed through
+Caddy because existing provider configurations and browser redirects may still
+use it. GitHub Copilot uses device code and does not require an HTTP callback.
 
 ## Hono Production Startup Pitfalls
 

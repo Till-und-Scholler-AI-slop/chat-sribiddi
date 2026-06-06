@@ -32,7 +32,8 @@ export function useUserSettings() {
   const hydrated = useState<boolean>('user-settings-hydrated', () => false)
   const watcherStarted = useState<boolean>('user-settings-watcher-started', () => false)
 
-  if (import.meta.client && !hydrated.value) {
+  const hydrateFromStorage = () => {
+    if (hydrated.value) return
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
@@ -59,7 +60,8 @@ export function useUserSettings() {
     }
   }
 
-  if (import.meta.client && !watcherStarted.value) {
+  const startStorageWatcher = () => {
+    if (watcherStarted.value) return
     watcherStarted.value = true
     watch(
       state,
@@ -68,6 +70,18 @@ export function useUserSettings() {
       },
       { deep: true }
     )
+  }
+
+  if (import.meta.client) {
+    const initializeSettings = () => {
+      hydrateFromStorage()
+      startStorageWatcher()
+    }
+    if (getCurrentInstance()) {
+      onMounted(initializeSettings)
+    } else {
+      initializeSettings()
+    }
   }
 
   return {

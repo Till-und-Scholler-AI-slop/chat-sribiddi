@@ -25,13 +25,20 @@ const apiKeyPayloadSchema = z.object({
   queryParams: z.record(z.string(), z.string()).nullable().optional(),
   defaultModelId: z.string().max(255).nullable().optional(),
   displayName: z.string().max(255).nullable().optional(),
+  connectionProfileId: z.string().max(80).nullable().optional(),
 });
 
 const connectPayloadSchema = z
   .object({
     authMethod: authMethodSchema.nullable().optional(),
+    connectionProfileId: z.string().max(80).nullable().optional(),
   })
   .partial();
+
+const deviceCodePayloadSchema = z.object({
+  deviceCode: z.string().max(4096),
+  connectionProfileId: z.string().max(80).nullable().optional(),
+});
 
 export function providerConnectionRoutes(appContext: AppContext) {
   const app = new OpenAPIHono<{ Variables: AppVariables }>();
@@ -67,11 +74,24 @@ export function providerConnectionRoutes(appContext: AppContext) {
       env.APP_FRONTEND_URL,
     ).toString();
     return c.json(
-      appContext.services.providerConnections.startConnection(
+      await appContext.services.providerConnections.startConnection(
         userId,
         providerId,
         body.authMethod,
+        body.connectionProfileId,
         callbackUri,
+      ),
+    );
+  });
+
+  app.post("/provider-connections/:providerId/device-code", async (c) => {
+    const userId = await currentUserId(c, appContext);
+    const body = await parseJson(c, deviceCodePayloadSchema);
+    return c.json(
+      await appContext.services.providerConnections.completeDeviceConnection(
+        userId,
+        c.req.param("providerId"),
+        body,
       ),
     );
   });

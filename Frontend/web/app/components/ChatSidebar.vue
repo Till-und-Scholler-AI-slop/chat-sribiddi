@@ -34,6 +34,7 @@ const processingChatId = ref<string | null>(null)
 const colorMode = useColorMode()
 const guestImportOpen = ref(false)
 const importingGuestChats = ref(false)
+const sidebarHydrated = ref(false)
 // Delete-confirmation modal state.
 const deleteTarget = ref<{ chatId: string; title: string } | null>(null)
 const deleteModalOpen = computed({
@@ -72,6 +73,7 @@ const maybeOpenGuestImportPrompt = () => {
 }
 
 onMounted(async () => {
+  sidebarHydrated.value = true
   try {
     const auth = await checkAuth()
     if (auth === 'authenticated') {
@@ -364,7 +366,11 @@ const handleGuestImport = async () => {
 
     <!-- Footer -->
     <div class="border-t border-gray-200/60 dark:border-white/[0.06] p-2 space-y-1">
-      <template v-if="isAuthenticated">
+      <template v-if="!sidebarHydrated">
+        <div class="skeleton-shimmer h-9" />
+        <div class="skeleton-shimmer h-9" />
+      </template>
+      <template v-else-if="isAuthenticated">
         <UButton
           variant="ghost"
           icon="i-heroicons-cpu-chip"

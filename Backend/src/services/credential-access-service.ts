@@ -76,9 +76,11 @@ export class CredentialAccessService {
         credentialSource:
           connection.authMethod === "OAUTH_AUTH_CODE" || connection.authMethod === "OAUTH_PKCE"
             ? "USER_OAUTH"
-            : connection.authMethod === "LOCAL_ENDPOINT"
-              ? "USER_LOCAL_ENDPOINT"
-              : "USER_KEY",
+            : connection.authMethod === "DEVICE_CODE"
+              ? "USER_DEVICE_OAUTH"
+              : connection.authMethod === "LOCAL_ENDPOINT"
+                ? "USER_LOCAL_ENDPOINT"
+                : "USER_KEY",
         limits: this.authenticatedLimits(),
         connection,
       };

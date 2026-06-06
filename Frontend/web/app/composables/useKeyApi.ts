@@ -32,6 +32,7 @@ export type ProviderConnectionStatus =
 export type ProviderConnectionSummary = {
   id: number
   providerId: string
+  connectionProfileId: string
   authMethod: ProviderAuthMethod
   status: ProviderConnectionStatus
   displayName?: string | null
@@ -44,6 +45,19 @@ export type ProviderConnectionSummary = {
   defaultModelId?: string | null
 }
 
+export type ProviderConnectionProfile = {
+  id: string
+  label: string
+  authMethod: ProviderAuthMethod
+  defaultBaseUrl?: string | null
+  baseUrlEditable: boolean
+  requiresApiKey: boolean
+  requiresModelId: boolean
+  oauthEnabled: boolean
+  status: ProviderConnectionStatus
+  docsUrl?: string | null
+}
+
 export type ProviderCatalogItem = {
   id: string
   label: string
@@ -54,15 +68,23 @@ export type ProviderCatalogItem = {
   execution: string
   status: ProviderConnectionStatus
   authMethods: ProviderAuthMethod[]
+  connectionProfiles: ProviderConnectionProfile[]
   connections: ProviderConnectionSummary[]
 }
 
 type ConnectStartResponse = {
-  mode: 'REDIRECT' | 'UNAVAILABLE' | string
+  mode: 'REDIRECT' | 'DEVICE_CODE' | 'PENDING' | 'READY' | 'UNAVAILABLE' | string
   authorizationUrl?: string | null
   state?: string | null
   expiresAt?: string | null
   authMethod: ProviderAuthMethod
+  connectionProfileId?: string | null
+  deviceCode?: string | null
+  userCode?: string | null
+  verificationUri?: string | null
+  verificationUriComplete?: string | null
+  intervalSeconds?: number | null
+  connection?: ProviderConnectionSummary | null
   message?: string | null
 }
 
@@ -74,6 +96,7 @@ export type SaveProviderCredentialInput = {
   queryParams?: Record<string, string>
   defaultModelId?: string
   displayName?: string
+  connectionProfileId?: string
 }
 
 const providerId = (provider: Provider | 'BRAVE_SEARCH' | string) => {
@@ -126,13 +149,29 @@ export function useKeyApi() {
   }
 
   const startConnection = async (
-    provider: Provider | 'BRAVE_SEARCH',
-    authMethod: ProviderAuthMethod
+    provider: Provider | 'BRAVE_SEARCH' | string,
+    authMethod: ProviderAuthMethod,
+    connectionProfileId?: string
   ) => {
     return requestJson<ConnectStartResponse>(`/provider-connections/${providerId(provider)}/connect`, {
       method: 'POST',
-      body: JSON.stringify({ authMethod })
+      body: JSON.stringify({ authMethod, connectionProfileId })
     })
+  }
+
+  const completeDeviceConnection = async (
+    provider: Provider | 'BRAVE_SEARCH' | string,
+    deviceCode: string,
+    connectionProfileId?: string
+  ) => {
+    return requestJson<ConnectStartResponse>(`/provider-connections/${providerId(provider)}/device-code`, {
+      method: 'POST',
+      body: JSON.stringify({ deviceCode, connectionProfileId })
+    })
+  }
+
+  const deleteConnection = async (connectionId: number) => {
+    return requestJson<unknown>(`/provider-connections/${connectionId}`, { method: 'DELETE' })
   }
 
   return {
@@ -142,6 +181,8 @@ export function useKeyApi() {
     saveKey,
     saveProviderCredential,
     deleteKey,
-    startConnection
+    startConnection,
+    completeDeviceConnection,
+    deleteConnection
   }
 }

@@ -10,14 +10,20 @@ import {
 import { hasText, legacyToProviderId } from "../utils/strings.js";
 import { toIso } from "../utils/time.js";
 import type { CryptoService } from "./crypto-service.js";
-import type { ProviderAuthMethod, ProviderCatalogService } from "./provider-catalog-service.js";
+import type {
+  ProviderAuthMethod,
+  ProviderCatalogService,
+  ProviderConnectionProfile,
+} from "./provider-catalog-service.js";
 
-const API_KEY_COMPATIBLE_METHODS = ["API_KEY", "OAUTH_PKCE"];
+const API_KEY_COMPATIBLE_METHODS = ["API_KEY", "OAUTH_PKCE", "OPENAI_COMPATIBLE"];
 const TOKEN_REFRESH_SKEW_MS = 2 * 60_000;
+const GITHUB_DEVICE_POLL_SLOW_DOWN_SECONDS = 5;
 
 export type ResolvedProviderConnection = {
   connectionId: number;
   providerId: string;
+  connectionProfileId: string;
   authMethod: string;
   apiKey?: string | null | undefined;
   baseUrl?: string | null | undefined;
@@ -36,9 +42,20 @@ export type ResolvedProviderConnection = {
 type PendingOAuthState = {
   userId: string;
   providerId: string;
+  connectionProfileId: string;
   codeVerifier: string;
   redirectUri: string;
   createdAt: number;
+};
+
+type PendingDeviceState = {
+  userId: string;
+  providerId: string;
+  connectionProfileId: string;
+  authMethod: ProviderAuthMethod;
+  createdAt: number;
+  expiresAt: number;
+  intervalSeconds: number;
 };
 
 type GoogleTokenResponse = {
@@ -49,8 +66,31 @@ type GoogleTokenResponse = {
   token_type?: string;
 };
 
+type GitHubDeviceCodeResponse = {
+  device_code?: string;
+  user_code?: string;
+  verification_uri?: string;
+  verification_uri_complete?: string;
+  expires_in?: number;
+  interval?: number;
+  error?: string;
+  error_description?: string;
+};
+
+type GitHubTokenResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  refresh_token_expires_in?: number;
+  scope?: string;
+  token_type?: string;
+  error?: string;
+  error_description?: string;
+};
+
 export class ProviderConnectionService {
   private readonly oauthStates = new Map<string, PendingOAuthState>();
+  private readonly deviceStates = new Map<string, PendingDeviceState>();
 
   constructor(
     private readonly repository: ProviderConnectionRepository,
@@ -63,6 +103,7 @@ export class ProviderConnectionService {
     return rows.map((row) => ({
       id: row.id,
       providerId: row.provider_id,
+      connectionProfileId: row.connection_profile_id,
       authMethod: row.auth_method,
       status: row.status,
       displayName: row.display_name,
@@ -97,6 +138,7 @@ export class ProviderConnectionService {
         execution: descriptor.execution,
         status: ready ? "READY" : descriptor.defaultStatus,
         authMethods: descriptor.authMethods,
+        connectionProfiles: descriptor.connectionProfiles,
         connections: providerConnections,
       };
     });
@@ -121,22 +163,23 @@ export class ProviderConnectionService {
       queryParams?: Record<string, string> | null | undefined;
       defaultModelId?: string | null | undefined;
       displayName?: string | null | undefined;
+      connectionProfileId?: string | null | undefined;
     },
   ) {
     const provider = this.providerCatalog.find(providerIdRaw);
     if (!provider) throw badRequest(`Unknown provider: ${providerIdRaw}`);
-    const authMethod = credentialAuthMethod(
-      provider.authMethods,
+    const connectionProfile = credentialProfile(
+      provider.connectionProfiles,
+      payload.connectionProfileId,
       payload.authMethod,
       payload.baseUrl,
     );
-    if (!provider.authMethods.includes(authMethod)) {
-      throw badRequest(`Auth method ${authMethod} is not supported for provider ${provider.id}`);
-    }
+    const authMethod = connectionProfile.authMethod;
 
     const secret: ProviderConnectionSecret = {};
     if (hasText(payload.apiKey)) secret.apiKey = payload.apiKey.trim();
-    if (hasText(payload.baseUrl)) secret.baseUrl = normalizeEndpointUrl(payload.baseUrl);
+    const endpoint = firstNonBlank(payload.baseUrl, connectionProfile.defaultBaseUrl);
+    if (endpoint) secret.baseUrl = normalizeEndpointUrl(endpoint);
     if (hasText(payload.defaultModelId)) secret.modelId = payload.defaultModelId.trim();
     const headers = cleanStringMap(payload.headers ?? undefined);
     if (Object.keys(headers).length > 0) secret.headers = headers;
@@ -146,22 +189,26 @@ export class ProviderConnectionService {
     if (!secret.apiKey && !secret.baseUrl) {
       throw badRequest("Provider credential must include an API key or endpoint");
     }
-    if (authMethod === "API_KEY" && !secret.apiKey) {
+    if (connectionProfile.requiresApiKey && !secret.apiKey) {
       throw badRequest("API key must not be empty");
     }
     if (
-      (authMethod === "OPENAI_COMPATIBLE" || authMethod === "LOCAL_ENDPOINT") &&
+      (connectionProfile.defaultBaseUrl || connectionProfile.baseUrlEditable) &&
       !secret.baseUrl
     ) {
       throw badRequest("Provider endpoint URL is required");
+    }
+    if (connectionProfile.requiresModelId && !secret.modelId) {
+      throw badRequest("Provider model ID is required");
     }
 
     return this.saveSecret({
       userId,
       providerId: provider.id,
+      connectionProfileId: connectionProfile.id,
       authMethod,
       status: "READY",
-      displayName: payload.displayName?.trim() || provider.label,
+      displayName: payload.displayName?.trim() || `${provider.label} (${connectionProfile.label})`,
       secret,
       defaultModelId: secret.modelId ?? null,
     });
@@ -202,6 +249,7 @@ export class ProviderConnectionService {
     return {
       connectionId: ready.id,
       providerId: ready.provider_id,
+      connectionProfileId: ready.connection_profile_id,
       authMethod: ready.auth_method,
       apiKey: secret.apiKey ?? null,
       baseUrl: secret.baseUrl ?? null,
@@ -235,20 +283,29 @@ export class ProviderConnectionService {
     return this.repository.deleteByUser(userId);
   }
 
-  startConnection(
+  async startConnection(
     userId: string,
     providerIdRaw: string,
     authMethod: ProviderAuthMethod | null | undefined,
+    connectionProfileId: string | null | undefined,
     callbackUri: string,
   ) {
     const provider = this.providerCatalog.find(providerIdRaw);
     if (!provider) throw badRequest(`Unknown provider: ${providerIdRaw}`);
-    const method = authMethod ?? defaultAuthMethod(provider.id);
+    const connectionProfile = connectionProfileForAuth(
+      provider.connectionProfiles,
+      connectionProfileId,
+      authMethod,
+    );
+    const method = connectionProfile.authMethod;
     if (provider.id === "openrouter" && method === "OAUTH_PKCE") {
-      return this.startOpenRouterPkce(userId, callbackUri);
+      return this.startOpenRouterPkce(userId, callbackUri, connectionProfile.id);
     }
     if (provider.id === "google" && method === "OAUTH_AUTH_CODE") {
-      return this.startGoogleOAuth(userId, callbackUri);
+      return this.startGoogleOAuth(userId, callbackUri, connectionProfile.id);
+    }
+    if (provider.id === "github-copilot" && method === "DEVICE_CODE") {
+      return this.startGitHubDeviceFlow(userId, connectionProfile);
     }
     return {
       mode: "UNAVAILABLE",
@@ -256,6 +313,7 @@ export class ProviderConnectionService {
       state: null,
       expiresAt: null,
       authMethod: method,
+      connectionProfileId: connectionProfile.id,
       message: "This provider auth flow is cataloged but not enabled yet.",
     };
   }
@@ -284,6 +342,7 @@ export class ProviderConnectionService {
     return this.saveSecret({
       userId,
       providerId: "openrouter",
+      connectionProfileId: pending.connectionProfileId,
       authMethod: "OAUTH_PKCE",
       status: "READY",
       displayName: "OpenRouter OAuth",
@@ -329,6 +388,7 @@ export class ProviderConnectionService {
     return this.saveSecret({
       userId,
       providerId: "google",
+      connectionProfileId: pending.connectionProfileId,
       authMethod: "OAUTH_AUTH_CODE",
       status: "READY",
       displayName: "Google OAuth",
@@ -336,6 +396,111 @@ export class ProviderConnectionService {
       scopes,
       secret,
     });
+  }
+
+  async completeDeviceConnection(
+    userId: string,
+    providerIdRaw: string,
+    payload: {
+      deviceCode?: string | null | undefined;
+      connectionProfileId?: string | null | undefined;
+    },
+  ) {
+    const provider = this.providerCatalog.find(providerIdRaw);
+    if (!provider) throw badRequest(`Unknown provider: ${providerIdRaw}`);
+    if (provider.id !== "github-copilot") {
+      throw badRequest("Device-code flow is not enabled for this provider");
+    }
+    if (!hasText(payload.deviceCode)) {
+      throw badRequest("Missing device code");
+    }
+    const deviceCode = payload.deviceCode.trim();
+    const pending = this.deviceStates.get(deviceCode);
+    if (
+      !pending ||
+      pending.userId !== userId ||
+      pending.providerId !== provider.id ||
+      (hasText(payload.connectionProfileId) &&
+        pending.connectionProfileId !== payload.connectionProfileId.trim()) ||
+      pending.expiresAt < Date.now()
+    ) {
+      this.deviceStates.delete(deviceCode);
+      throw badRequest("Device-code state is invalid or expired");
+    }
+
+    const github = githubCopilotOAuthConfig();
+    if (!github.configured) {
+      return {
+        mode: "UNAVAILABLE",
+        authMethod: pending.authMethod,
+        connectionProfileId: pending.connectionProfileId,
+        message: "GitHub Copilot OAuth is not configured.",
+      };
+    }
+    const token = await exchangeGitHubDeviceToken(
+      new URLSearchParams({
+        client_id: github.clientId,
+        device_code: deviceCode,
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      }),
+    );
+
+    if (token.error === "authorization_pending") {
+      return {
+        mode: "PENDING",
+        authMethod: pending.authMethod,
+        connectionProfileId: pending.connectionProfileId,
+        expiresAt: new Date(pending.expiresAt).toISOString(),
+        intervalSeconds: pending.intervalSeconds,
+        message: token.error_description ?? "Authorization is still pending.",
+      };
+    }
+    if (token.error === "slow_down") {
+      pending.intervalSeconds += GITHUB_DEVICE_POLL_SLOW_DOWN_SECONDS;
+      return {
+        mode: "PENDING",
+        authMethod: pending.authMethod,
+        connectionProfileId: pending.connectionProfileId,
+        expiresAt: new Date(pending.expiresAt).toISOString(),
+        intervalSeconds: pending.intervalSeconds,
+        message: token.error_description ?? "Polling slowed down by GitHub.",
+      };
+    }
+    if (token.error) {
+      this.deviceStates.delete(deviceCode);
+      throw badRequest(token.error_description ?? `GitHub device flow failed: ${token.error}`);
+    }
+    if (!hasText(token.access_token)) {
+      throw badRequest("GitHub did not return an access token");
+    }
+
+    this.deviceStates.delete(deviceCode);
+    const secret: ProviderConnectionSecret = {
+      accessToken: token.access_token.trim(),
+      tokenType: firstNonBlank(token.token_type, "Bearer") ?? "Bearer",
+      scopes: tokenScopes(token.scope, github.scopes),
+    };
+    if (hasText(token.refresh_token)) secret.refreshToken = token.refresh_token.trim();
+    const scopes = secret.scopes ?? null;
+    const connection = await this.saveSecret({
+      userId,
+      providerId: provider.id,
+      connectionProfileId: pending.connectionProfileId,
+      authMethod: "DEVICE_CODE",
+      status: "READY",
+      displayName: "GitHub Copilot OAuth",
+      providerAccountLabel: "GitHub OAuth",
+      tokenExpiresAt: expiresAt(token.expires_in),
+      scopes,
+      secret,
+    });
+    return {
+      mode: "READY",
+      authMethod: "DEVICE_CODE" as const,
+      connectionProfileId: pending.connectionProfileId,
+      connection,
+      message: null,
+    };
   }
 
   private decryptSecret(value: string): ProviderConnectionSecret {
@@ -350,6 +515,7 @@ export class ProviderConnectionService {
   private async saveSecret(input: {
     userId: string;
     providerId: string;
+    connectionProfileId: string;
     authMethod: ProviderAuthMethod;
     status: string;
     displayName: string | null;
@@ -363,6 +529,7 @@ export class ProviderConnectionService {
     const row = await this.repository.upsert({
       userId: input.userId,
       providerId: input.providerId,
+      connectionProfileId: input.connectionProfileId,
       authMethod: input.authMethod,
       status: input.status,
       displayName: input.displayName,
@@ -378,6 +545,7 @@ export class ProviderConnectionService {
       (await this.listConnections(input.userId)).find((item) => item.id === row.id) ?? {
         id: row.id,
         providerId: row.provider_id,
+        connectionProfileId: row.connection_profile_id,
         authMethod: row.auth_method,
         status: row.status,
         displayName: row.display_name,
@@ -388,7 +556,7 @@ export class ProviderConnectionService {
     );
   }
 
-  private startOpenRouterPkce(userId: string, callbackUri: string) {
+  private startOpenRouterPkce(userId: string, callbackUri: string, connectionProfileId: string) {
     const state = randomToken(32);
     const verifier = randomToken(64);
     const challenge = sha256Base64Url(verifier);
@@ -397,6 +565,7 @@ export class ProviderConnectionService {
     this.oauthStates.set(state, {
       userId,
       providerId: "openrouter",
+      connectionProfileId,
       codeVerifier: verifier,
       redirectUri: callback.toString(),
       createdAt: Date.now(),
@@ -411,11 +580,12 @@ export class ProviderConnectionService {
       state,
       expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
       authMethod: "OAUTH_PKCE" as const,
+      connectionProfileId,
       message: null,
     };
   }
 
-  private startGoogleOAuth(userId: string, callbackUri: string) {
+  private startGoogleOAuth(userId: string, callbackUri: string, connectionProfileId: string) {
     const google = googleOAuthConfig();
     if (!google.configured) {
       return {
@@ -424,6 +594,7 @@ export class ProviderConnectionService {
         state: null,
         expiresAt: null,
         authMethod: "OAUTH_AUTH_CODE" as const,
+        connectionProfileId,
         message: "Google provider OAuth is not configured.",
       };
     }
@@ -433,6 +604,7 @@ export class ProviderConnectionService {
     this.oauthStates.set(state, {
       userId,
       providerId: "google",
+      connectionProfileId,
       codeVerifier: verifier,
       redirectUri: callbackUri,
       createdAt: Date.now(),
@@ -453,6 +625,69 @@ export class ProviderConnectionService {
       state,
       expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
       authMethod: "OAUTH_AUTH_CODE" as const,
+      connectionProfileId,
+      message: null,
+    };
+  }
+
+  private async startGitHubDeviceFlow(
+    userId: string,
+    connectionProfile: ProviderConnectionProfile,
+  ) {
+    const github = githubCopilotOAuthConfig();
+    if (!github.configured) {
+      return {
+        mode: "UNAVAILABLE",
+        authorizationUrl: null,
+        state: null,
+        expiresAt: null,
+        authMethod: connectionProfile.authMethod,
+        connectionProfileId: connectionProfile.id,
+        message: "GitHub Copilot OAuth is not configured.",
+      };
+    }
+    const response = await fetch(github.deviceCodeUri, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        client_id: github.clientId,
+        scope: github.scopes.join(" "),
+      }),
+    });
+    if (!response.ok) throw badRequest(`GitHub device flow failed with HTTP ${response.status}`);
+    const json = (await response.json()) as GitHubDeviceCodeResponse;
+    if (json.error) {
+      throw badRequest(json.error_description ?? `GitHub device flow failed: ${json.error}`);
+    }
+    if (!hasText(json.device_code) || !hasText(json.user_code) || !hasText(json.verification_uri)) {
+      throw badRequest("GitHub did not return a device-code challenge");
+    }
+    const expiresAt = Date.now() + Math.max(1, json.expires_in ?? 900) * 1000;
+    const intervalSeconds = Math.max(5, json.interval ?? 5);
+    this.deviceStates.set(json.device_code.trim(), {
+      userId,
+      providerId: "github-copilot",
+      connectionProfileId: connectionProfile.id,
+      authMethod: connectionProfile.authMethod,
+      createdAt: Date.now(),
+      expiresAt,
+      intervalSeconds,
+    });
+    return {
+      mode: "DEVICE_CODE",
+      authorizationUrl: json.verification_uri_complete ?? json.verification_uri,
+      state: null,
+      expiresAt: new Date(expiresAt).toISOString(),
+      authMethod: connectionProfile.authMethod,
+      connectionProfileId: connectionProfile.id,
+      deviceCode: json.device_code,
+      userCode: json.user_code,
+      verificationUri: json.verification_uri,
+      verificationUriComplete: json.verification_uri_complete ?? null,
+      intervalSeconds,
       message: null,
     };
   }
@@ -531,6 +766,19 @@ async function exchangeGoogleToken(body: URLSearchParams): Promise<GoogleTokenRe
   return (await response.json()) as GoogleTokenResponse;
 }
 
+async function exchangeGitHubDeviceToken(body: URLSearchParams): Promise<GitHubTokenResponse> {
+  const response = await fetch(githubCopilotOAuthConfig().accessTokenUri, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
+  if (!response.ok) throw badRequest(`GitHub OAuth failed with HTTP ${response.status}`);
+  return (await response.json()) as GitHubTokenResponse;
+}
+
 function googleOAuthConfig() {
   const clientId = firstNonBlank(env.GOOGLE_PROVIDER_OAUTH_CLIENT_ID, env.GOOGLE_CLIENT_ID);
   const clientSecret = firstNonBlank(
@@ -551,6 +799,17 @@ function googleOAuthConfig() {
           "https://www.googleapis.com/auth/cloud-platform",
           "https://www.googleapis.com/auth/generative-language.retriever",
         ],
+  };
+}
+
+function githubCopilotOAuthConfig() {
+  const scopes = env.GITHUB_COPILOT_OAUTH_SCOPES.split(/[\s,]+/).filter(hasText);
+  return {
+    configured: hasText(env.GITHUB_COPILOT_OAUTH_CLIENT_ID),
+    clientId: env.GITHUB_COPILOT_OAUTH_CLIENT_ID?.trim() ?? "",
+    deviceCodeUri: env.GITHUB_COPILOT_DEVICE_CODE_URI,
+    accessTokenUri: env.GITHUB_COPILOT_ACCESS_TOKEN_URI,
+    scopes: scopes.length ? scopes : ["read:user"],
   };
 }
 
@@ -583,23 +842,50 @@ function firstNonBlank(first: string | null | undefined, second: string | null |
   return hasText(first) ? first.trim() : hasText(second) ? second.trim() : undefined;
 }
 
-function defaultAuthMethod(providerId: string): ProviderAuthMethod {
-  return providerId === "openrouter"
-    ? "OAUTH_PKCE"
-    : providerId === "google"
-      ? "OAUTH_AUTH_CODE"
-      : "API_KEY";
-}
-
-function credentialAuthMethod(
-  supported: ProviderAuthMethod[],
+function credentialProfile(
+  profiles: ProviderConnectionProfile[],
+  requestedProfileId: string | null | undefined,
   requested: ProviderAuthMethod | null | undefined,
   baseUrl: string | null | undefined,
-): ProviderAuthMethod {
-  if (requested) return requested;
-  if (hasText(baseUrl) && supported.includes("OPENAI_COMPATIBLE")) return "OPENAI_COMPATIBLE";
-  if (hasText(baseUrl) && supported.includes("LOCAL_ENDPOINT")) return "LOCAL_ENDPOINT";
-  return supported.includes("API_KEY") ? "API_KEY" : (supported[0] ?? "API_KEY");
+): ProviderConnectionProfile {
+  if (hasText(requestedProfileId)) {
+    const profile = profiles.find((item) => item.id === requestedProfileId.trim());
+    if (!profile) throw badRequest(`Unknown connection profile: ${requestedProfileId}`);
+    return profile;
+  }
+  if (requested) {
+    const profile = profiles.find(
+      (item) => item.authMethod === requested && item.status !== "DISABLED",
+    );
+    if (!profile) throw badRequest(`Auth method ${requested} is not supported for this provider`);
+    return profile;
+  }
+  if (hasText(baseUrl)) {
+    const profile = profiles.find(
+      (item) =>
+        (item.authMethod === "OPENAI_COMPATIBLE" || item.authMethod === "LOCAL_ENDPOINT") &&
+        item.status !== "DISABLED",
+    );
+    if (profile) return profile;
+  }
+  return (
+    profiles.find((item) => item.id === "api-key" && item.status !== "DISABLED") ??
+    profiles.find((item) => item.status !== "DISABLED") ??
+    profiles[0] ??
+    badConnectionProfile()
+  );
+}
+
+function connectionProfileForAuth(
+  profiles: ProviderConnectionProfile[],
+  requestedProfileId: string | null | undefined,
+  requested: ProviderAuthMethod | null | undefined,
+): ProviderConnectionProfile {
+  return credentialProfile(profiles, requestedProfileId, requested, null);
+}
+
+function badConnectionProfile(): never {
+  throw badRequest("Provider has no connection profiles");
 }
 
 function cleanStringMap(value: Record<string, string> | undefined) {

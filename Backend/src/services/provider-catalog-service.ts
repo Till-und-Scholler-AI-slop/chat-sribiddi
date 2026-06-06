@@ -20,6 +20,19 @@ export type ProviderConnectionStatus =
   | "DISABLED"
   | "ERROR";
 
+export type ProviderConnectionProfile = {
+  id: string;
+  label: string;
+  authMethod: ProviderAuthMethod;
+  defaultBaseUrl?: string | undefined;
+  baseUrlEditable: boolean;
+  requiresApiKey: boolean;
+  requiresModelId: boolean;
+  oauthEnabled: boolean;
+  status: ProviderConnectionStatus;
+  docsUrl?: string | undefined;
+};
+
 export type ProviderDescriptor = {
   id: string;
   label: string;
@@ -30,6 +43,7 @@ export type ProviderDescriptor = {
   execution: "native" | "gateway" | "tool";
   defaultStatus: ProviderConnectionStatus;
   authMethods: ProviderAuthMethod[];
+  connectionProfiles: ProviderConnectionProfile[];
 };
 
 export class ProviderCatalogService {
@@ -65,7 +79,7 @@ function descriptor(
   experimental: boolean,
   execution: ProviderDescriptor["execution"],
   defaultStatus: ProviderConnectionStatus,
-  authMethods: ProviderAuthMethod[],
+  connectionProfiles: ProviderConnectionProfile[],
 ): ProviderDescriptor {
   return {
     id,
@@ -76,29 +90,118 @@ function descriptor(
     experimental,
     execution,
     defaultStatus,
-    authMethods,
+    authMethods: [...new Set(connectionProfiles.map((profile) => profile.authMethod))],
+    connectionProfiles,
   };
 }
 
-function gateway(id: string, label: string, category = "llm", localOnly = false) {
+function profile(input: {
+  id: string;
+  label: string;
+  authMethod: ProviderAuthMethod;
+  defaultBaseUrl?: string | undefined;
+  baseUrlEditable?: boolean;
+  requiresApiKey?: boolean;
+  requiresModelId?: boolean;
+  oauthEnabled?: boolean;
+  status?: ProviderConnectionStatus;
+  docsUrl?: string | undefined;
+}): ProviderConnectionProfile {
+  return {
+    id: input.id,
+    label: input.label,
+    authMethod: input.authMethod,
+    defaultBaseUrl: input.defaultBaseUrl,
+    baseUrlEditable: input.baseUrlEditable ?? false,
+    requiresApiKey: input.requiresApiKey ?? false,
+    requiresModelId: input.requiresModelId ?? false,
+    oauthEnabled: input.oauthEnabled ?? false,
+    status: input.status ?? "NEEDS_CONNECTION",
+    docsUrl: input.docsUrl,
+  };
+}
+
+function apiKeyProfile(docsUrl?: string) {
+  return profile({
+    id: "api-key",
+    label: "API key",
+    authMethod: "API_KEY",
+    requiresApiKey: true,
+    docsUrl,
+  });
+}
+
+function oauthProfile(
+  id: string,
+  label: string,
+  authMethod: Extract<ProviderAuthMethod, "OAUTH_PKCE" | "OAUTH_AUTH_CODE" | "DEVICE_CODE">,
+  docsUrl?: string,
+) {
+  return profile({
+    id,
+    label,
+    authMethod,
+    oauthEnabled: true,
+    status: "NEEDS_CONNECTION",
+    docsUrl,
+  });
+}
+
+function openAiCompatibleProfile(
+  id: string,
+  label: string,
+  defaultBaseUrl: string | undefined,
+  docsUrl?: string,
+) {
+  return profile({
+    id,
+    label,
+    authMethod: "OPENAI_COMPATIBLE",
+    defaultBaseUrl,
+    baseUrlEditable: true,
+    requiresApiKey: true,
+    requiresModelId: true,
+    docsUrl,
+  });
+}
+
+function localEndpointProfile(id: string, label: string, defaultBaseUrl: string, docsUrl?: string) {
+  return profile({
+    id,
+    label,
+    authMethod: "LOCAL_ENDPOINT",
+    defaultBaseUrl,
+    baseUrlEditable: true,
+    requiresModelId: true,
+    status: "NEEDS_LOCAL_ENDPOINT",
+    docsUrl,
+  });
+}
+
+function gateway(
+  id: string,
+  label: string,
+  defaultBaseUrl: string | undefined,
+  docsUrl?: string,
+  category = "llm",
+) {
   return descriptor(
     id,
     label,
     category,
     category !== "audio",
-    localOnly,
+    false,
     false,
     "gateway",
-    localOnly ? "NEEDS_LOCAL_ENDPOINT" : "NEEDS_CONNECTION",
-    localOnly ? ["LOCAL_ENDPOINT"] : ["API_KEY", "OPENAI_COMPATIBLE"],
+    "NEEDS_CONNECTION",
+    [openAiCompatibleProfile("api", "API billing", defaultBaseUrl, docsUrl)],
   );
 }
 
 function buildCatalog(): ProviderDescriptor[] {
   return [
     descriptor("openai", "OpenAI", "llm", true, false, false, "native", "NEEDS_CONNECTION", [
-      "API_KEY",
-      "OAUTH_AUTH_CODE",
+      apiKeyProfile("https://platform.openai.com/docs/api-reference/authentication"),
     ]),
     descriptor(
       "anthropic",
@@ -109,12 +212,32 @@ function buildCatalog(): ProviderDescriptor[] {
       false,
       "native",
       "NEEDS_CONNECTION",
-      ["API_KEY", "CLI_SESSION"],
+      [
+        apiKeyProfile("https://platform.claude.com/docs/en/api/authentication/overview"),
+        profile({
+          id: "claude-cli-session",
+          label: "Claude subscription / CLI session",
+          authMethod: "CLI_SESSION",
+          status: "EXPERIMENTAL",
+          docsUrl: "https://code.claude.com/docs/en/authentication",
+        }),
+      ],
     ),
     descriptor("google", "Google Gemini", "llm", true, false, false, "native", "NEEDS_CONNECTION", [
-      "API_KEY",
-      "OAUTH_AUTH_CODE",
-      "SERVICE_ACCOUNT",
+      apiKeyProfile("https://ai.google.dev/gemini-api/docs/api-key"),
+      oauthProfile(
+        "google-oauth",
+        "Google OAuth",
+        "OAUTH_AUTH_CODE",
+        "https://cloud.google.com/docs/authentication",
+      ),
+      profile({
+        id: "service-account",
+        label: "Service account",
+        authMethod: "SERVICE_ACCOUNT",
+        status: "EXPERIMENTAL",
+        docsUrl: "https://cloud.google.com/iam/docs/service-account-overview",
+      }),
     ]),
     descriptor(
       "openrouter",
@@ -125,7 +248,15 @@ function buildCatalog(): ProviderDescriptor[] {
       false,
       "native",
       "NEEDS_CONNECTION",
-      ["API_KEY", "OAUTH_PKCE"],
+      [
+        apiKeyProfile("https://openrouter.ai/docs/api-keys"),
+        oauthProfile(
+          "openrouter-oauth",
+          "OpenRouter OAuth",
+          "OAUTH_PKCE",
+          "https://openrouter.ai/docs/api-keys",
+        ),
+      ],
     ),
     descriptor(
       "brave-search",
@@ -136,7 +267,7 @@ function buildCatalog(): ProviderDescriptor[] {
       false,
       "tool",
       "NEEDS_CONNECTION",
-      ["API_KEY"],
+      [apiKeyProfile("https://api-dashboard.search.brave.com/app/keys")],
     ),
     descriptor(
       "github-copilot",
@@ -147,44 +278,156 @@ function buildCatalog(): ProviderDescriptor[] {
       true,
       "gateway",
       "EXPERIMENTAL",
-      ["DEVICE_CODE", "SUBSCRIPTION_CLI"],
+      [
+        oauthProfile(
+          "github-oauth",
+          "GitHub OAuth device flow",
+          "DEVICE_CODE",
+          "https://docs.github.com/en/copilot/how-tos/copilot-sdk/set-up-copilot-sdk/github-oauth",
+        ),
+        profile({
+          id: "copilot-cli-session",
+          label: "Copilot CLI session",
+          authMethod: "SUBSCRIPTION_CLI",
+          status: "EXPERIMENTAL",
+          docsUrl:
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/authenticate-copilot-cli",
+        }),
+      ],
     ),
-    gateway("qwen", "Qwen Cloud"),
+    descriptor("qwen", "Qwen Cloud", "llm", true, false, false, "gateway", "NEEDS_CONNECTION", [
+      openAiCompatibleProfile(
+        "api",
+        "API billing",
+        "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        "https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope",
+      ),
+      openAiCompatibleProfile(
+        "coding-plan",
+        "Coding Plan",
+        "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "https://docs.qwencloud.com/coding-plan/overview",
+      ),
+      profile({
+        id: "portal",
+        label: "Qwen portal session",
+        authMethod: "CLI_SESSION",
+        status: "EXPERIMENTAL",
+        docsUrl: "https://docs.qwencloud.com/coding-plan/overview",
+      }),
+    ]),
+    descriptor("minimax", "MiniMax", "llm", true, false, false, "gateway", "NEEDS_CONNECTION", [
+      openAiCompatibleProfile(
+        "api",
+        "API billing",
+        "https://api.minimax.io/v1",
+        "https://platform.minimax.io/docs/api-reference/text-chat",
+      ),
+      openAiCompatibleProfile(
+        "token-plan",
+        "Token Plan",
+        "https://api.minimax.io/v1",
+        "https://platform.minimax.io/docs/token-plan/intro",
+      ),
+      profile({
+        id: "portal",
+        label: "MiniMax portal session",
+        authMethod: "CLI_SESSION",
+        status: "EXPERIMENTAL",
+        docsUrl: "https://platform.minimax.io/docs/token-plan/intro",
+      }),
+    ]),
+    descriptor("zai", "Z.AI", "llm", true, false, false, "gateway", "NEEDS_CONNECTION", [
+      openAiCompatibleProfile(
+        "api",
+        "API billing",
+        "https://api.z.ai/api/paas/v4",
+        "https://docs.z.ai/api-reference/introduction",
+      ),
+      openAiCompatibleProfile(
+        "coding-plan",
+        "Coding Plan",
+        "https://api.z.ai/api/coding/paas/v4",
+        "https://docs.z.ai/api-reference/introduction",
+      ),
+    ]),
+    gateway("openai-compatible", "OpenAI Compatible", undefined),
+    descriptor("ollama", "Ollama", "local", true, true, false, "gateway", "NEEDS_LOCAL_ENDPOINT", [
+      localEndpointProfile(
+        "local",
+        "Local endpoint",
+        "http://localhost:11434/v1",
+        "https://docs.ollama.com/api/openai-compatibility",
+      ),
+    ]),
     descriptor(
-      "qwen-oauth",
-      "Qwen OAuth / Portal",
-      "llm",
+      "lm-studio",
+      "LM Studio",
+      "local",
+      true,
       true,
       false,
-      true,
       "gateway",
-      "EXPERIMENTAL",
-      ["OAUTH_AUTH_CODE"],
+      "NEEDS_LOCAL_ENDPOINT",
+      [
+        localEndpointProfile(
+          "local",
+          "Local endpoint",
+          "http://localhost:1234/v1",
+          "https://lmstudio.ai/docs/developer/openai-compat/",
+        ),
+      ],
     ),
-    gateway("minimax", "MiniMax"),
     descriptor(
-      "minimax-portal",
-      "MiniMax Portal",
-      "llm",
+      "llama-cpp",
+      "llama.cpp",
+      "local",
+      true,
       true,
       false,
-      true,
       "gateway",
-      "EXPERIMENTAL",
-      ["OAUTH_AUTH_CODE"],
+      "NEEDS_LOCAL_ENDPOINT",
+      [localEndpointProfile("local", "Local endpoint", "http://localhost:8080/v1")],
     ),
-    gateway("zai", "Z.AI"),
-    gateway("openai-compatible", "OpenAI Compatible"),
-    gateway("ollama", "Ollama", "local", true),
-    gateway("lm-studio", "LM Studio", "local", true),
-    gateway("llama-cpp", "llama.cpp", "local", true),
-    gateway("vllm", "vLLM", "local", true),
-    gateway("mistral", "Mistral AI"),
-    gateway("deepseek", "DeepSeek"),
-    gateway("groq", "Groq"),
-    gateway("xai", "xAI"),
-    gateway("perplexity", "Perplexity AI"),
-    gateway("together-ai", "Together AI"),
-    gateway("mock", "Mock / Testing", "testing"),
+    descriptor("vllm", "vLLM", "local", true, true, false, "gateway", "NEEDS_LOCAL_ENDPOINT", [
+      localEndpointProfile(
+        "local",
+        "Local endpoint",
+        "http://localhost:8000/v1",
+        "https://docs.vllm.ai/en/v0.19.0/serving/openai_compatible_server/",
+      ),
+    ]),
+    gateway("mistral", "Mistral AI", "https://api.mistral.ai/v1", "https://docs.mistral.ai/api/"),
+    gateway("deepseek", "DeepSeek", "https://api.deepseek.com", "https://api-docs.deepseek.com/"),
+    gateway(
+      "groq",
+      "Groq",
+      "https://api.groq.com/openai/v1",
+      "https://console.groq.com/docs/overview",
+    ),
+    gateway("xai", "xAI", "https://api.x.ai/v1", "https://docs.x.ai/docs"),
+    gateway(
+      "perplexity",
+      "Perplexity AI",
+      "https://api.perplexity.ai",
+      "https://docs.perplexity.ai/docs/sonar/openai-compatibility",
+    ),
+    gateway(
+      "together-ai",
+      "Together AI",
+      "https://api.together.ai/v1",
+      "https://docs.together.ai/docs/inference/openai-compatibility",
+    ),
+    descriptor(
+      "mock",
+      "Mock / Testing",
+      "testing",
+      true,
+      false,
+      false,
+      "gateway",
+      "NEEDS_CONNECTION",
+      [openAiCompatibleProfile("api", "API billing", "http://localhost:9999/v1")],
+    ),
   ];
 }

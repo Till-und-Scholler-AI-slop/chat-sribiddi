@@ -60,6 +60,7 @@ export class ProviderConnectionRepository {
   upsert(input: {
     userId: string;
     providerId: string;
+    connectionProfileId: string;
     authMethod: string;
     status: string;
     displayName: string | null;
@@ -77,6 +78,7 @@ export class ProviderConnectionRepository {
       .values({
         user_id: input.userId,
         provider_id: input.providerId,
+        connection_profile_id: input.connectionProfileId,
         auth_method: input.authMethod,
         status: input.status,
         display_name: input.displayName,
@@ -92,8 +94,9 @@ export class ProviderConnectionRepository {
         updated_at: now,
       })
       .onConflict((oc) =>
-        oc.columns(["user_id", "provider_id", "auth_method"]).doUpdateSet({
+        oc.columns(["user_id", "provider_id", "connection_profile_id"]).doUpdateSet({
           status: input.status,
+          auth_method: input.authMethod,
           display_name: input.displayName,
           encrypted_secret_json: input.encryptedSecretJson,
           key_version: input.keyVersion,

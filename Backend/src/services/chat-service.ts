@@ -448,7 +448,13 @@ export class ChatService {
     const credential: ResolvedCredential = {
       apiKey: connection.apiKey ?? null,
       credentialSource:
-        connection.authMethod === "LOCAL_ENDPOINT" ? "USER_LOCAL_ENDPOINT" : "USER_KEY",
+        connection.authMethod === "OAUTH_AUTH_CODE" || connection.authMethod === "OAUTH_PKCE"
+          ? "USER_OAUTH"
+          : connection.authMethod === "DEVICE_CODE"
+            ? "USER_DEVICE_OAUTH"
+            : connection.authMethod === "LOCAL_ENDPOINT"
+              ? "USER_LOCAL_ENDPOINT"
+              : "USER_KEY",
       limits: this.credentialAccess.authenticatedLimits(),
       connection,
     };
