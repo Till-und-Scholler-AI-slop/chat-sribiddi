@@ -180,6 +180,7 @@ export default defineNuxtConfig({
             scan: true,
             icons: [
                 'lucide:menu',
+                'lucide:x',
                 'lucide:chevron-down',
                 'lucide:arrow-up',
                 // USelectMenu / UCheckbox internal icons
@@ -193,11 +194,26 @@ export default defineNuxtConfig({
                 'lucide:chevron-left',
                 'lucide:chevron-right',
                 'lucide:chevrons-right',
+                // Provider setup logos
+                'simple-icons:anthropic',
+                'simple-icons:brave',
+                'simple-icons:deepseek',
+                'simple-icons:githubcopilot',
+                'simple-icons:googlegemini',
+                'simple-icons:lmstudio',
+                'simple-icons:minimax',
+                'simple-icons:mistralai',
+                'simple-icons:ollama',
+                'simple-icons:openai',
+                'simple-icons:openrouter',
+                'simple-icons:perplexity',
+                'simple-icons:qwen',
+                'simple-icons:vllm',
             ]
         }
     },
     ui: {
-        icons: ['heroicons', 'lucide']
+        icons: ['heroicons', 'lucide', 'simple-icons']
     },
     runtimeConfig: {
         public: {
