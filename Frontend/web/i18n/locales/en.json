@@ -177,6 +177,7 @@
     "useModelFailedDescription": "Unable to open chat.",
     "loadCatalogFailed": "Could not load model catalog",
     "backendNotReachable": "Backend not reachable.",
+    "codexSubscriptionLabel": "{provider} ChatGPT/Codex: {model}",
     "chatWithModel": "Chat with {label}",
     "pageIntroLine1": "All models you can use with your connected providers.",
     "pageIntroLine2": "Favorites appear first in the chat model picker.",

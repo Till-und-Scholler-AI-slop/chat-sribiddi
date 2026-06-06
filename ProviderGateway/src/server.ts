@@ -48,6 +48,8 @@ const port = Number(process.env.PROVIDER_GATEWAY_PORT || '8095')
 const allowPrivateBaseUrls = process.env.PROVIDER_GATEWAY_ALLOW_PRIVATE_BASE_URLS === 'true'
 const codexBinary = process.env.CODEX_CLI_BINARY || 'codex'
 const codexExecTimeoutMs = Number(process.env.CODEX_EXEC_TIMEOUT_MS || '300000')
+const codexExecKillGraceMs = Number(process.env.CODEX_EXEC_KILL_GRACE_MS || '5000')
+const codexExecCloseFallbackMs = 1000
 
 export function sendJson(response: ServerResponse, status: number, payload: unknown) {
   response.writeHead(status, {
@@ -414,19 +416,48 @@ async function runCodexExec(codexHome: string, runDir: string, request: GatewayC
   child.stdout.on('data', chunk => stdout.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
   child.stderr.on('data', chunk => stderr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
   child.on('error', error => stderr.push(Buffer.from(error.message)))
-  let timedOut = false
-  const timer = setTimeout(() => {
-    timedOut = true
-    child.kill('SIGTERM')
-  }, codexExecTimeoutMs)
-  const code = await new Promise<number | null>(resolve => child.on('close', resolve))
-  clearTimeout(timer)
+  const { code, timedOut } = await waitForCodexClose(child, codexExecTimeoutMs)
   return {
     code,
     timedOut,
     stdout: Buffer.concat(stdout).toString('utf8'),
     stderr: Buffer.concat(stderr).toString('utf8')
   }
+}
+
+function waitForCodexClose(
+  child: ReturnType<typeof spawn>,
+  timeoutMs: number
+): Promise<{ code: number | null; timedOut: boolean }> {
+  return new Promise(resolve => {
+    let settled = false
+    let timedOut = false
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null
+    let killTimer: ReturnType<typeof setTimeout> | null = null
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null
+
+    const finish = (code: number | null) => {
+      if (settled) return
+      settled = true
+      if (timeoutTimer) clearTimeout(timeoutTimer)
+      if (killTimer) clearTimeout(killTimer)
+      if (fallbackTimer) clearTimeout(fallbackTimer)
+      resolve({ code, timedOut })
+    }
+
+    child.once('close', code => finish(code))
+    timeoutTimer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGTERM')
+      killTimer = setTimeout(() => {
+        child.kill('SIGKILL')
+        fallbackTimer = setTimeout(() => finish(null), codexExecCloseFallbackMs)
+        fallbackTimer.unref?.()
+      }, codexExecKillGraceMs)
+      killTimer.unref?.()
+    }, timeoutMs)
+    timeoutTimer.unref?.()
+  })
 }
 
 export function parseCodexExecJsonl(output: string) {

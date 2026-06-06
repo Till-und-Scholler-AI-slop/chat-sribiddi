@@ -45,6 +45,11 @@ export type ProviderConnectionSummary = {
   createdAt?: string | null
   updatedAt?: string | null
   defaultModelId?: string | null
+  availableModels?: Array<{
+    id: string
+    label: string
+    description?: string | null
+  }>
 }
 
 export type ProviderConnectionProfile = {

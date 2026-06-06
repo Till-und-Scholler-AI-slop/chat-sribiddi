@@ -44,6 +44,7 @@ export function useModelStore() {
   const { fetchModels } = useChatApi()
   const { getProviders } = useKeyApi()
   const { settings } = useUserSettings()
+  const { t } = useI18n()
 
   const models = useState<ModelOption[]>('chat-models', () => [])
   const modelsLoading = useState<boolean>('chat-models-loading', () => false)
@@ -93,7 +94,7 @@ export function useModelStore() {
         settings.value.expertMode
       )
 
-      const gatewayModels = await loadGatewayModels(getProviders)
+      const gatewayModels = await loadGatewayModels(getProviders, t)
       models.value = [...loaded, ...gatewayModels]
       loadedExpertMode.value = settings.value.expertMode
       modelsError.value = loaded.length === 0 && errors.length > 0
@@ -153,8 +154,14 @@ async function loadGatewayModels(
       authMethod?: string
       connectionProfileId?: string | null
       defaultModelId?: string | null
+      availableModels?: Array<{
+        id: string
+        label: string
+        description?: string | null
+      }>
     }>
-  }>>
+  }>>,
+  t: (key: string, params?: Record<string, unknown>) => string
 ): Promise<ModelOption[]> {
   try {
     const providers = await getProviders()
@@ -162,7 +169,7 @@ async function loadGatewayModels(
       if (!provider.chatProvider) {
         return []
       }
-      if (provider.id === 'openai') return loadCodexSubscriptionModels(provider)
+      if (provider.id === 'openai') return loadCodexSubscriptionModels(provider, t)
       if (provider.execution !== 'gateway' || provider.experimental) return []
       return provider.connections
         .filter(connection => connection.status === 'READY' && !!connection.defaultModelId?.trim())
@@ -186,35 +193,64 @@ async function loadGatewayModels(
   }
 }
 
-function loadCodexSubscriptionModels(provider: {
-  id: string
-  label: string
-  connections: Array<{
-    id: number
-    status: string
-    authMethod?: string
-    connectionProfileId?: string | null
-    defaultModelId?: string | null
-  }>
-}): ModelOption[] {
+function loadCodexSubscriptionModels(
+  provider: {
+    id: string
+    label: string
+    connections: Array<{
+      id: number
+      status: string
+      authMethod?: string
+      connectionProfileId?: string | null
+      defaultModelId?: string | null
+      availableModels?: Array<{
+        id: string
+        label: string
+        description?: string | null
+      }>
+    }>
+  },
+  t: (key: string, params?: Record<string, unknown>) => string
+): ModelOption[] {
   return provider.connections
     .filter(connection =>
       connection.status === 'READY' &&
       connection.authMethod === 'SUBSCRIPTION_CLI' &&
       connection.connectionProfileId === 'codex-subscription' &&
-      !!connection.defaultModelId?.trim()
+      codexConnectionModels(connection).length > 0
     )
-    .map(connection => {
-      const modelId = connection.defaultModelId!.trim()
-      return {
-        label: `${provider.label} ChatGPT/Codex: ${modelId}`,
-        value: modelId,
+    .flatMap(connection => {
+      return codexConnectionModels(connection).map(model => ({
+        label: t('models.codexSubscriptionLabel', { provider: provider.label, model: model.label }),
+        value: model.id,
         provider: provider.id,
         providerId: provider.id,
         availability: 'READY' as const,
-        canonicalSlug: `${provider.id}/codex-subscription/${modelId}`,
-        description: null,
+        canonicalSlug: `${provider.id}/codex-subscription/${model.id}`,
+        description: model.description ?? null,
         connectionId: connection.id
-      } satisfies ModelOption
+      }) satisfies ModelOption)
     })
+}
+
+function codexConnectionModels(connection: {
+  defaultModelId?: string | null
+  availableModels?: Array<{
+    id: string
+    label: string
+    description?: string | null
+  }>
+}) {
+  const models = (connection.availableModels ?? [])
+    .map(model => ({
+      id: model.id?.trim(),
+      label: model.label?.trim() || model.id?.trim(),
+      description: model.description ?? null
+    }))
+    .filter((model): model is { id: string, label: string, description: string | null } =>
+      Boolean(model.id && model.label)
+    )
+  if (models.length > 0) return models
+  const fallback = connection.defaultModelId?.trim()
+  return fallback ? [{ id: fallback, label: fallback, description: null }] : []
 }

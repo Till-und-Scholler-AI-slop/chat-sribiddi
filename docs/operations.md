@@ -112,6 +112,9 @@ Provider execution:
   Codex session under `CODEX_CONNECTIONS_ROOT/{userHash}/codex-subscription`
   with `0700` permissions. Do not expose `codex app-server` publicly, do not
   share one ChatGPT account across users, and do not scrape `chatgpt.com`.
+  Model names for this profile come from `codex debug models` at login and are
+  refreshed from the per-user `CODEX_HOME`; do not hardcode Codex subscription
+  model slugs in `model-catalog.yaml`.
 - Revocation/cleanup for OpenAI `codex-subscription` is deleting the provider
   connection in Settings, which removes the isolated `CODEX_HOME` directory.
   Treat any `auth.json` files under `CODEX_CONNECTIONS_ROOT` like passwords and
@@ -226,8 +229,8 @@ a user connects Brave Search.
 For the OpenAI `codex-subscription` beta, additionally verify `codex --version`
 inside the backend runtime image/host, start the Settings login flow, complete
 the ChatGPT/Codex device code with a throwaway test account, send one chat with
-the generated `gpt-5-codex` model option, then delete the connection and confirm
-the matching `CODEX_HOME` directory is removed.
+one generated model option from `codex debug models`, then delete the connection
+and confirm the matching `CODEX_HOME` directory is removed.
 
 ## VPS Triage Commands
 

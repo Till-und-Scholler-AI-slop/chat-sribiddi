@@ -171,6 +171,11 @@ export type ProviderConnectionSecret = {
   clientSecret?: string;
   quotaProjectId?: string;
   codexHome?: string;
+  models?: Array<{
+    id: string;
+    label: string;
+    description?: string | null;
+  }>;
 };
 
 export const connectionDefaultModelId = (row: ProviderConnectionRow) => row.provider_account_label;

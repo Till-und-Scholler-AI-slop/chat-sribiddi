@@ -114,7 +114,7 @@ const envSchema = z.object({
   PROVIDER_GATEWAY_ENABLED: z.coerce.boolean().default(false),
   PROVIDER_GATEWAY_BASE_URL: z.string().default("http://127.0.0.1:8095"),
   OPENAI_CODEX_SUBSCRIPTION_ENABLED: z.coerce.boolean().default(false),
-  OPENAI_CODEX_SUBSCRIPTION_MODEL: z.string().default("gpt-5-codex"),
+  OPENAI_CODEX_SUBSCRIPTION_MODEL: z.string().default(""),
   CODEX_CLI_BINARY: z.string().default("codex"),
   CODEX_CONNECTIONS_ROOT: z.string().default(join(tmpdir(), "chat-sribiddi-codex-connections")),
   CODEX_DEVICE_AUTH_START_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),

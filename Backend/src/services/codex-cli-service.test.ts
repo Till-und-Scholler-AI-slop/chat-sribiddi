@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCodexDeviceAuthChallenge } from "./codex-cli-service.js";
+import { parseCodexDeviceAuthChallenge, parseCodexModelCatalog } from "./codex-cli-service.js";
 
 describe("CodexCliService", () => {
   it("parses Codex device-auth output without leaking ANSI codes", () => {
@@ -24,5 +24,39 @@ Follow these steps to sign in with ChatGPT using device code authorization:
 
   it("returns null for unrelated output", () => {
     expect(parseCodexDeviceAuthChallenge("Not logged in")).toBeNull();
+  });
+
+  it("parses visible Codex CLI models in CLI priority order", () => {
+    const parsed = parseCodexModelCatalog(
+      JSON.stringify({
+        models: [
+          {
+            slug: "codex-auto-review",
+            display_name: "Codex Auto Review",
+            visibility: "hide",
+            priority: 0,
+          },
+          {
+            slug: "gpt-5.4-mini",
+            display_name: "GPT-5.4 Mini",
+            description: "Fast coding model",
+            visibility: "list",
+            priority: 4,
+          },
+          {
+            slug: "gpt-5.5",
+            display_name: "GPT-5.5",
+            description: "Latest coding model",
+            visibility: "list",
+            priority: 0,
+          },
+        ],
+      }),
+    );
+
+    expect(parsed).toEqual([
+      { id: "gpt-5.5", label: "GPT-5.5", description: "Latest coding model" },
+      { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", description: "Fast coding model" },
+    ]);
   });
 });

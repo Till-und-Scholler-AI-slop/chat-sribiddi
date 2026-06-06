@@ -246,10 +246,19 @@ describe("ProviderConnectionService", () => {
       completeDeviceAuth: vi.fn(async () => ({
         mode: "READY" as const,
         codexHome: "/tmp/codex-home",
-        modelId: "gpt-5-codex",
+        modelId: "gpt-5.5",
+        modelLabel: "GPT-5.5",
+        models: [
+          { id: "gpt-5.5", label: "GPT-5.5", description: "Latest coding model" },
+          { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", description: null },
+        ],
         accountLabel: "ChatGPT/Codex subscription",
         message: null,
       })),
+      listModels: vi.fn(async () => [
+        { id: "gpt-5.5", label: "GPT-5.5", description: "Latest coding model" },
+        { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", description: null },
+      ]),
       deleteCodexHome: vi.fn(async () => undefined),
       enabled: () => true,
     };
@@ -283,7 +292,12 @@ describe("ProviderConnectionService", () => {
     const resolved = await service.resolveReadyConnection("user-1", "openai");
     expect(resolved?.connectionProfileId).toBe("codex-subscription");
     expect(resolved?.codexHome).toBe("/tmp/codex-home");
-    expect(resolved?.modelId).toBe("gpt-5-codex");
+    expect(resolved?.modelId).toBe("gpt-5.5");
+    expect(completed.connection?.defaultModelId).toBe("gpt-5.5");
+    expect(completed.connection?.availableModels).toEqual([
+      { id: "gpt-5.5", label: "GPT-5.5", description: "Latest coding model" },
+      { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", description: null },
+    ]);
   });
 
   it("reads migrated provider connection secrets that decrypt to a raw legacy key", async () => {

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,8 @@ import { hasText } from "../utils/strings.js";
 import type { ChatExecutionRequest } from "./ai-chat-service.js";
 
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
+const CODEX_EXEC_KILL_GRACE_MS = 5_000;
+const CODEX_EXEC_CLOSE_FALLBACK_MS = 1_000;
 
 type CodexExecResult = {
   text: string;
@@ -77,13 +79,7 @@ async function runCodexExec(input: ChatExecutionRequest): Promise<CodexExecResul
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
     child.on("error", (error) => stderr.push(Buffer.from(error.message, "utf8")));
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-    }, env.CODEX_EXEC_TIMEOUT_MS);
-    const code = await new Promise<number | null>((resolve) => child.on("close", resolve));
-    clearTimeout(timer);
+    const { code, timedOut } = await waitForCodexClose(child, env.CODEX_EXEC_TIMEOUT_MS);
     const stdoutText = Buffer.concat(stdout).toString("utf8");
     const stderrText = Buffer.concat(stderr).toString("utf8");
     if (timedOut) {
@@ -115,6 +111,41 @@ async function runCodexExec(input: ChatExecutionRequest): Promise<CodexExecResul
   } finally {
     await rm(runDir, { recursive: true, force: true });
   }
+}
+
+function waitForCodexClose(
+  child: ChildProcess,
+  timeoutMs: number,
+): Promise<{ code: number | null; timedOut: boolean }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timedOut = false;
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (killTimer) clearTimeout(killTimer);
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      resolve({ code, timedOut });
+    };
+
+    child.once("close", (code) => finish(code));
+    timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => {
+        child.kill("SIGKILL");
+        fallbackTimer = setTimeout(() => finish(null), CODEX_EXEC_CLOSE_FALLBACK_MS);
+        fallbackTimer.unref?.();
+      }, CODEX_EXEC_KILL_GRACE_MS);
+      killTimer.unref?.();
+    }, timeoutMs);
+    timeoutTimer.unref?.();
+  });
 }
 
 function isCodexAuthError(message: string) {

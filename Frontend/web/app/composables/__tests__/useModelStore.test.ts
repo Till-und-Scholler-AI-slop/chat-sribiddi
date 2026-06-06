@@ -24,6 +24,14 @@ function installNuxtState() {
   const state = new Map<string, ReturnType<typeof ref>>()
   vi.stubGlobal('computed', computed)
   vi.stubGlobal('useRuntimeConfig', () => ({ public: { backendBaseUrl: '' } }))
+  vi.stubGlobal('useI18n', () => ({
+    t: (key: string, params?: Record<string, unknown>) => {
+      if (key === 'models.codexSubscriptionLabel') {
+        return `${params?.provider} ChatGPT/Codex: ${params?.model}`
+      }
+      return key
+    }
+  }))
   vi.stubGlobal('useState', (key: string, init: () => unknown) => {
     if (!state.has(key)) {
       state.set(key, ref(init()))
@@ -114,7 +122,7 @@ describe('useModelStore', () => {
     expect(resolveModelOption(openAiModel, [openRouterFreeModel])).toBeNull()
   })
 
-  it('adds ready OpenAI Codex subscription connection models', async () => {
+  it('adds ready OpenAI Codex subscription models from the CLI catalog', async () => {
     apiMock.fetchModels.mockResolvedValue([])
     apiMock.requestJson.mockResolvedValueOnce([
       {
@@ -130,7 +138,11 @@ describe('useModelStore', () => {
             status: 'READY',
             authMethod: 'SUBSCRIPTION_CLI',
             connectionProfileId: 'codex-subscription',
-            defaultModelId: 'gpt-5-codex'
+            defaultModelId: 'gpt-5.5',
+            availableModels: [
+              { id: 'gpt-5.5', label: 'GPT-5.5', description: 'Latest coding model' },
+              { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', description: null }
+            ]
           }
         ]
       }
@@ -142,9 +154,16 @@ describe('useModelStore', () => {
     expect(store.models.value).toContainEqual(expect.objectContaining({
       provider: 'openai',
       providerId: 'openai',
-      value: 'gpt-5-codex',
+      value: 'gpt-5.5',
+      label: 'OpenAI ChatGPT/Codex: GPT-5.5',
+      description: 'Latest coding model',
       connectionId: 42,
       availability: 'READY'
+    }))
+    expect(store.models.value).toContainEqual(expect.objectContaining({
+      value: 'gpt-5.4-mini',
+      label: 'OpenAI ChatGPT/Codex: GPT-5.4 Mini',
+      connectionId: 42
     }))
   })
 })
