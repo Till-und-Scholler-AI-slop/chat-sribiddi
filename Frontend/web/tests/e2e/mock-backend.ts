@@ -7,6 +7,21 @@ type MockBackendOptions = {
 const USER_SETTINGS_STORAGE_KEY = 'chat-sribiddi:user-settings:v2'
 const E2E_BACKEND_BASE_URL = 'http://127.0.0.1:8080'
 
+const providerParamToLegacyId = (providerId: string | null) => {
+  switch (providerId?.toLowerCase()) {
+    case 'anthropic':
+    case 'claude':
+      return 'CLAUDE'
+    case 'google':
+      return 'GOOGLE'
+    case 'openrouter':
+      return 'OPENROUTER'
+    case 'openai':
+    default:
+      return 'OPENAI'
+  }
+}
+
 const modelPayload = (provider: string) => [
   {
     id: provider === 'OPENROUTER' ? 'openrouter/free' : `${provider.toLowerCase()}-mock`,
@@ -116,6 +131,16 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
         favoriteModels: [],
         lastUsedModel: null
       })
+      return
+    }
+
+    if (path === '/providers') {
+      await fulfillJson(route, [])
+      return
+    }
+
+    if (path === '/models') {
+      await fulfillJson(route, modelPayload(providerParamToLegacyId(url.searchParams.get('provider'))))
       return
     }
 
