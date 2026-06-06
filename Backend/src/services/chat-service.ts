@@ -141,6 +141,7 @@ export class ChatService {
     const prepared = await this.prepareAuthenticatedCall(chatId, userId, request);
     const result = await this.ai.generate({
       provider: prepared.executionProvider,
+      userId,
       modelId: request.modelId,
       credential: prepared.credential,
       messages: prepared.promptMessages,
@@ -181,6 +182,7 @@ export class ChatService {
       try {
         const result = this.ai.stream({
           provider: prepared.executionProvider,
+          userId,
           modelId: request.modelId,
           credential: prepared.credential,
           messages: prepared.promptMessages,
@@ -252,6 +254,7 @@ export class ChatService {
       try {
         const result = this.ai.stream({
           provider: prepared.executionProvider,
+          userId,
           modelId: request.modelId,
           credential: prepared.credential,
           messages: prepared.promptMessages,
@@ -315,6 +318,7 @@ export class ChatService {
       try {
         const result = this.ai.stream({
           provider: "OPENROUTER",
+          userId: null,
           modelId: request.modelId,
           credential,
           messages: promptMessages,

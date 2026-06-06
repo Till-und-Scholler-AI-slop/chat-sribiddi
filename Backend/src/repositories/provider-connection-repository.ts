@@ -140,7 +140,7 @@ export class ProviderConnectionRepository {
       .deleteFrom("provider_connections")
       .where("user_id", "=", userId)
       .where("provider_id", "=", providerId)
-      .where("auth_method", "in", ["API_KEY", "OAUTH_PKCE", "OAUTH_AUTH_CODE"])
+      .where("auth_method", "in", ["API_KEY", "OAUTH_PKCE", "OAUTH_AUTH_CODE", "OPENAI_COMPATIBLE"])
       .execute();
   }
 
@@ -176,6 +176,9 @@ export type ProviderConnectionSecret = {
     label: string;
     description?: string | null;
   }>;
+  cliHomeDir?: string;
+  cliSessionId?: string;
+  cliBridge?: "grok-build";
 };
 
 export const connectionDefaultModelId = (row: ProviderConnectionRow) => row.provider_account_label;

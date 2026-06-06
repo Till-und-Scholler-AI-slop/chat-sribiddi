@@ -103,9 +103,11 @@ Provider execution:
   with OpenAI-compatible or local endpoint credentials execute through the AI
   SDK OpenAI-compatible adapter.
 - OpenRouter PKCE, Google provider OAuth, GitHub Copilot device code, and the
-  optional OpenAI `codex-subscription` device-code flow are the enabled
-  provider OAuth/device flows. The OpenAI subscription flow is not a normal
-  OpenAI API OAuth grant; it uses the Codex CLI ChatGPT login per user.
+  optional OpenAI `codex-subscription` and xAI `grok-build-subscription`
+  CLI/device flows are the enabled provider OAuth/device flows. The OpenAI
+  subscription flow is not a normal OpenAI API OAuth grant; it uses the Codex
+  CLI ChatGPT login per user. The xAI subscription flow uses the user's own
+  Grok Build session through the `grok` CLI bridge.
 - OpenAI `codex-subscription` is a hosted beta behind
   `OPENAI_CODEX_SUBSCRIPTION_ENABLED=false` by default. When enabled, the
   backend must have the `codex` CLI installed and must store every user's
@@ -120,6 +122,24 @@ Provider execution:
   Treat any `auth.json` files under `CODEX_CONNECTIONS_ROOT` like passwords and
   keep them out of logs, support bundles, and normal backups unless backups are
   encrypted as secrets.
+- xAI has two separate profiles. **API billing** uses the user's own xAI API key
+  against `https://api.x.ai/v1`. **Grok Build subscription** is an experimental
+  per-user CLI bridge; it is disabled unless `GROK_CLI_ENABLED=true`, the
+  official `grok` binary is installed, and `GROK_CLI_SESSIONS_DIR` points at a
+  private server-owned directory. The backend must never provide a shared xAI
+  subscription, shared Grok login, managed xAI API key, or fallback token for
+  this profile. Each user must complete the connection flow with their own xAI
+  account, and entitlement validation happens through that user's own Grok
+  Build session.
+- The Grok Build bridge must run with isolated per-user `HOME`, an isolated temp
+  `cwd`, no MCP servers, no terminal capability, no file-write capability,
+  deny-by-default permissions, bounded output, bounded request timeouts, and
+  one concurrent request per user by default. Do not point the bridge at the app
+  repo or mount production secrets into the Grok process environment.
+- Composer is not exposed through this bridge until official xAI/Grok Build or
+  ACP documentation confirms a stable model selection path. Do not add
+  third-party Composer model IDs, raw CLI token reuse, cookie reuse, or
+  unofficial Grok web endpoints.
 - Qwen portal and MiniMax portal are profile options under their base provider,
   not separate visible providers. They remain documented/experimental until a
   supported implementation exists.

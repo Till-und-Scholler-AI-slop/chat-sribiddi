@@ -64,8 +64,22 @@ function manualChunks(id: string): string | undefined {
     if (
         normalizedId.includes('/node_modules/shiki/')
         || normalizedId.includes('/node_modules/shiki-stream/')
-        || normalizedId.includes('/node_modules/@shikijs/')
     ) {
+        return 'markdown-highlight'
+    }
+
+    const shikiLanguage = normalizedId.match(
+        /\/node_modules\/@shikijs\/langs\/dist\/([^/.]+)\.mjs$/
+    )
+    if (shikiLanguage?.[1]) {
+        return `shiki-lang-${shikiLanguage[1]}`
+    }
+
+    if (normalizedId.includes('/node_modules/@shikijs/themes/')) {
+        return 'shiki-themes'
+    }
+
+    if (normalizedId.includes('/node_modules/@shikijs/')) {
         return 'markdown-highlight'
     }
 

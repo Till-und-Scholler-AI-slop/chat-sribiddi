@@ -1,4 +1,5 @@
-import type { ModelOption, Provider } from '~/composables/useChatApi'
+import type { ModelOption } from '~/composables/useChatApi'
+import type { Provider } from '~/utils/model-utils'
 import { PROVIDERS } from '~/utils/model-utils'
 
 export async function fetchAllProviderModels(

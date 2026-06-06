@@ -1,10 +1,10 @@
 import type { StreamEvent } from '~/composables/chat-stream'
 import type { ModelOption, TokenUsage } from '~/composables/useChatApi'
-import { isModelLocked, PROVIDERS, useChatApi } from '~/composables/useChatApi'
+import { useChatApi } from '~/composables/useChatApi'
 import { calculateMessageCost, resolveStreamOutcome } from '~/composables/chat-helpers'
 import { useUserSettings } from '~/composables/useUserSettings'
 import { chooseDefaultModel, resolveModelOption } from '~/composables/useModelStore'
-import { isAbortError } from '~/utils/model-utils'
+import { isAbortError, isModelLocked, PROVIDERS } from '~/utils/model-utils'
 import { fetchAllProviderModels } from '~/utils/model-fetch'
 
 export const COMPARE_MIN_PANELS = 2

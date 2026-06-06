@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { ModelOption, Provider } from '~/composables/useChatApi'
-import { isModelLocked } from '~/composables/useChatApi'
-import { formatRatePerMillion } from '~/composables/chat-helpers'
-import { PROVIDER_LABELS } from '~/utils/format'
+import type { ModelOption } from '~/composables/useChatApi'
+import type { Provider } from '~/utils/model-utils'
+import { formatRatePerMillion, PROVIDER_LABELS } from '~/utils/format'
+import { isModelLocked } from '~/utils/model-utils'
 
 const { t } = useI18n()
 const tt = useTranslatedError()

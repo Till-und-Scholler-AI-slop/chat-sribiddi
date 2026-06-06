@@ -44,9 +44,10 @@ src/
 - Native chat providers use the Vercel AI SDK packages.
 - OpenAI-compatible/local endpoint provider connections execute through the AI
   SDK OpenAI-compatible adapter.
-- OpenRouter PKCE and Google provider OAuth are implemented. Other cataloged
-  provider OAuth/device flows still need explicit implementation before they
-  should be advertised as enabled.
+- OpenRouter PKCE, Google provider OAuth, GitHub Copilot device code, and the
+  experimental per-user xAI Grok Build CLI bridge are implemented. The xAI
+  bridge must never use a backend-owned xAI subscription, API key, or shared
+  login; each user connects their own subscription.
 - Brave Search is user-key only. There is no managed server Brave key.
 - Calculator, current date/time, and URL fetcher are AI SDK model-side tools.
   Brave Search currently enriches the prompt and writes a tool-call log.

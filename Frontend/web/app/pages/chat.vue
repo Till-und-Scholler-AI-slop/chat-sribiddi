@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { ModelOption } from '~/composables/useChatApi'
-import { isModelLocked } from '~/composables/useChatApi'
-import { calculateMessageCost, estimatePreSendCost, formatCost, formatRatePerMillion } from '~/composables/chat-helpers'
-import { formatTokenCount, formatMimeType } from '~/utils/format'
+import { calculateMessageCost, estimatePreSendCost, formatCost } from '~/composables/chat-helpers'
+import { formatMimeType, formatRatePerMillion, formatTokenCount } from '~/utils/format'
+import { isModelLocked } from '~/utils/model-utils'
 
 const { t } = useI18n()
 const isMobile = useIsMobile()

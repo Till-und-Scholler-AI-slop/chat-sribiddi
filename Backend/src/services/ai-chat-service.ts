@@ -8,6 +8,7 @@ import type { Provider } from "../db/types.js";
 import { upstreamError } from "../errors/http-error.js";
 import { generateCodexExec, streamCodexExec } from "./codex-exec-runtime.js";
 import type { ResolvedCredential } from "./credential-access-service.js";
+import type { GrokCliBridge, GrokCliSession } from "./grok-cli-bridge-service.js";
 
 export type RuntimeOptions = {
   temperature?: number | null | undefined;
@@ -20,6 +21,7 @@ export type RuntimeOptions = {
 };
 
 export type ChatExecutionRequest = {
+  userId?: string | null | undefined;
   provider: Provider | string;
   modelId: string;
   credential: ResolvedCredential;
@@ -29,9 +31,14 @@ export type ChatExecutionRequest = {
 };
 
 export class AiChatService {
+  constructor(private readonly grokCli?: GrokCliBridge | undefined) {}
+
   stream(input: ChatExecutionRequest) {
     if (isOpenAiCodexSubscription(input)) {
       return streamCodexExec(input);
+    }
+    if (isGrokCliSubscription(input)) {
+      return streamGrokCliSubscription(input, this.grokCli);
     }
     if (isGoogleOAuth(input)) {
       return streamGoogleOAuth(input);
@@ -47,6 +54,9 @@ export class AiChatService {
   async generate(input: ChatExecutionRequest) {
     if (isOpenAiCodexSubscription(input)) {
       return generateCodexExec(input);
+    }
+    if (isGrokCliSubscription(input)) {
+      return generateGrokCliSubscription(input, this.grokCli);
     }
     if (isGoogleOAuth(input)) {
       return generateGoogleOAuth(input);
@@ -65,6 +75,51 @@ function isOpenAiCodexSubscription(input: ChatExecutionRequest) {
     (input.provider === "OPENAI" || input.provider === "openai") &&
     input.credential.connection?.authMethod === "SUBSCRIPTION_CLI"
   );
+}
+
+function isGrokCliSubscription(input: ChatExecutionRequest) {
+  return input.provider === "xai" && input.credential.connection?.authMethod === "SUBSCRIPTION_CLI";
+}
+
+async function generateGrokCliSubscription(
+  input: ChatExecutionRequest,
+  bridge: GrokCliBridge | undefined,
+) {
+  if (!bridge) throw upstreamError("Grok Build subscription bridge is not configured");
+  if (!input.userId?.trim()) throw upstreamError("Grok subscription request is missing user scope");
+  const session = grokCliSession(input);
+  return bridge.generate({
+    userId: input.userId,
+    session,
+    modelId: input.modelId,
+    messages: input.messages,
+  });
+}
+
+function streamGrokCliSubscription(input: ChatExecutionRequest, bridge: GrokCliBridge | undefined) {
+  const result = generateGrokCliSubscription(input, bridge);
+  return {
+    textStream: (async function* () {
+      yield (await result).text;
+    })(),
+    usage: result.then((value) => value.usage),
+  };
+}
+
+function grokCliSession(input: ChatExecutionRequest): GrokCliSession {
+  const connection = input.credential.connection;
+  if (
+    !connection?.cliHomeDir?.trim() ||
+    !connection.cliSessionId?.trim() ||
+    connection.cliBridge !== "grok-build"
+  ) {
+    throw upstreamError("Grok subscription connection is incomplete");
+  }
+  return {
+    cliHomeDir: connection.cliHomeDir,
+    cliSessionId: connection.cliSessionId,
+    modelId: connection.modelId?.trim() || input.modelId,
+  };
 }
 
 function isGoogleOAuth(input: ChatExecutionRequest) {

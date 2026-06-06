@@ -285,6 +285,7 @@ function profileConnectMode(profile: ProviderConnectionProfile | undefined) {
   if (!profile) return 'FORM'
   if (profile.connectMode) return profile.connectMode
   if (profile.authMethod === 'DEVICE_CODE') return 'DEVICE_CODE'
+  if (profile.authMethod === 'SUBSCRIPTION_CLI') return 'DEVICE_CODE'
   if (profile.oauthEnabled) return 'REDIRECT'
   return 'FORM'
 }
@@ -300,6 +301,10 @@ function isDeviceCodeProfile(profile: ProviderConnectionProfile | undefined) {
 
 function isCliDeviceCodeProfile(profile: ProviderConnectionProfile | undefined) {
   return profileConnectMode(profile) === 'CLI_DEVICE_CODE'
+}
+
+function isSubscriptionCliProfile(profile: ProviderConnectionProfile | undefined) {
+  return profile?.authMethod === 'SUBSCRIPTION_CLI'
 }
 
 function isConnectableProfile(profile: ProviderConnectionProfile | undefined) {
@@ -801,7 +806,11 @@ function startChatting() {
         <div v-else-if="isDeviceCodeProfile(currentProfile)" class="flex gap-3 rounded-xl border border-gray-200 bg-white/45 p-4 dark:border-gray-800 dark:bg-gray-900/35">
           <UIcon name="i-heroicons-device-phone-mobile" class="mt-0.5 size-5 shrink-0 text-gray-500" />
           <p class="text-sm leading-relaxed text-gray-600 dark:text-gray-300">
-            {{ isCliDeviceCodeProfile(currentProfile) ? t('settings.setup.codexDeviceCodeHint') : t('settings.setup.deviceCodeHint') }}
+            {{ isCliDeviceCodeProfile(currentProfile)
+              ? t('settings.setup.codexDeviceCodeHint')
+              : isSubscriptionCliProfile(currentProfile)
+                ? t('settings.setup.subscriptionCliHint')
+                : t('settings.setup.deviceCodeHint') }}
           </p>
         </div>
 

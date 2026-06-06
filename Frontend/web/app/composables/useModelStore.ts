@@ -1,6 +1,6 @@
 import type { ModelOption } from '~/composables/useChatApi'
-import { PROVIDERS, useChatApi } from '~/composables/useChatApi'
-import { favoriteModelKey } from '~/utils/model-utils'
+import { useChatApi } from '~/composables/useChatApi'
+import { favoriteModelKey, PROVIDERS } from '~/utils/model-utils'
 import { fetchAllProviderModels } from '~/utils/model-fetch'
 import { useUserSettings } from '~/composables/useUserSettings'
 import { useKeyApi } from '~/composables/useKeyApi'
@@ -38,6 +38,58 @@ export function chooseDefaultModel(
     selectable[0] ||
     null
   )
+}
+
+export type GatewayProviderModelSource = {
+  id: string
+  label: string
+  execution: string
+  chatProvider: boolean
+  experimental: boolean
+  connections: Array<{
+    id: number
+    status: string
+    authMethod?: string
+    connectionProfileId?: string | null
+    defaultModelId?: string | null
+    availableModels?: Array<{
+      id: string
+      label: string
+      description?: string | null
+    }>
+  }>
+}
+
+type ModelLabelTranslator = (key: string, params?: Record<string, unknown>) => string
+
+export function gatewayModelsFromProviders(
+  providers: GatewayProviderModelSource[],
+  t?: ModelLabelTranslator
+): ModelOption[] {
+  return providers.flatMap(provider => {
+    if (!provider.chatProvider) {
+      return []
+    }
+    if (provider.id === 'openai' && t) return loadCodexSubscriptionModels(provider, t)
+    if (provider.execution !== 'gateway' || provider.experimental) return []
+    return provider.connections
+      .filter(connection => connection.status === 'READY' && !!connection.defaultModelId?.trim())
+      .map(connection => {
+        const modelId = connection.defaultModelId!.trim()
+        return {
+          label: t
+            ? t('models.gatewayConnectionLabel', { provider: provider.label, model: modelId })
+            : `${provider.label}: ${modelId}`,
+          value: modelId,
+          provider: provider.id,
+          providerId: provider.id,
+          availability: 'READY' as const,
+          canonicalSlug: `${provider.id}/${modelId}`,
+          description: null,
+          connectionId: connection.id
+        } satisfies ModelOption
+      })
+  })
 }
 
 export function useModelStore() {
@@ -141,52 +193,12 @@ export function useModelStore() {
 }
 
 async function loadGatewayModels(
-  getProviders: () => Promise<Array<{
-    id: string
-    label: string
-    execution: string
-    chatProvider: boolean
-    experimental: boolean
-    status: string
-    connections: Array<{
-      id: number
-      status: string
-      authMethod?: string
-      connectionProfileId?: string | null
-      defaultModelId?: string | null
-      availableModels?: Array<{
-        id: string
-        label: string
-        description?: string | null
-      }>
-    }>
-  }>>,
-  t: (key: string, params?: Record<string, unknown>) => string
+  getProviders: () => Promise<GatewayProviderModelSource[]>,
+  t: ModelLabelTranslator
 ): Promise<ModelOption[]> {
   try {
     const providers = await getProviders()
-    return providers.flatMap(provider => {
-      if (!provider.chatProvider) {
-        return []
-      }
-      if (provider.id === 'openai') return loadCodexSubscriptionModels(provider, t)
-      if (provider.execution !== 'gateway' || provider.experimental) return []
-      return provider.connections
-        .filter(connection => connection.status === 'READY' && !!connection.defaultModelId?.trim())
-        .map(connection => {
-          const modelId = connection.defaultModelId!.trim()
-          return {
-            label: `${provider.label}: ${modelId}`,
-            value: modelId,
-            provider: provider.id,
-            providerId: provider.id,
-            availability: 'READY' as const,
-            canonicalSlug: `${provider.id}/${modelId}`,
-            description: null,
-            connectionId: connection.id
-          } satisfies ModelOption
-        })
-    })
+    return gatewayModelsFromProviders(providers, t)
   } catch (err) {
     console.warn('Unable to load gateway provider models', err)
     return []

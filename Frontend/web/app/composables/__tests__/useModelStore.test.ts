@@ -1,17 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
-import type { ModelOption, Provider } from '../useChatApi'
-import { chooseDefaultModel, resolveModelOption, useModelStore } from '../useModelStore'
+import type { ModelOption } from '../useChatApi'
+import type { Provider } from '../../utils/model-utils'
+import {
+  chooseDefaultModel,
+  gatewayModelsFromProviders,
+  resolveModelOption,
+  useModelStore
+} from '../useModelStore'
 
 const apiMock = vi.hoisted(() => ({
   fetchModels: vi.fn(),
   requestJson: vi.fn()
 }))
 
+const keyApiMock = vi.hoisted(() => ({
+  getProviders: vi.fn()
+}))
+
 vi.mock('~/composables/useChatApi', () => ({
   DEFAULT_BACKEND_BASE_URL: 'http://localhost:8080',
   PROVIDERS: ['OPENAI', 'GOOGLE', 'CLAUDE', 'OPENROUTER'],
   useChatApi: () => apiMock
+}))
+
+vi.mock('~/composables/useKeyApi', () => ({
+  useKeyApi: () => keyApiMock
 }))
 
 const makeModel = (provider: Provider, value: string, label: string): ModelOption => ({
@@ -52,8 +66,8 @@ describe('useModelStore', () => {
   beforeEach(() => {
     installNuxtState()
     apiMock.fetchModels.mockReset()
-    apiMock.requestJson.mockReset()
-    apiMock.requestJson.mockResolvedValue([])
+    keyApiMock.getProviders.mockReset()
+    keyApiMock.getProviders.mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -117,6 +131,111 @@ describe('useModelStore', () => {
     ).toEqual(openRouterFreeModel)
   })
 
+  it('maps ready gateway models from per-user provider connections', () => {
+    expect(gatewayModelsFromProviders([
+      {
+        id: 'xai',
+        label: 'xAI',
+        execution: 'gateway',
+        chatProvider: true,
+        experimental: false,
+        connections: [
+          {
+            id: 42,
+            status: 'READY',
+            defaultModelId: 'grok-build'
+          }
+        ]
+      },
+      {
+        id: 'experimental-provider',
+        label: 'Experimental',
+        execution: 'gateway',
+        chatProvider: true,
+        experimental: true,
+        connections: [
+          {
+            id: 99,
+            status: 'READY',
+            defaultModelId: 'hidden-model'
+          }
+        ]
+      }
+    ])).toEqual([
+      {
+        label: 'xAI: grok-build',
+        value: 'grok-build',
+        provider: 'xai',
+        providerId: 'xai',
+        availability: 'READY',
+        canonicalSlug: 'xai/grok-build',
+        description: null,
+        connectionId: 42
+      }
+    ])
+  })
+
+  it('omits non-ready and experimental gateway provider models', () => {
+    expect(gatewayModelsFromProviders([
+      {
+        id: 'xai',
+        label: 'xAI',
+        execution: 'gateway',
+        chatProvider: true,
+        experimental: false,
+        connections: [
+          {
+            id: 42,
+            status: 'PENDING',
+            defaultModelId: 'grok-build'
+          }
+        ]
+      },
+      {
+        id: 'experimental-provider',
+        label: 'Experimental',
+        execution: 'gateway',
+        chatProvider: true,
+        experimental: true,
+        connections: [
+          {
+            id: 99,
+            status: 'READY',
+            defaultModelId: 'hidden-model'
+          }
+        ]
+      }
+    ])).toEqual([])
+  })
+
+  it('trims ready gateway connection model IDs', () => {
+    expect(gatewayModelsFromProviders([
+      {
+        id: 'xai',
+        label: 'xAI',
+        execution: 'gateway',
+        chatProvider: true,
+        experimental: false,
+        connections: [
+          {
+            id: 42,
+            status: 'READY',
+            defaultModelId: ' grok-build '
+          }
+        ]
+      }
+    ])).toEqual([{
+      label: 'xAI: grok-build',
+      value: 'grok-build',
+      provider: 'xai',
+      providerId: 'xai',
+      availability: 'READY',
+      canonicalSlug: 'xai/grok-build',
+      description: null,
+      connectionId: 42
+    }])
+  })
+
   it('ignores stale saved models that are not in the current allowed catalog', () => {
     expect(chooseDefaultModel([openRouterFreeModel], openAiModel)).toEqual(openRouterFreeModel)
     expect(resolveModelOption(openAiModel, [openRouterFreeModel])).toBeNull()
@@ -124,7 +243,7 @@ describe('useModelStore', () => {
 
   it('adds ready OpenAI Codex subscription models from the CLI catalog', async () => {
     apiMock.fetchModels.mockResolvedValue([])
-    apiMock.requestJson.mockResolvedValueOnce([
+    keyApiMock.getProviders.mockResolvedValueOnce([
       {
         id: 'openai',
         label: 'OpenAI',

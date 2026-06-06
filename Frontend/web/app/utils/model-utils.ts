@@ -1,6 +1,7 @@
-import type { ModelOption, Provider } from '~/composables/useChatApi'
+import type { ModelOption } from '~/composables/useChatApi'
 
 export const PROVIDERS = ['OPENAI', 'GOOGLE', 'CLAUDE', 'OPENROUTER'] as const
+export type Provider = (typeof PROVIDERS)[number]
 
 export const PROVIDER_IDS: Record<Provider, string> = {
   OPENAI: 'openai',

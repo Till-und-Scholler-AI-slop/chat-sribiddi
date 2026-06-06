@@ -1,8 +1,6 @@
 import type { ChatStatus, UIMessage } from 'ai'
 import type { SendMessageResponse, TokenUsage, ToolCallLog } from '~/composables/useChatApi'
 
-export { favoriteModelKey } from '~/utils/model-utils'
-
 export const messageId = () =>
   globalThis.crypto?.randomUUID?.() ||
   `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -226,19 +224,6 @@ export function formatCost(cost: number): string {
   if (cost < 0.0001) return `$${cost.toExponential(1)}`
   if (cost < 0.01) return `$${cost.toFixed(4)}`
   return `$${cost.toFixed(2)}`
-}
-
-/**
- * Formats a per-token price string (from OpenRouter API) into a human-readable
- * rate per 1M tokens. Returns null when the input is missing or not a number.
- */
-export function formatRatePerMillion(priceStr: string | null | undefined): string | null {
-  if (!priceStr) return null
-  const rate = Number(priceStr)
-  if (Number.isNaN(rate)) return null
-  if (rate === 0) return '$0'
-  const perMillion = rate * 1_000_000
-  return perMillion >= 1 ? `$${perMillion.toFixed(2)}` : `$${perMillion.toFixed(4)}`
 }
 
 export function parsePersistedMessageId(id: string | undefined): number | null {

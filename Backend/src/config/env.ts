@@ -119,6 +119,14 @@ const envSchema = z.object({
   CODEX_CONNECTIONS_ROOT: z.string().default(join(tmpdir(), "chat-sribiddi-codex-connections")),
   CODEX_DEVICE_AUTH_START_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   CODEX_EXEC_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  GROK_CLI_ENABLED: z.coerce.boolean().default(false),
+  GROK_CLI_BIN: z.string().default("grok"),
+  GROK_CLI_SESSIONS_DIR: z.string().default("/tmp/chat-sribiddi-grok-sessions"),
+  GROK_CLI_LOGIN_PROMPT_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  GROK_CLI_LOGIN_TOTAL_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  GROK_CLI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+  GROK_CLI_MAX_OUTPUT_BYTES: z.coerce.number().int().positive().default(1_048_576),
+  GROK_CLI_MAX_CONCURRENT_PER_USER: z.coerce.number().int().positive().default(1),
 });
 
 const raw = envSchema.parse(process.env);

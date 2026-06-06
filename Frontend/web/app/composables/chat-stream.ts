@@ -1,4 +1,4 @@
-import type { Provider } from '~/composables/useChatApi'
+import type { Provider } from '~/utils/model-utils'
 
 export type StreamEvent = {
   type: 'text' | 'reasoning' | 'done' | 'error'
