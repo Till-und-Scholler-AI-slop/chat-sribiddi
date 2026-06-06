@@ -10,10 +10,7 @@ import {
 import { hasText, legacyToProviderId } from "../utils/strings.js";
 import { toIso } from "../utils/time.js";
 import type { CryptoService } from "./crypto-service.js";
-import {
-  GrokCliUnavailableError,
-  type GrokCliBridge,
-} from "./grok-cli-bridge-service.js";
+import { type GrokCliBridge, GrokCliUnavailableError } from "./grok-cli-bridge-service.js";
 import type {
   ProviderAuthMethod,
   ProviderCatalogService,

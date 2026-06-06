@@ -1,8 +1,8 @@
+import { type ChildProcessWithoutNullStreams, spawn as nodeSpawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type ChildProcessWithoutNullStreams, spawn as nodeSpawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { ModelMessage } from "ai";
 import { env } from "../config/env.js";
@@ -104,11 +104,15 @@ export class GrokCliBridgeService implements GrokCliBridge {
     const homeDir = await this.userHomeDir(userId);
     const workspaceDir = join(homeDir, "workspace");
     await ensurePrivateDir(workspaceDir);
-    const child = this.spawnProcess(env.GROK_CLI_BIN, ["--no-auto-update", "login", "--device-auth"], {
-      cwd: workspaceDir,
-      env: safeProcessEnv(homeDir),
-      stdio: "pipe",
-    });
+    const child = this.spawnProcess(
+      env.GROK_CLI_BIN,
+      ["--no-auto-update", "login", "--device-auth"],
+      {
+        cwd: workspaceDir,
+        env: safeProcessEnv(homeDir),
+        stdio: "pipe",
+      },
+    );
     const pending: PendingLogin = {
       loginId,
       userId,
@@ -131,10 +135,14 @@ export class GrokCliBridgeService implements GrokCliBridge {
     child.once("exit", (code, signal) => {
       pending.exitCode = code;
       pending.signal = signal;
+      if (this.pendingLogins.get(loginId) === pending && Date.now() > pending.expiresAt) {
+        this.pendingLogins.delete(loginId);
+      }
     });
     setTimeout(() => {
-      if (this.pendingLogins.get(loginId) === pending && pending.exitCode == null) {
-        pending.child.kill("SIGTERM");
+      if (this.pendingLogins.get(loginId) === pending) {
+        this.pendingLogins.delete(loginId);
+        if (pending.exitCode == null) pending.child.kill("SIGTERM");
       }
     }, env.GROK_CLI_LOGIN_TOTAL_TIMEOUT_MS).unref();
 
@@ -380,6 +388,7 @@ export class GrokCliBridgeService implements GrokCliBridge {
   }
 
   private async userHomeDir(userId: string) {
+    await ensurePrivateDir(env.GROK_CLI_SESSIONS_DIR);
     const homeDir = join(env.GROK_CLI_SESSIONS_DIR, sha256(userId));
     await ensurePrivateDir(homeDir);
     await ensurePrivateDir(join(homeDir, ".config"));
@@ -436,6 +445,11 @@ function safeProxyEnv(value: string | undefined) {
 
 async function ensurePrivateDir(path: string) {
   await mkdir(path, { recursive: true, mode: 0o700 });
+  const info = await stat(path);
+  if (!info.isDirectory()) throw upstreamError(`${path} is not a directory`);
+  if ((info.mode & 0o777) !== 0o700) {
+    await chmod(path, 0o700);
+  }
 }
 
 function appendOutput(pending: PendingLogin, chunk: Buffer | string) {

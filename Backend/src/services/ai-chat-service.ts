@@ -64,10 +64,7 @@ export class AiChatService {
 }
 
 function isGrokCliSubscription(input: ChatExecutionRequest) {
-  return (
-    input.provider === "xai" &&
-    input.credential.connection?.authMethod === "SUBSCRIPTION_CLI"
-  );
+  return input.provider === "xai" && input.credential.connection?.authMethod === "SUBSCRIPTION_CLI";
 }
 
 async function generateGrokCliSubscription(
@@ -85,10 +82,7 @@ async function generateGrokCliSubscription(
   });
 }
 
-function streamGrokCliSubscription(
-  input: ChatExecutionRequest,
-  bridge: GrokCliBridge | undefined,
-) {
+function streamGrokCliSubscription(input: ChatExecutionRequest, bridge: GrokCliBridge | undefined) {
   const result = generateGrokCliSubscription(input, bridge);
   return {
     textStream: (async function* () {

@@ -140,12 +140,7 @@ export class ProviderConnectionRepository {
       .deleteFrom("provider_connections")
       .where("user_id", "=", userId)
       .where("provider_id", "=", providerId)
-      .where("auth_method", "in", [
-        "API_KEY",
-        "OAUTH_PKCE",
-        "OAUTH_AUTH_CODE",
-        "OPENAI_COMPATIBLE",
-      ])
+      .where("auth_method", "in", ["API_KEY", "OAUTH_PKCE", "OAUTH_AUTH_CODE", "OPENAI_COMPATIBLE"])
       .execute();
   }
 
