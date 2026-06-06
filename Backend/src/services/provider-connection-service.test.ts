@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { env } from "../config/env.js";
 import type { ProviderConnectionRow } from "../db/types.js";
 import { CryptoService } from "./crypto-service.js";
+import type { GrokCliBridge } from "./grok-cli-bridge-service.js";
 import { ProviderCatalogService } from "./provider-catalog-service.js";
 import { ProviderConnectionService } from "./provider-connection-service.js";
 
@@ -28,6 +29,21 @@ describe("ProviderConnectionService", () => {
           id: "openrouter-oauth",
           authMethod: "OAUTH_PKCE",
           oauthEnabled: true,
+        }),
+      ]),
+    );
+    expect(catalog.find("xai")?.connectionProfiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "api",
+          authMethod: "OPENAI_COMPATIBLE",
+          requiresApiKey: true,
+        }),
+        expect.objectContaining({
+          id: "grok-build-subscription",
+          authMethod: "SUBSCRIPTION_CLI",
+          oauthEnabled: true,
+          status: "EXPERIMENTAL",
         }),
       ]),
     );
@@ -217,6 +233,141 @@ describe("ProviderConnectionService", () => {
     }
   });
 
+  it("keeps xAI Grok subscription unavailable when the bridge is not configured", async () => {
+    const crypto = new CryptoService(secret, 1);
+    const rows: ProviderConnectionRow[] = [];
+    const service = new ProviderConnectionService(
+      fakeRepository(rows, crypto) as never,
+      new ProviderCatalogService(),
+      crypto,
+    );
+
+    const start = await service.startConnection(
+      "user-1",
+      "xai",
+      "SUBSCRIPTION_CLI",
+      "grok-build-subscription",
+      "https://germinai.de/provider-connections/xai/callback",
+    );
+
+    expect(start).toMatchObject({
+      mode: "UNAVAILABLE",
+      authMethod: "SUBSCRIPTION_CLI",
+      connectionProfileId: "grok-build-subscription",
+    });
+    expect(rows).toHaveLength(0);
+  });
+
+  it("rejects backend-stored credentials for the xAI Grok subscription profile", async () => {
+    const crypto = new CryptoService(secret, 1);
+    const rows: ProviderConnectionRow[] = [];
+    const service = new ProviderConnectionService(
+      fakeRepository(rows, crypto) as never,
+      new ProviderCatalogService(),
+      crypto,
+    );
+
+    await expect(
+      service.saveCredential("user-1", "xai", {
+        connectionProfileId: "grok-build-subscription",
+        authMethod: "SUBSCRIPTION_CLI",
+        apiKey: "sk-xai-backend-owned",
+      }),
+    ).rejects.toThrow("SUBSCRIPTION_CLI connections must use the dedicated connection flow");
+    await expect(
+      service.completeDeviceConnection("user-1", "xai", {
+        deviceCode: "xai-login-1",
+        connectionProfileId: "api",
+      }),
+    ).rejects.toThrow("Connection profile api does not support SUBSCRIPTION_CLI");
+    expect(rows).toHaveLength(0);
+  });
+
+  it("stores xAI Grok subscription sessions only after per-user device login", async () => {
+    const crypto = new CryptoService(secret, 1);
+    const rows: ProviderConnectionRow[] = [];
+    const bridge: GrokCliBridge = {
+      startDeviceLogin: vi.fn(async () => ({
+        mode: "DEVICE_CODE" as const,
+        loginId: "xai-login-1",
+        userCode: "XAI-1234",
+        verificationUri: "https://auth.x.ai/device",
+        verificationUriComplete: "https://auth.x.ai/device?user_code=XAI-1234",
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        intervalSeconds: 5,
+      })),
+      pollDeviceLogin: vi
+        .fn()
+        .mockResolvedValueOnce({
+          mode: "PENDING",
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          intervalSeconds: 5,
+          message: "Waiting for xAI account authorization.",
+        })
+        .mockResolvedValueOnce({
+          mode: "READY",
+          accountLabel: "Grok Build subscription",
+          session: {
+            cliHomeDir: "/private/grok/user-1",
+            cliSessionId: "xai-login-1",
+            modelId: "grok-build",
+          },
+        }),
+      generate: vi.fn(async () => ({ text: "OK", usage: null })),
+    };
+    const service = new ProviderConnectionService(
+      fakeRepository(rows, crypto) as never,
+      new ProviderCatalogService(),
+      crypto,
+      bridge,
+    );
+
+    const start = await service.startConnection(
+      "user-1",
+      "xai",
+      "SUBSCRIPTION_CLI",
+      "grok-build-subscription",
+      "https://germinai.de/provider-connections/xai/callback",
+    );
+
+    expect(start).toMatchObject({
+      mode: "DEVICE_CODE",
+      deviceCode: "xai-login-1",
+      userCode: "XAI-1234",
+      connectionProfileId: "grok-build-subscription",
+    });
+
+    const pending = await service.completeDeviceConnection("user-1", "xai", {
+      deviceCode: "xai-login-1",
+      connectionProfileId: "grok-build-subscription",
+    });
+    expect(pending.mode).toBe("PENDING");
+    expect(rows).toHaveLength(0);
+
+    const ready = await service.completeDeviceConnection("user-1", "xai", {
+      deviceCode: "xai-login-1",
+      connectionProfileId: "grok-build-subscription",
+    });
+    expect(ready.mode).toBe("READY");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      provider_id: "xai",
+      connection_profile_id: "grok-build-subscription",
+      auth_method: "SUBSCRIPTION_CLI",
+      provider_account_label: "grok-build",
+    });
+    await expect(service.getApiKey("user-1", "xai")).resolves.toBeNull();
+    const resolved = await service.resolveReadyConnection("user-1", "xai");
+    expect(resolved).toMatchObject({
+      providerId: "xai",
+      authMethod: "SUBSCRIPTION_CLI",
+      cliHomeDir: "/private/grok/user-1",
+      cliSessionId: "xai-login-1",
+      cliBridge: "grok-build",
+      modelId: "grok-build",
+    });
+  });
+
   it("reads migrated provider connection secrets that decrypt to a raw legacy key", async () => {
     const crypto = new CryptoService(secret, 1);
     const rows = [
@@ -327,7 +478,9 @@ function fakeRepository(rows: ProviderConnectionRow[], crypto: CryptoService) {
         if (
           row?.user_id === userId &&
           row.provider_id === providerId &&
-          ["API_KEY", "OAUTH_PKCE", "OAUTH_AUTH_CODE"].includes(row.auth_method)
+          ["API_KEY", "OAUTH_PKCE", "OAUTH_AUTH_CODE", "OPENAI_COMPATIBLE"].includes(
+            row.auth_method,
+          )
         ) {
           rows.splice(index, 1);
         }

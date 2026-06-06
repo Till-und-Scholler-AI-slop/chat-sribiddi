@@ -10,6 +10,10 @@ import {
 import { hasText, legacyToProviderId } from "../utils/strings.js";
 import { toIso } from "../utils/time.js";
 import type { CryptoService } from "./crypto-service.js";
+import {
+  GrokCliUnavailableError,
+  type GrokCliBridge,
+} from "./grok-cli-bridge-service.js";
 import type {
   ProviderAuthMethod,
   ProviderCatalogService,
@@ -17,6 +21,12 @@ import type {
 } from "./provider-catalog-service.js";
 
 const API_KEY_COMPATIBLE_METHODS = ["API_KEY", "OAUTH_PKCE", "OPENAI_COMPATIBLE"];
+const CREDENTIAL_SAVE_METHODS: ProviderAuthMethod[] = [
+  "API_KEY",
+  "OPENAI_COMPATIBLE",
+  "LOCAL_ENDPOINT",
+  "CUSTOM_HTTP",
+];
 const TOKEN_REFRESH_SKEW_MS = 2 * 60_000;
 const GITHUB_DEVICE_POLL_SLOW_DOWN_SECONDS = 5;
 
@@ -37,6 +47,9 @@ export type ResolvedProviderConnection = {
   quotaProjectId?: string | null | undefined;
   tokenExpiresAt?: Date | null | undefined;
   scopes?: string[] | undefined;
+  cliHomeDir?: string | null | undefined;
+  cliSessionId?: string | null | undefined;
+  cliBridge?: "grok-build" | null | undefined;
 };
 
 type PendingOAuthState = {
@@ -96,6 +109,7 @@ export class ProviderConnectionService {
     private readonly repository: ProviderConnectionRepository,
     private readonly providerCatalog: ProviderCatalogService,
     private readonly crypto: CryptoService,
+    private readonly grokCli?: GrokCliBridge | undefined,
   ) {}
 
   async listConnections(userId: string) {
@@ -175,6 +189,9 @@ export class ProviderConnectionService {
       payload.baseUrl,
     );
     const authMethod = connectionProfile.authMethod;
+    if (!CREDENTIAL_SAVE_METHODS.includes(authMethod)) {
+      throw badRequest(`${authMethod} connections must use the dedicated connection flow`);
+    }
 
     const secret: ProviderConnectionSecret = {};
     if (hasText(payload.apiKey)) secret.apiKey = payload.apiKey.trim();
@@ -263,6 +280,9 @@ export class ProviderConnectionService {
       quotaProjectId: secret.quotaProjectId ?? null,
       tokenExpiresAt: ready.token_expires_at ?? null,
       scopes: scopesFrom(secret.scopes, ready.scopes),
+      cliHomeDir: secret.cliHomeDir ?? null,
+      cliSessionId: secret.cliSessionId ?? null,
+      cliBridge: secret.cliBridge ?? null,
     } satisfies ResolvedProviderConnection;
   }
 
@@ -306,6 +326,9 @@ export class ProviderConnectionService {
     }
     if (provider.id === "github-copilot" && method === "DEVICE_CODE") {
       return this.startGitHubDeviceFlow(userId, connectionProfile);
+    }
+    if (provider.id === "xai" && method === "SUBSCRIPTION_CLI") {
+      return this.startXaiGrokSubscriptionFlow(userId, connectionProfile);
     }
     return {
       mode: "UNAVAILABLE",
@@ -408,6 +431,14 @@ export class ProviderConnectionService {
   ) {
     const provider = this.providerCatalog.find(providerIdRaw);
     if (!provider) throw badRequest(`Unknown provider: ${providerIdRaw}`);
+    if (provider.id === "xai") {
+      return this.completeXaiGrokSubscriptionConnection(
+        userId,
+        provider.id,
+        provider.connectionProfiles,
+        payload,
+      );
+    }
     if (provider.id !== "github-copilot") {
       throw badRequest("Device-code flow is not enabled for this provider");
     }
@@ -692,6 +723,126 @@ export class ProviderConnectionService {
     };
   }
 
+  private async startXaiGrokSubscriptionFlow(
+    userId: string,
+    connectionProfile: ProviderConnectionProfile,
+  ) {
+    if (!this.grokCli) {
+      return {
+        mode: "UNAVAILABLE",
+        authorizationUrl: null,
+        state: null,
+        expiresAt: null,
+        authMethod: connectionProfile.authMethod,
+        connectionProfileId: connectionProfile.id,
+        message: "Grok Build subscription bridge is not configured.",
+      };
+    }
+    try {
+      const login = await this.grokCli.startDeviceLogin(userId);
+      return {
+        mode: "DEVICE_CODE",
+        authorizationUrl: login.verificationUriComplete ?? login.verificationUri,
+        state: null,
+        expiresAt: login.expiresAt,
+        authMethod: connectionProfile.authMethod,
+        connectionProfileId: connectionProfile.id,
+        deviceCode: login.loginId,
+        userCode: login.userCode,
+        verificationUri: login.verificationUri,
+        verificationUriComplete: login.verificationUriComplete,
+        intervalSeconds: login.intervalSeconds,
+        message: null,
+      };
+    } catch (error) {
+      if (error instanceof GrokCliUnavailableError) {
+        return {
+          mode: "UNAVAILABLE",
+          authorizationUrl: null,
+          state: null,
+          expiresAt: null,
+          authMethod: connectionProfile.authMethod,
+          connectionProfileId: connectionProfile.id,
+          message: error.message,
+        };
+      }
+      throw error;
+    }
+  }
+
+  private async completeXaiGrokSubscriptionConnection(
+    userId: string,
+    providerId: string,
+    profiles: ProviderConnectionProfile[],
+    payload: {
+      deviceCode?: string | null | undefined;
+      connectionProfileId?: string | null | undefined;
+    },
+  ) {
+    const connectionProfile = connectionProfileForExactAuth(
+      profiles,
+      payload.connectionProfileId,
+      "SUBSCRIPTION_CLI",
+    );
+    const connectionProfileId = connectionProfile.id;
+    if (!this.grokCli) {
+      return {
+        mode: "UNAVAILABLE",
+        authMethod: "SUBSCRIPTION_CLI" as const,
+        connectionProfileId,
+        message: "Grok Build subscription bridge is not configured.",
+      };
+    }
+    if (!hasText(payload.deviceCode)) {
+      throw badRequest("Missing device code");
+    }
+    try {
+      const result = await this.grokCli.pollDeviceLogin(userId, payload.deviceCode.trim());
+      if (result.mode === "PENDING") {
+        return {
+          mode: "PENDING",
+          authMethod: "SUBSCRIPTION_CLI" as const,
+          connectionProfileId,
+          expiresAt: result.expiresAt,
+          intervalSeconds: result.intervalSeconds,
+          message: result.message,
+        };
+      }
+      const connection = await this.saveSecret({
+        userId,
+        providerId,
+        connectionProfileId,
+        authMethod: "SUBSCRIPTION_CLI",
+        status: "READY",
+        displayName: result.accountLabel,
+        defaultModelId: result.session.modelId,
+        secret: {
+          cliHomeDir: result.session.cliHomeDir,
+          cliSessionId: result.session.cliSessionId,
+          cliBridge: "grok-build",
+          modelId: result.session.modelId,
+        },
+      });
+      return {
+        mode: "READY",
+        authMethod: "SUBSCRIPTION_CLI" as const,
+        connectionProfileId,
+        connection,
+        message: null,
+      };
+    } catch (error) {
+      if (error instanceof GrokCliUnavailableError) {
+        return {
+          mode: "UNAVAILABLE",
+          authMethod: "SUBSCRIPTION_CLI" as const,
+          connectionProfileId,
+          message: error.message,
+        };
+      }
+      throw error;
+    }
+  }
+
   private consumeOAuthState(userId: string, providerId: string, state: string) {
     const pending = this.oauthStates.get(state);
     this.oauthStates.delete(state);
@@ -882,6 +1033,18 @@ function connectionProfileForAuth(
   requested: ProviderAuthMethod | null | undefined,
 ): ProviderConnectionProfile {
   return credentialProfile(profiles, requestedProfileId, requested, null);
+}
+
+function connectionProfileForExactAuth(
+  profiles: ProviderConnectionProfile[],
+  requestedProfileId: string | null | undefined,
+  requested: ProviderAuthMethod,
+): ProviderConnectionProfile {
+  const profile = connectionProfileForAuth(profiles, requestedProfileId, requested);
+  if (profile.authMethod !== requested) {
+    throw badRequest(`Connection profile ${profile.id} does not support ${requested}`);
+  }
+  return profile;
 }
 
 function badConnectionProfile(): never {

@@ -112,6 +112,14 @@ const envSchema = z.object({
   TOOLS_USER_AGENT: z.string().default("ChatSribiddi/1.0 (Tool)"),
   PROVIDER_GATEWAY_ENABLED: z.coerce.boolean().default(false),
   PROVIDER_GATEWAY_BASE_URL: z.string().default("http://127.0.0.1:8095"),
+  GROK_CLI_ENABLED: z.coerce.boolean().default(false),
+  GROK_CLI_BIN: z.string().default("grok"),
+  GROK_CLI_SESSIONS_DIR: z.string().default("/tmp/chat-sribiddi-grok-sessions"),
+  GROK_CLI_LOGIN_PROMPT_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  GROK_CLI_LOGIN_TOTAL_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  GROK_CLI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+  GROK_CLI_MAX_OUTPUT_BYTES: z.coerce.number().int().positive().default(1_048_576),
+  GROK_CLI_MAX_CONCURRENT_PER_USER: z.coerce.number().int().positive().default(1),
 });
 
 const raw = envSchema.parse(process.env);

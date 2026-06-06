@@ -300,6 +300,7 @@
       "connectSub": "Wähle das Verbindungsprofil und richte diesen Provider ein.",
       "oauthHandoff": "Du wirst zu {provider} weitergeleitet, um dich anzumelden und den Zugriff zu erlauben. Danach kommst du in die Einstellungen zurück und der verbundene Provider erscheint in der Liste.",
       "deviceCodeHint": "Dieser Provider nutzt einen Gerätecode. Lass dieses Fenster offen, während du den Code auf der Provider-Seite bestätigst.",
+      "subscriptionCliHint": "Du meldest dich mit deinem eigenen Grok-Konto an. Diese Verbindung nutzt nur deine Subscription; der Server stellt keine xAI-Subscription oder API-Keys bereit.",
       "back": "Zurück",
       "skip": "Für später überspringen",
       "connectNext": "Verbinden & weiter",

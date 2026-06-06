@@ -300,6 +300,7 @@
       "connectSub": "Choose the connection profile and finish this provider.",
       "oauthHandoff": "You will be sent to {provider} to sign in and authorize access. After the redirect, you return to Settings and the connected provider appears in the list.",
       "deviceCodeHint": "This provider opens a device-code flow. Keep this window open while you confirm the code on the provider page.",
+      "subscriptionCliHint": "Sign in with your own Grok account. This connection uses only your subscription; the server does not provide an xAI subscription or API keys.",
       "back": "Back",
       "skip": "Skip for now",
       "connectNext": "Connect & next",
