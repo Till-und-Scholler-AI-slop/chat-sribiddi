@@ -40,6 +40,42 @@ export function chooseDefaultModel(
   )
 }
 
+export type GatewayProviderModelSource = {
+  id: string
+  label: string
+  execution: string
+  chatProvider: boolean
+  experimental: boolean
+  connections: Array<{
+    id: number
+    status: string
+    defaultModelId?: string | null
+  }>
+}
+
+export function gatewayModelsFromProviders(providers: GatewayProviderModelSource[]): ModelOption[] {
+  return providers.flatMap(provider => {
+    if (provider.execution !== 'gateway' || !provider.chatProvider || provider.experimental) {
+      return []
+    }
+    return provider.connections
+      .filter(connection => connection.status === 'READY' && !!connection.defaultModelId?.trim())
+      .map(connection => {
+        const modelId = connection.defaultModelId!.trim()
+        return {
+          label: `${provider.label}: ${modelId}`,
+          value: modelId,
+          provider: provider.id,
+          providerId: provider.id,
+          availability: 'READY' as const,
+          canonicalSlug: `${provider.id}/${modelId}`,
+          description: null,
+          connectionId: connection.id
+        } satisfies ModelOption
+      })
+  })
+}
+
 export function useModelStore() {
   const { fetchModels } = useChatApi()
   const { getProviders } = useKeyApi()
@@ -140,42 +176,11 @@ export function useModelStore() {
 }
 
 async function loadGatewayModels(
-  getProviders: () => Promise<Array<{
-    id: string
-    label: string
-    execution: string
-    chatProvider: boolean
-    experimental: boolean
-    status: string
-    connections: Array<{
-      id: number
-      status: string
-      defaultModelId?: string | null
-    }>
-  }>>
+  getProviders: () => Promise<GatewayProviderModelSource[]>
 ): Promise<ModelOption[]> {
   try {
     const providers = await getProviders()
-    return providers.flatMap(provider => {
-      if (provider.execution !== 'gateway' || !provider.chatProvider || provider.experimental) {
-        return []
-      }
-      return provider.connections
-        .filter(connection => connection.status === 'READY' && !!connection.defaultModelId?.trim())
-        .map(connection => {
-          const modelId = connection.defaultModelId!.trim()
-          return {
-            label: `${provider.label}: ${modelId}`,
-            value: modelId,
-            provider: provider.id,
-            providerId: provider.id,
-            availability: 'READY' as const,
-            canonicalSlug: `${provider.id}/${modelId}`,
-            description: null,
-            connectionId: connection.id
-          } satisfies ModelOption
-        })
-    })
+    return gatewayModelsFromProviders(providers)
   } catch (err) {
     console.warn('Unable to load gateway provider models', err)
     return []

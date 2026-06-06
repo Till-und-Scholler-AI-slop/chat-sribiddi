@@ -108,6 +108,34 @@ const providerId = (provider: Provider | 'BRAVE_SEARCH' | string) => {
 const isReady = (providers: ProviderCatalogItem[], id: string) =>
   providers.find(provider => provider.id === id)?.status === 'READY'
 
+export function startConnectionRequest(
+  provider: Provider | 'BRAVE_SEARCH' | string,
+  authMethod: ProviderAuthMethod,
+  connectionProfileId?: string
+) {
+  return {
+    path: `/provider-connections/${providerId(provider)}/connect`,
+    options: {
+      method: 'POST',
+      body: JSON.stringify({ authMethod, connectionProfileId })
+    }
+  }
+}
+
+export function completeDeviceConnectionRequest(
+  provider: Provider | 'BRAVE_SEARCH' | string,
+  deviceCode: string,
+  connectionProfileId?: string
+) {
+  return {
+    path: `/provider-connections/${providerId(provider)}/device-code`,
+    options: {
+      method: 'POST',
+      body: JSON.stringify({ deviceCode, connectionProfileId })
+    }
+  }
+}
+
 export function useKeyApi() {
   const { requestJson } = useChatApi()
 
@@ -153,10 +181,8 @@ export function useKeyApi() {
     authMethod: ProviderAuthMethod,
     connectionProfileId?: string
   ) => {
-    return requestJson<ConnectStartResponse>(`/provider-connections/${providerId(provider)}/connect`, {
-      method: 'POST',
-      body: JSON.stringify({ authMethod, connectionProfileId })
-    })
+    const request = startConnectionRequest(provider, authMethod, connectionProfileId)
+    return requestJson<ConnectStartResponse>(request.path, request.options)
   }
 
   const completeDeviceConnection = async (
@@ -164,10 +190,8 @@ export function useKeyApi() {
     deviceCode: string,
     connectionProfileId?: string
   ) => {
-    return requestJson<ConnectStartResponse>(`/provider-connections/${providerId(provider)}/device-code`, {
-      method: 'POST',
-      body: JSON.stringify({ deviceCode, connectionProfileId })
-    })
+    const request = completeDeviceConnectionRequest(provider, deviceCode, connectionProfileId)
+    return requestJson<ConnectStartResponse>(request.path, request.options)
   }
 
   const deleteConnection = async (connectionId: number) => {

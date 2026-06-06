@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useKeyApi } from '../useKeyApi'
+import {
+  completeDeviceConnectionRequest,
+  startConnectionRequest,
+  useKeyApi
+} from '../useKeyApi'
 
 const apiMock = vi.hoisted(() => ({
   requestJson: vi.fn()
@@ -80,14 +84,10 @@ describe('useKeyApi provider profiles', () => {
     apiMock.requestJson
       .mockResolvedValueOnce({ mode: 'DEVICE_CODE', connectionProfileId: 'github-oauth' })
       .mockResolvedValueOnce({ mode: 'PENDING', connectionProfileId: 'github-oauth' })
-      .mockResolvedValueOnce({ mode: 'DEVICE_CODE', connectionProfileId: 'grok-build-subscription' })
-      .mockResolvedValueOnce({ mode: 'READY', connectionProfileId: 'grok-build-subscription' })
 
     const api = useKeyApi()
     await api.startConnection('github-copilot', 'DEVICE_CODE', 'github-oauth')
     await api.completeDeviceConnection('github-copilot', 'device-123', 'github-oauth')
-    await api.startConnection('xai', 'SUBSCRIPTION_CLI', 'grok-build-subscription')
-    await api.completeDeviceConnection('xai', 'grok-login-123', 'grok-build-subscription')
 
     expect(apiMock.requestJson).toHaveBeenNthCalledWith(
       1,
@@ -105,27 +105,28 @@ describe('useKeyApi provider profiles', () => {
         body: JSON.stringify({ deviceCode: 'device-123', connectionProfileId: 'github-oauth' })
       }
     )
-    expect(apiMock.requestJson).toHaveBeenNthCalledWith(
-      3,
-      '/provider-connections/xai/connect',
-      {
+  })
+
+  it('builds xAI subscription CLI connection requests as pure payloads', () => {
+    expect(startConnectionRequest('xai', 'SUBSCRIPTION_CLI', 'grok-build-subscription')).toEqual({
+      path: '/provider-connections/xai/connect',
+      options: {
         method: 'POST',
         body: JSON.stringify({
           authMethod: 'SUBSCRIPTION_CLI',
           connectionProfileId: 'grok-build-subscription'
         })
       }
-    )
-    expect(apiMock.requestJson).toHaveBeenNthCalledWith(
-      4,
-      '/provider-connections/xai/device-code',
-      {
+    })
+    expect(completeDeviceConnectionRequest('xai', 'grok-login-123', 'grok-build-subscription')).toEqual({
+      path: '/provider-connections/xai/device-code',
+      options: {
         method: 'POST',
         body: JSON.stringify({
           deviceCode: 'grok-login-123',
           connectionProfileId: 'grok-build-subscription'
         })
       }
-    )
+    })
   })
 })

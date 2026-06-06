@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import type { ModelOption, Provider } from '../useChatApi'
-import { chooseDefaultModel, resolveModelOption, useModelStore } from '../useModelStore'
+import {
+  chooseDefaultModel,
+  gatewayModelsFromProviders,
+  resolveModelOption,
+  useModelStore
+} from '../useModelStore'
 
 const apiMock = vi.hoisted(() => ({
   fetchModels: vi.fn()
@@ -116,16 +121,14 @@ describe('useModelStore', () => {
     ).toEqual(openRouterFreeModel)
   })
 
-  it('adds ready gateway models from per-user provider connections', async () => {
-    apiMock.fetchModels.mockResolvedValue([])
-    keyApiMock.getProviders.mockResolvedValue([
+  it('maps ready gateway models from per-user provider connections', () => {
+    expect(gatewayModelsFromProviders([
       {
         id: 'xai',
         label: 'xAI',
         execution: 'gateway',
         chatProvider: true,
         experimental: false,
-        status: 'READY',
         connections: [
           {
             id: 42,
@@ -140,7 +143,6 @@ describe('useModelStore', () => {
         execution: 'gateway',
         chatProvider: true,
         experimental: true,
-        status: 'READY',
         connections: [
           {
             id: 99,
@@ -149,12 +151,70 @@ describe('useModelStore', () => {
           }
         ]
       }
+    ])).toEqual([
+      {
+        label: 'xAI: grok-build',
+        value: 'grok-build',
+        provider: 'xai',
+        providerId: 'xai',
+        availability: 'READY',
+        canonicalSlug: 'xai/grok-build',
+        description: null,
+        connectionId: 42
+      }
     ])
+  })
 
-    const store = useModelStore()
-    await store.ensureModels()
+  it('omits non-ready and experimental gateway provider models', () => {
+    expect(gatewayModelsFromProviders([
+      {
+        id: 'xai',
+        label: 'xAI',
+        execution: 'gateway',
+        chatProvider: true,
+        experimental: false,
+        connections: [
+          {
+            id: 42,
+            status: 'PENDING',
+            defaultModelId: 'grok-build'
+          }
+        ]
+      },
+      {
+        id: 'experimental-provider',
+        label: 'Experimental',
+        execution: 'gateway',
+        chatProvider: true,
+        experimental: true,
+        connections: [
+          {
+            id: 99,
+            status: 'READY',
+            defaultModelId: 'hidden-model'
+          }
+        ]
+      }
+    ])).toEqual([])
+  })
 
-    expect(store.models.value).toContainEqual({
+  it('trims ready gateway connection model IDs', () => {
+    expect(gatewayModelsFromProviders([
+      {
+        id: 'xai',
+        label: 'xAI',
+        execution: 'gateway',
+        chatProvider: true,
+        experimental: false,
+        connections: [
+          {
+            id: 42,
+            status: 'READY',
+            defaultModelId: ' grok-build '
+          }
+        ]
+      }
+    ])).toEqual([{
       label: 'xAI: grok-build',
       value: 'grok-build',
       provider: 'xai',
@@ -163,15 +223,7 @@ describe('useModelStore', () => {
       canonicalSlug: 'xai/grok-build',
       description: null,
       connectionId: 42
-    })
-    expect(store.models.value).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          provider: 'experimental-provider',
-          value: 'hidden-model'
-        })
-      ])
-    )
+    }])
   })
 
   it('ignores stale saved models that are not in the current allowed catalog', () => {
