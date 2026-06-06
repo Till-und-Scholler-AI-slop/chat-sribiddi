@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { env } from "../config/env.js";
 import type { MessageRow, Provider, Role } from "../db/types.js";
-import { badRequest, notFound } from "../errors/http-error.js";
+import { badRequest, HttpError, notFound } from "../errors/http-error.js";
 import {
   type ChatRepository,
   chatDto,
@@ -221,7 +221,7 @@ export class ChatService {
           content: error instanceof Error ? error.message : "Streaming error",
           provider: prepared.provider,
           modelId: request.modelId,
-          errorType: "UPSTREAM_ERROR",
+          errorType: streamErrorType(error),
           incomplete: true,
         });
       } finally {
@@ -291,7 +291,7 @@ export class ChatService {
           content: error instanceof Error ? error.message : "Streaming error",
           provider: prepared.provider,
           modelId: request.modelId,
-          errorType: "UPSTREAM_ERROR",
+          errorType: streamErrorType(error),
           incomplete: true,
         });
       } finally {
@@ -338,7 +338,7 @@ export class ChatService {
           content: error instanceof Error ? error.message : "Streaming error",
           provider: "OPENROUTER",
           modelId: request.modelId,
-          errorType: "UPSTREAM_ERROR",
+          errorType: streamErrorType(error),
           incomplete: true,
         });
       }
@@ -452,9 +452,11 @@ export class ChatService {
           ? "USER_OAUTH"
           : connection.authMethod === "DEVICE_CODE"
             ? "USER_DEVICE_OAUTH"
-            : connection.authMethod === "LOCAL_ENDPOINT"
-              ? "USER_LOCAL_ENDPOINT"
-              : "USER_KEY",
+            : connection.authMethod === "SUBSCRIPTION_CLI"
+              ? "USER_SUBSCRIPTION_CLI"
+              : connection.authMethod === "LOCAL_ENDPOINT"
+                ? "USER_LOCAL_ENDPOINT"
+                : "USER_KEY",
       limits: this.credentialAccess.authenticatedLimits(),
       connection,
     };
@@ -721,4 +723,8 @@ async function writeStreamEvent(
   payload: unknown,
 ) {
   await stream.writeSSE({ event, data: JSON.stringify(payload) });
+}
+
+function streamErrorType(error: unknown) {
+  return error instanceof HttpError ? error.code : "UPSTREAM_ERROR";
 }

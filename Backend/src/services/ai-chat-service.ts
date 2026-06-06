@@ -6,6 +6,7 @@ import { generateText, type ModelMessage, stepCountIs, streamText, type ToolSet 
 import { env } from "../config/env.js";
 import type { Provider } from "../db/types.js";
 import { upstreamError } from "../errors/http-error.js";
+import { generateCodexExec, streamCodexExec } from "./codex-exec-runtime.js";
 import type { ResolvedCredential } from "./credential-access-service.js";
 
 export type RuntimeOptions = {
@@ -29,6 +30,9 @@ export type ChatExecutionRequest = {
 
 export class AiChatService {
   stream(input: ChatExecutionRequest) {
+    if (isOpenAiCodexSubscription(input)) {
+      return streamCodexExec(input);
+    }
     if (isGoogleOAuth(input)) {
       return streamGoogleOAuth(input);
     }
@@ -41,6 +45,9 @@ export class AiChatService {
   }
 
   async generate(input: ChatExecutionRequest) {
+    if (isOpenAiCodexSubscription(input)) {
+      return generateCodexExec(input);
+    }
     if (isGoogleOAuth(input)) {
       return generateGoogleOAuth(input);
     }
@@ -51,6 +58,13 @@ export class AiChatService {
       ...settings(input.options),
     });
   }
+}
+
+function isOpenAiCodexSubscription(input: ChatExecutionRequest) {
+  return (
+    (input.provider === "OPENAI" || input.provider === "openai") &&
+    input.credential.connection?.authMethod === "SUBSCRIPTION_CLI"
+  );
 }
 
 function isGoogleOAuth(input: ChatExecutionRequest) {

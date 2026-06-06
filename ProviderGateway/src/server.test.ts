@@ -4,6 +4,7 @@ import test from 'node:test'
 import { once } from 'node:events'
 import {
   createProviderGatewayServer,
+  parseCodexExecJsonl,
   validateOpenAiCompatibleBaseUrl
 } from './server.js'
 
@@ -68,6 +69,28 @@ test('gateway streams OpenAI-compatible provider responses', async () => {
     await close(gateway.server)
     await close(provider.server)
   }
+})
+
+test('parseCodexExecJsonl extracts assistant text and usage', () => {
+  const parsed = parseCodexExecJsonl(
+    [
+      JSON.stringify({ type: 'thread.started', thread_id: 'thread-1' }),
+      JSON.stringify({
+        type: 'item.completed',
+        item: { type: 'agent_message', text: 'hello from codex' }
+      }),
+      JSON.stringify({
+        type: 'turn.completed',
+        usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7 }
+      })
+    ].join('\n')
+  )
+
+  assert.deepEqual(parsed, {
+    text: 'hello from codex',
+    error: null,
+    usage: { inputTokens: 3, outputTokens: 4, totalTokens: 7 }
+  })
 })
 
 function fakeOpenAiCompatibleProvider() {

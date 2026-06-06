@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import dotenv from "dotenv";
 import { z } from "zod";
@@ -112,6 +113,12 @@ const envSchema = z.object({
   TOOLS_USER_AGENT: z.string().default("ChatSribiddi/1.0 (Tool)"),
   PROVIDER_GATEWAY_ENABLED: z.coerce.boolean().default(false),
   PROVIDER_GATEWAY_BASE_URL: z.string().default("http://127.0.0.1:8095"),
+  OPENAI_CODEX_SUBSCRIPTION_ENABLED: z.coerce.boolean().default(false),
+  OPENAI_CODEX_SUBSCRIPTION_MODEL: z.string().default("gpt-5-codex"),
+  CODEX_CLI_BINARY: z.string().default("codex"),
+  CODEX_CONNECTIONS_ROOT: z.string().default(join(tmpdir(), "chat-sribiddi-codex-connections")),
+  CODEX_DEVICE_AUTH_START_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  CODEX_EXEC_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
 });
 
 const raw = envSchema.parse(process.env);

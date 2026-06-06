@@ -102,10 +102,21 @@ Provider execution:
 - Native providers use the Vercel AI SDK provider packages. Catalog providers
   with OpenAI-compatible or local endpoint credentials execute through the AI
   SDK OpenAI-compatible adapter.
-- OpenRouter PKCE, Google provider OAuth, and GitHub Copilot device code are
-  the enabled provider OAuth/device flows. OpenAI, Anthropic, Qwen, and MiniMax
-  deliberately do not show OAuth buttons because there is no supported
-  reusable third-party user-OAuth API flow for this product.
+- OpenRouter PKCE, Google provider OAuth, GitHub Copilot device code, and the
+  optional OpenAI `codex-subscription` device-code flow are the enabled
+  provider OAuth/device flows. The OpenAI subscription flow is not a normal
+  OpenAI API OAuth grant; it uses the Codex CLI ChatGPT login per user.
+- OpenAI `codex-subscription` is a hosted beta behind
+  `OPENAI_CODEX_SUBSCRIPTION_ENABLED=false` by default. When enabled, the
+  backend must have the `codex` CLI installed and must store every user's
+  Codex session under `CODEX_CONNECTIONS_ROOT/{userHash}/codex-subscription`
+  with `0700` permissions. Do not expose `codex app-server` publicly, do not
+  share one ChatGPT account across users, and do not scrape `chatgpt.com`.
+- Revocation/cleanup for OpenAI `codex-subscription` is deleting the provider
+  connection in Settings, which removes the isolated `CODEX_HOME` directory.
+  Treat any `auth.json` files under `CODEX_CONNECTIONS_ROOT` like passwords and
+  keep them out of logs, support bundles, and normal backups unless backups are
+  encrypted as secrets.
 - Qwen portal and MiniMax portal are profile options under their base provider,
   not separate visible providers. They remain documented/experimental until a
   supported implementation exists.
@@ -211,6 +222,12 @@ with no ready provider connection, sending a non-guest model request should fail
 with `API_KEY_REQUIRED`; after connecting that provider in Settings, the same
 provider should stream successfully. The web-search tool should bind only after
 a user connects Brave Search.
+
+For the OpenAI `codex-subscription` beta, additionally verify `codex --version`
+inside the backend runtime image/host, start the Settings login flow, complete
+the ChatGPT/Codex device code with a throwaway test account, send one chat with
+the generated `gpt-5-codex` model option, then delete the connection and confirm
+the matching `CODEX_HOME` directory is removed.
 
 ## VPS Triage Commands
 

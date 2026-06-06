@@ -9,6 +9,7 @@ import {
 } from "../repositories/provider-connection-repository.js";
 import { hasText, legacyToProviderId } from "../utils/strings.js";
 import { toIso } from "../utils/time.js";
+import { CodexCliService } from "./codex-cli-service.js";
 import type { CryptoService } from "./crypto-service.js";
 import type {
   ProviderAuthMethod,
@@ -37,6 +38,7 @@ export type ResolvedProviderConnection = {
   quotaProjectId?: string | null | undefined;
   tokenExpiresAt?: Date | null | undefined;
   scopes?: string[] | undefined;
+  codexHome?: string | null | undefined;
 };
 
 type PendingOAuthState = {
@@ -96,6 +98,7 @@ export class ProviderConnectionService {
     private readonly repository: ProviderConnectionRepository,
     private readonly providerCatalog: ProviderCatalogService,
     private readonly crypto: CryptoService,
+    private readonly codexCli: CodexCliService = new CodexCliService(),
   ) {}
 
   async listConnections(userId: string) {
@@ -263,6 +266,7 @@ export class ProviderConnectionService {
       quotaProjectId: secret.quotaProjectId ?? null,
       tokenExpiresAt: ready.token_expires_at ?? null,
       scopes: scopesFrom(secret.scopes, ready.scopes),
+      codexHome: secret.codexHome ?? null,
     } satisfies ResolvedProviderConnection;
   }
 
@@ -276,6 +280,12 @@ export class ProviderConnectionService {
   async deleteConnection(userId: string, connectionId: number) {
     const existing = await this.repository.findByIdAndUser(connectionId, userId);
     if (!existing) throw notFound("Provider connection not found");
+    if (existing.auth_method === "SUBSCRIPTION_CLI") {
+      const secret = existing.encrypted_secret_json
+        ? this.decryptSecret(existing.encrypted_secret_json)
+        : {};
+      await this.codexCli.deleteCodexHome(secret.codexHome);
+    }
     await this.repository.deleteConnection(userId, connectionId);
   }
 
@@ -306,6 +316,38 @@ export class ProviderConnectionService {
     }
     if (provider.id === "github-copilot" && method === "DEVICE_CODE") {
       return this.startGitHubDeviceFlow(userId, connectionProfile);
+    }
+    if (
+      provider.id === "openai" &&
+      method === "SUBSCRIPTION_CLI" &&
+      connectionProfile.id === "codex-subscription"
+    ) {
+      const started = await this.codexCli.startDeviceAuth(userId, connectionProfile.id);
+      if (started.mode === "UNAVAILABLE") {
+        return {
+          mode: "UNAVAILABLE",
+          authorizationUrl: null,
+          state: null,
+          expiresAt: null,
+          authMethod: method,
+          connectionProfileId: connectionProfile.id,
+          message: started.message,
+        };
+      }
+      return {
+        mode: "CLI_DEVICE_CODE" as const,
+        state: started.state,
+        deviceCode: started.deviceCode,
+        userCode: started.userCode,
+        verificationUri: started.verificationUri,
+        verificationUriComplete: started.verificationUriComplete,
+        expiresAt: started.expiresAt,
+        intervalSeconds: started.intervalSeconds,
+        authMethod: method,
+        connectionProfileId: connectionProfile.id,
+        authorizationUrl: started.verificationUriComplete ?? started.verificationUri,
+        message: started.message,
+      };
     }
     return {
       mode: "UNAVAILABLE",
@@ -408,13 +450,20 @@ export class ProviderConnectionService {
   ) {
     const provider = this.providerCatalog.find(providerIdRaw);
     if (!provider) throw badRequest(`Unknown provider: ${providerIdRaw}`);
-    if (provider.id !== "github-copilot") {
-      throw badRequest("Device-code flow is not enabled for this provider");
-    }
     if (!hasText(payload.deviceCode)) {
       throw badRequest("Missing device code");
     }
     const deviceCode = payload.deviceCode.trim();
+    if (provider.id === "openai") {
+      return this.completeOpenAiCodexDeviceConnection(
+        userId,
+        deviceCode,
+        payload.connectionProfileId,
+      );
+    }
+    if (provider.id !== "github-copilot") {
+      throw badRequest("Device-code flow is not enabled for this provider");
+    }
     const pending = this.deviceStates.get(deviceCode);
     if (
       !pending ||
@@ -500,6 +549,53 @@ export class ProviderConnectionService {
       connectionProfileId: pending.connectionProfileId,
       connection,
       message: null,
+    };
+  }
+
+  private async completeOpenAiCodexDeviceConnection(
+    userId: string,
+    state: string,
+    connectionProfileId: string | null | undefined,
+  ) {
+    const completed = await this.codexCli.completeDeviceAuth(userId, state, connectionProfileId);
+    if (completed.mode === "PENDING") {
+      return {
+        mode: "PENDING" as const,
+        authMethod: "SUBSCRIPTION_CLI" as const,
+        connectionProfileId: connectionProfileId?.trim() || "codex-subscription",
+        expiresAt: completed.expiresAt,
+        intervalSeconds: completed.intervalSeconds,
+        message: completed.message,
+      };
+    }
+    if (completed.mode === "UNAVAILABLE") {
+      return {
+        mode: "UNAVAILABLE" as const,
+        authMethod: "SUBSCRIPTION_CLI" as const,
+        connectionProfileId: connectionProfileId?.trim() || "codex-subscription",
+        message: completed.message,
+      };
+    }
+    const secret: ProviderConnectionSecret = {
+      codexHome: completed.codexHome,
+      modelId: completed.modelId,
+    };
+    const connection = await this.saveSecret({
+      userId,
+      providerId: "openai",
+      connectionProfileId: connectionProfileId?.trim() || "codex-subscription",
+      authMethod: "SUBSCRIPTION_CLI",
+      status: "READY",
+      displayName: "OpenAI (ChatGPT/Codex subscription)",
+      providerAccountLabel: completed.modelId,
+      secret,
+    });
+    return {
+      mode: "READY" as const,
+      authMethod: "SUBSCRIPTION_CLI" as const,
+      connectionProfileId: connection.connectionProfileId,
+      connection,
+      message: completed.message,
     };
   }
 

@@ -170,6 +170,7 @@ export type ProviderConnectionSecret = {
   clientId?: string;
   clientSecret?: string;
   quotaProjectId?: string;
+  codexHome?: string;
 };
 
 export const connectionDefaultModelId = (row: ProviderConnectionRow) => row.provider_account_label;

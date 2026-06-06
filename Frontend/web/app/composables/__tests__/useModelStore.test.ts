@@ -4,7 +4,8 @@ import type { ModelOption, Provider } from '../useChatApi'
 import { chooseDefaultModel, resolveModelOption, useModelStore } from '../useModelStore'
 
 const apiMock = vi.hoisted(() => ({
-  fetchModels: vi.fn()
+  fetchModels: vi.fn(),
+  requestJson: vi.fn()
 }))
 
 vi.mock('~/composables/useChatApi', () => ({
@@ -43,6 +44,8 @@ describe('useModelStore', () => {
   beforeEach(() => {
     installNuxtState()
     apiMock.fetchModels.mockReset()
+    apiMock.requestJson.mockReset()
+    apiMock.requestJson.mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -109,5 +112,39 @@ describe('useModelStore', () => {
   it('ignores stale saved models that are not in the current allowed catalog', () => {
     expect(chooseDefaultModel([openRouterFreeModel], openAiModel)).toEqual(openRouterFreeModel)
     expect(resolveModelOption(openAiModel, [openRouterFreeModel])).toBeNull()
+  })
+
+  it('adds ready OpenAI Codex subscription connection models', async () => {
+    apiMock.fetchModels.mockResolvedValue([])
+    apiMock.requestJson.mockResolvedValueOnce([
+      {
+        id: 'openai',
+        label: 'OpenAI',
+        execution: 'native',
+        chatProvider: true,
+        experimental: false,
+        status: 'READY',
+        connections: [
+          {
+            id: 42,
+            status: 'READY',
+            authMethod: 'SUBSCRIPTION_CLI',
+            connectionProfileId: 'codex-subscription',
+            defaultModelId: 'gpt-5-codex'
+          }
+        ]
+      }
+    ])
+
+    const store = useModelStore()
+    await store.ensureModels()
+
+    expect(store.models.value).toContainEqual(expect.objectContaining({
+      provider: 'openai',
+      providerId: 'openai',
+      value: 'gpt-5-codex',
+      connectionId: 42,
+      availability: 'READY'
+    }))
   })
 })

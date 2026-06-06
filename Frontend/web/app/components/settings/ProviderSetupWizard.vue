@@ -116,6 +116,9 @@ const primaryActionLabel = computed(() => {
   const provider = currentProvider.value
   const profile = currentProfile.value
   if (!provider || !profile) return t('settings.connectProvider')
+  if (isCliDeviceCodeProfile(profile)) {
+    return t('settings.connectCodexSubscription')
+  }
   if (isRedirectingProfile(profile)) {
     return t('settings.setup.authorize', { provider: provider.label })
   }
@@ -278,19 +281,36 @@ function needsEndpointOverride(profile: ProviderConnectionProfile | undefined) {
   return Boolean(profile?.baseUrlEditable || profile?.defaultBaseUrl)
 }
 
+function profileConnectMode(profile: ProviderConnectionProfile | undefined) {
+  if (!profile) return 'FORM'
+  if (profile.connectMode) return profile.connectMode
+  if (profile.authMethod === 'DEVICE_CODE') return 'DEVICE_CODE'
+  if (profile.oauthEnabled) return 'REDIRECT'
+  return 'FORM'
+}
+
 function isRedirectingProfile(profile: ProviderConnectionProfile | undefined) {
-  return Boolean(profile?.oauthEnabled && profile.authMethod !== 'DEVICE_CODE')
+  return profileConnectMode(profile) === 'REDIRECT'
+}
+
+function isDeviceCodeProfile(profile: ProviderConnectionProfile | undefined) {
+  const mode = profileConnectMode(profile)
+  return mode === 'DEVICE_CODE' || mode === 'CLI_DEVICE_CODE'
+}
+
+function isCliDeviceCodeProfile(profile: ProviderConnectionProfile | undefined) {
+  return profileConnectMode(profile) === 'CLI_DEVICE_CODE'
 }
 
 function isConnectableProfile(profile: ProviderConnectionProfile | undefined) {
-  return Boolean(profile && (isProfileConfigurable(profile) || profile.oauthEnabled))
+  return Boolean(profile && (isProfileConfigurable(profile) || profileConnectMode(profile) !== 'FORM'))
 }
 
 function connectDisabled(provider: ProviderCatalogItem) {
   const form = providerForm(provider)
   const profile = selectedProfile(provider)
   if (!isConnectableProfile(profile) || form.saving || form.connecting) return true
-  if (profile?.oauthEnabled && !isProfileConfigurable(profile)) return false
+  if (profile && profileConnectMode(profile) !== 'FORM' && !isProfileConfigurable(profile)) return false
   if (profile?.requiresApiKey && !form.apiKey.trim()) return true
   if (profile?.requiresModelId && !form.modelId.trim()) return true
   if (needsEndpointOverride(profile) && !form.baseUrl.trim()) return true
@@ -367,7 +387,7 @@ async function connectCurrentProvider() {
     }
     return
   }
-  if (profile.oauthEnabled) {
+  if (profileConnectMode(profile) !== 'FORM') {
     await handleStartConnection(provider, profile)
   }
 }
@@ -445,7 +465,7 @@ async function handleStartConnection(provider: ProviderCatalogItem, profile: Pro
       return
     }
     if (
-      response?.mode === 'DEVICE_CODE' &&
+      (response?.mode === 'DEVICE_CODE' || response?.mode === 'CLI_DEVICE_CODE') &&
       response.deviceCode &&
       response.userCode &&
       response.verificationUri
@@ -462,7 +482,7 @@ async function handleStartConnection(provider: ProviderCatalogItem, profile: Pro
         verificationUriComplete: response.verificationUriComplete,
         expiresAt: response.expiresAt,
         intervalSeconds: response.intervalSeconds ?? 5,
-        message: response.message,
+        message: response.message || (isCliDeviceCodeProfile(profile) ? t('settings.codexDevicePolling') : null),
         polling: true
       }
       pollDeviceConnection(token)
@@ -778,10 +798,10 @@ function startChatting() {
           </p>
         </div>
 
-        <div v-else-if="currentProfile.authMethod === 'DEVICE_CODE'" class="flex gap-3 rounded-xl border border-gray-200 bg-white/45 p-4 dark:border-gray-800 dark:bg-gray-900/35">
+        <div v-else-if="isDeviceCodeProfile(currentProfile)" class="flex gap-3 rounded-xl border border-gray-200 bg-white/45 p-4 dark:border-gray-800 dark:bg-gray-900/35">
           <UIcon name="i-heroicons-device-phone-mobile" class="mt-0.5 size-5 shrink-0 text-gray-500" />
           <p class="text-sm leading-relaxed text-gray-600 dark:text-gray-300">
-            {{ t('settings.setup.deviceCodeHint') }}
+            {{ isCliDeviceCodeProfile(currentProfile) ? t('settings.setup.codexDeviceCodeHint') : t('settings.setup.deviceCodeHint') }}
           </p>
         </div>
 
@@ -935,7 +955,7 @@ function startChatting() {
           <UButton
             type="button"
             color="primary"
-            :icon="currentProfile?.oauthEnabled ? 'i-heroicons-link' : 'i-heroicons-check-circle'"
+            :icon="isDeviceCodeProfile(currentProfile) ? 'i-heroicons-device-phone-mobile' : currentProfile?.oauthEnabled ? 'i-heroicons-link' : 'i-heroicons-check-circle'"
             :label="primaryActionLabel"
             :loading="currentForm?.saving || currentForm?.connecting"
             :disabled="!canUsePrimaryAction"

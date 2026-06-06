@@ -22,6 +22,7 @@ export type CredentialSource =
   | "USER_OAUTH"
   | "USER_DEVICE_OAUTH"
   | "USER_LOCAL_ENDPOINT"
+  | "USER_SUBSCRIPTION_CLI"
   | "GUEST_OPENROUTER_FREE";
 
 export type ResolvedCredential = {
@@ -78,9 +79,11 @@ export class CredentialAccessService {
             ? "USER_OAUTH"
             : connection.authMethod === "DEVICE_CODE"
               ? "USER_DEVICE_OAUTH"
-              : connection.authMethod === "LOCAL_ENDPOINT"
-                ? "USER_LOCAL_ENDPOINT"
-                : "USER_KEY",
+              : connection.authMethod === "SUBSCRIPTION_CLI"
+                ? "USER_SUBSCRIPTION_CLI"
+                : connection.authMethod === "LOCAL_ENDPOINT"
+                  ? "USER_LOCAL_ENDPOINT"
+                  : "USER_KEY",
         limits: this.authenticatedLimits(),
         connection,
       };

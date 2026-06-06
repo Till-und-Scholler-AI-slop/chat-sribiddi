@@ -29,6 +29,8 @@ export type ProviderConnectionStatus =
   | 'DISABLED'
   | 'ERROR'
 
+export type ProviderConnectMode = 'FORM' | 'REDIRECT' | 'DEVICE_CODE' | 'CLI_DEVICE_CODE'
+
 export type ProviderConnectionSummary = {
   id: number
   providerId: string
@@ -54,6 +56,7 @@ export type ProviderConnectionProfile = {
   requiresApiKey: boolean
   requiresModelId: boolean
   oauthEnabled: boolean
+  connectMode?: ProviderConnectMode | null
   status: ProviderConnectionStatus
   docsUrl?: string | null
 }
@@ -73,7 +76,7 @@ export type ProviderCatalogItem = {
 }
 
 type ConnectStartResponse = {
-  mode: 'REDIRECT' | 'DEVICE_CODE' | 'PENDING' | 'READY' | 'UNAVAILABLE' | string
+  mode: 'REDIRECT' | 'DEVICE_CODE' | 'CLI_DEVICE_CODE' | 'PENDING' | 'READY' | 'UNAVAILABLE' | string
   authorizationUrl?: string | null
   state?: string | null
   expiresAt?: string | null

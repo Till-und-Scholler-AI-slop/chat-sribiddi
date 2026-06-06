@@ -150,6 +150,8 @@ async function loadGatewayModels(
     connections: Array<{
       id: number
       status: string
+      authMethod?: string
+      connectionProfileId?: string | null
       defaultModelId?: string | null
     }>
   }>>
@@ -157,9 +159,11 @@ async function loadGatewayModels(
   try {
     const providers = await getProviders()
     return providers.flatMap(provider => {
-      if (provider.execution !== 'gateway' || !provider.chatProvider || provider.experimental) {
+      if (!provider.chatProvider) {
         return []
       }
+      if (provider.id === 'openai') return loadCodexSubscriptionModels(provider)
+      if (provider.execution !== 'gateway' || provider.experimental) return []
       return provider.connections
         .filter(connection => connection.status === 'READY' && !!connection.defaultModelId?.trim())
         .map(connection => {
@@ -180,4 +184,37 @@ async function loadGatewayModels(
     console.warn('Unable to load gateway provider models', err)
     return []
   }
+}
+
+function loadCodexSubscriptionModels(provider: {
+  id: string
+  label: string
+  connections: Array<{
+    id: number
+    status: string
+    authMethod?: string
+    connectionProfileId?: string | null
+    defaultModelId?: string | null
+  }>
+}): ModelOption[] {
+  return provider.connections
+    .filter(connection =>
+      connection.status === 'READY' &&
+      connection.authMethod === 'SUBSCRIPTION_CLI' &&
+      connection.connectionProfileId === 'codex-subscription' &&
+      !!connection.defaultModelId?.trim()
+    )
+    .map(connection => {
+      const modelId = connection.defaultModelId!.trim()
+      return {
+        label: `${provider.label} ChatGPT/Codex: ${modelId}`,
+        value: modelId,
+        provider: provider.id,
+        providerId: provider.id,
+        availability: 'READY' as const,
+        canonicalSlug: `${provider.id}/codex-subscription/${modelId}`,
+        description: null,
+        connectionId: connection.id
+      } satisfies ModelOption
+    })
 }
