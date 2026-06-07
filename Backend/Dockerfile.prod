@@ -13,27 +13,39 @@ FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV HOME=/home/appuser
+ARG APP_UID=10001
+ARG APP_GID=10001
+ARG CODEX_CLI_VERSION=0.137.0
+ARG GROK_CLI_VERSION=0.2.32
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl \
+  && apt-get install -y --no-install-recommends ca-certificates curl gosu \
   && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+RUN groupadd --gid "${APP_GID}" appuser \
+  && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --home-dir /home/appuser --shell /usr/sbin/nologin appuser
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
+RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" "@xai-official/grok@${GROK_CLI_VERSION}" \
+  && npm cache clean --force
+
 COPY --from=build /app/dist ./dist
 COPY src/config/model-catalog.yaml ./src/config/model-catalog.yaml
 COPY src/main/resources ./src/main/resources
+COPY deploy/docker-entrypoint.sh /usr/local/bin/chat-sribiddi-backend-entrypoint
 
-RUN chown -R appuser:appuser /app
+RUN chmod +x /usr/local/bin/chat-sribiddi-backend-entrypoint \
+  && mkdir -p /var/lib/chat-sribiddi/codex-connections /var/lib/chat-sribiddi/grok-sessions \
+  && chown -R appuser:appuser /app /home/appuser /var/lib/chat-sribiddi \
+  && chmod 700 /var/lib/chat-sribiddi/codex-connections /var/lib/chat-sribiddi/grok-sessions
 
 EXPOSE 8080
-
-USER appuser
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
 
+ENTRYPOINT ["chat-sribiddi-backend-entrypoint"]
 CMD ["node", "dist/index.js"]

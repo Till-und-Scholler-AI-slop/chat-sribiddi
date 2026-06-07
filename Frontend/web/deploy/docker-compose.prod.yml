@@ -2,11 +2,10 @@ name: chat_sribiddi_frontend
 
 services:
   frontend:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    image: chat-sribiddi-frontend:latest
+    image: ghcr.io/till-und-scholler-ai-slop/chat-sribiddi-frontend:${IMAGE_TAG:-main}
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     env_file:
       - ../.env
     ports:

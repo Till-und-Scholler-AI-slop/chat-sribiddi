@@ -13,8 +13,17 @@ the deployment `.env` files.
 - Host reverse proxy: Caddy, configured by [`infra/caddy/Caddyfile`](../infra/caddy/Caddyfile)
 - Frontend: Nuxt container exposed only on `127.0.0.1:3000`
 - Backend: TypeScript/Hono container exposed only on `127.0.0.1:8080`
+- ProviderGateway: internal TypeScript provider runtime exposed only on the
+  Docker network as `provider-gateway:8095`
 - Backend dependencies: Postgres and Redis from [`Backend/deploy/docker-compose.prod.yml`](../Backend/deploy/docker-compose.prod.yml)
 - Frontend deploy config: [`Frontend/web/deploy/docker-compose.prod.yml`](../Frontend/web/deploy/docker-compose.prod.yml)
+- Production app images are pulled from GitHub Container Registry:
+  `ghcr.io/till-und-scholler-ai-slop/chat-sribiddi-backend`,
+  `ghcr.io/till-und-scholler-ai-slop/chat-sribiddi-provider-gateway`, and
+  `ghcr.io/till-und-scholler-ai-slop/chat-sribiddi-frontend`.
+- Watchtower runs from the backend compose project and updates only containers
+  labeled with `com.centurylinklabs.watchtower.enable=true`. Postgres, Redis,
+  Flyway, and Watchtower itself are intentionally not labeled.
 
 Caddy routing conventions:
 
@@ -108,12 +117,13 @@ Provider execution:
   subscription flow is not a normal OpenAI API OAuth grant; it uses the Codex
   CLI ChatGPT login per user. The xAI subscription flow uses the user's own
   Grok Build session through the `grok` CLI bridge.
-- OpenAI `codex-subscription` is a hosted beta behind
-  `OPENAI_CODEX_SUBSCRIPTION_ENABLED=false` by default. When enabled, the
-  backend must have the `codex` CLI installed and must store every user's
-  Codex session under `CODEX_CONNECTIONS_ROOT/{userHash}/codex-subscription`
-  with `0700` permissions. Do not expose `codex app-server` publicly, do not
-  share one ChatGPT account across users, and do not scrape `chatgpt.com`.
+- OpenAI `codex-subscription` is a hosted beta and is enabled by default in the
+  production config with `OPENAI_CODEX_SUBSCRIPTION_ENABLED=true`. The backend
+  and ProviderGateway runtime images install the `codex` CLI and store every
+  user's Codex session under
+  `CODEX_CONNECTIONS_ROOT/{userHash}/codex-subscription` with `0700`
+  permissions. Do not expose `codex app-server` publicly, do not share one
+  ChatGPT account across users, and do not scrape `chatgpt.com`.
   Model names for this profile come from `codex debug models` at login and are
   refreshed from the per-user `CODEX_HOME`; do not hardcode Codex subscription
   model slugs in `model-catalog.yaml`.
@@ -124,13 +134,13 @@ Provider execution:
   encrypted as secrets.
 - xAI has two separate profiles. **API billing** uses the user's own xAI API key
   against `https://api.x.ai/v1`. **Grok Build subscription** is an experimental
-  per-user CLI bridge; it is disabled unless `GROK_CLI_ENABLED=true`, the
-  official `grok` binary is installed, and `GROK_CLI_SESSIONS_DIR` points at a
-  private server-owned directory. The backend must never provide a shared xAI
-  subscription, shared Grok login, managed xAI API key, or fallback token for
-  this profile. Each user must complete the connection flow with their own xAI
-  account, and entitlement validation happens through that user's own Grok
-  Build session.
+  per-user CLI bridge and is enabled by default in production with
+  `GROK_CLI_ENABLED=true`; the backend image installs the official `grok`
+  binary and `GROK_CLI_SESSIONS_DIR` points at a private server-owned volume.
+  The backend must never provide a shared xAI subscription, shared Grok login,
+  managed xAI API key, or fallback token for this profile. Each user must
+  complete the connection flow with their own xAI account, and entitlement
+  validation happens through that user's own Grok Build session.
 - The Grok Build bridge must run with isolated per-user `HOME`, an isolated temp
   `cwd`, no MCP servers, no terminal capability, no file-write capability,
   deny-by-default permissions, bounded output, bounded request timeouts, and
@@ -175,6 +185,8 @@ live in this repo:
 - Caddy config: [`infra/caddy/Caddyfile`](../infra/caddy/Caddyfile)
 - Backend production compose: [`Backend/deploy/docker-compose.prod.yml`](../Backend/deploy/docker-compose.prod.yml)
 - Backend env template: [`Backend/deploy/.env.example`](../Backend/deploy/.env.example)
+- Backend runtime image: [`Backend/Dockerfile.prod`](../Backend/Dockerfile.prod)
+- ProviderGateway runtime image: [`ProviderGateway/Dockerfile.prod`](../ProviderGateway/Dockerfile.prod)
 - Frontend production compose: [`Frontend/web/deploy/docker-compose.prod.yml`](../Frontend/web/deploy/docker-compose.prod.yml)
 - Frontend env template: [`Frontend/web/deploy/.env.example`](../Frontend/web/deploy/.env.example)
 - Deploy workflows:
@@ -188,20 +200,44 @@ where operational state exists.
 
 ## Deploy Flow
 
+Required GitHub secrets for GHCR-based deploys:
+
+- `GHCR_USERNAME`: GitHub account or machine user that can read the repository
+  packages.
+- `GHCR_READ_TOKEN`: GitHub token with `read:packages` for private GHCR pulls.
+- Existing VPS and app secrets remain in `VPS_HOST`, `VPS_USER`,
+  `VPS_PASSWORD`, `BACKEND_ENV_FILE`, `FRONTEND_ENV_FILE`, and provider keys.
+  Rotate any root password that was shared outside the secret store and prefer
+  an SSH key secret for new deployments.
+
 Backend deploy:
 
 1. `.github/workflows/deploy-backend.yml` validates `Backend` with
    `npm run lint`, `npm run build`, and `npm test`.
-2. The workflow uploads the backend source bundle and `infra/caddy`.
-3. On the VPS it writes `Backend/.env` from `BACKEND_ENV_FILE`.
-4. Optional single GitHub secret `OPENROUTER_API_KEY` overrides the matching
+2. The workflow validates `ProviderGateway` with `npm run build` and
+   `npm test`.
+3. The workflow builds and pushes GHCR images for Backend and ProviderGateway,
+   tagged as `main` and `sha-<commit>`.
+4. The workflow uploads only `Backend/deploy`,
+   `Backend/src/main/resources/db/migration`, and `infra/caddy`.
+5. On the VPS it writes `Backend/.env` from `BACKEND_ENV_FILE`, then forces
+   `IMAGE_TAG=main`, `PROVIDER_GATEWAY_ENABLED=true`,
+   `OPENAI_CODEX_SUBSCRIPTION_ENABLED=true`, `GROK_CLI_ENABLED=true`,
+   `PROVIDER_GATEWAY_BASE_URL=http://provider-gateway:8095`,
+   `CODEX_CONNECTIONS_ROOT=/var/lib/chat-sribiddi/codex-connections`, and
+   `GROK_CLI_SESSIONS_DIR=/var/lib/chat-sribiddi/grok-sessions`.
+6. Optional single GitHub secret `OPENROUTER_API_KEY` overrides the matching
    key in `Backend/.env` when it is set, so rotating the guest OpenRouter Free
    key does not require editing the whole multiline `BACKEND_ENV_FILE` secret.
-5. It runs `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build --remove-orphans`.
-   The production compose file uses `Backend/Dockerfile.prod`, runs the Flyway
-   service against `src/main/resources/db/migration`, then starts the Node/Hono
-   backend image.
-6. It validates and installs the Caddyfile:
+7. It logs in to GHCR on the VPS with `GHCR_USERNAME`/`GHCR_READ_TOKEN`, then
+   runs:
+   `docker compose --env-file .env -f deploy/docker-compose.prod.yml pull`
+   followed by
+   `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --remove-orphans`.
+   The production compose file runs Flyway against
+   `src/main/resources/db/migration`, starts ProviderGateway internally, starts
+   the Node/Hono backend, and starts Watchtower for labeled app containers.
+8. It validates and installs the Caddyfile:
    - `caddy validate --config "$APP_DIR/infra/caddy/Caddyfile"`
    - `cp "$APP_DIR/infra/caddy/Caddyfile" /etc/caddy/Caddyfile`
    - `systemctl reload caddy || systemctl restart caddy`
@@ -209,9 +245,15 @@ Backend deploy:
 Frontend deploy:
 
 1. `.github/workflows/deploy-frontend.yml` validates `Frontend/web` with Bun.
-2. The workflow uploads the frontend bundle.
-3. On the VPS it writes `Frontend-web/.env` from `FRONTEND_ENV_FILE`.
-4. It runs `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build --remove-orphans`.
+2. The workflow builds and pushes the GHCR frontend image tagged as `main` and
+   `sha-<commit>`.
+3. The workflow uploads only `Frontend/web/deploy`.
+4. On the VPS it writes `Frontend-web/.env` from `FRONTEND_ENV_FILE` and forces
+   `IMAGE_TAG=main`.
+5. It logs in to GHCR on the VPS, then runs:
+   `docker compose --env-file .env -f deploy/docker-compose.prod.yml pull`
+   followed by
+   `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --remove-orphans`.
 
 ## Required Smoke Checks
 
@@ -246,11 +288,14 @@ with `API_KEY_REQUIRED`; after connecting that provider in Settings, the same
 provider should stream successfully. The web-search tool should bind only after
 a user connects Brave Search.
 
-For the OpenAI `codex-subscription` beta, additionally verify `codex --version`
-inside the backend runtime image/host, start the Settings login flow, complete
-the ChatGPT/Codex device code with a throwaway test account, send one chat with
-one generated model option from `codex debug models`, then delete the connection
-and confirm the matching `CODEX_HOME` directory is removed.
+For the hosted CLI beta, additionally verify `codex --version` inside both the
+backend and ProviderGateway runtime containers, `grok --version` inside the
+backend runtime container, start the Settings login flows, complete the
+ChatGPT/Codex device code with a throwaway test account, send one chat with one
+generated model option from `codex debug models`, then delete the connection and
+confirm the matching `CODEX_HOME` directory is removed. For Grok, if the server
+CLI cannot complete device auth, the failure must surface as a provider
+connection error and must not break backend startup.
 
 ## VPS Triage Commands
 
@@ -261,7 +306,10 @@ into docs.
 ssh root@germinai.de
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.Image}}'
 docker inspect --format '{{.State.Status}} {{.State.Health.Status}} {{.RestartCount}}' chat_sribiddi_backend-backend-1
+docker inspect --format '{{.State.Status}} {{.State.Health.Status}} {{.RestartCount}}' chat_sribiddi_backend-provider-gateway-1
 docker logs --tail=160 chat_sribiddi_backend-backend-1
+docker logs --tail=160 chat_sribiddi_backend-provider-gateway-1
+docker logs --tail=160 chat_sribiddi_backend-watchtower-1
 docker logs --tail=160 chat_sribiddi_frontend-frontend-1
 cmp -s /etc/caddy/Caddyfile /opt/chat-sribiddi/infra/caddy/Caddyfile
 caddy validate --config /etc/caddy/Caddyfile
@@ -338,6 +386,7 @@ Before considering production work done:
 - [ ] Caddy, Docker Compose, env templates, and workflows are updated when their
       production behavior changes.
 - [ ] Backend checks pass after backend changes: `cd Backend && npm run lint && npm run build && npm test`.
+- [ ] ProviderGateway checks pass after gateway changes: `cd ProviderGateway && npm run build && npm test`.
 - [ ] Frontend tests/build pass after frontend changes: `cd Frontend/web && bun run test`, `bun run lint`, `bun run build`.
 - [ ] GitHub Actions for the pushed commit are green.
 - [ ] Live smoke checks in this runbook pass.

@@ -28,6 +28,7 @@ chat-sribiddi/
 │   │   ├── app/components/   # Lean: 11 components total
 │   │   └── i18n/locales/     # de.json (default), en.json
 │   └── mobile/         # Flutter/Dart UI prototype (no backend integration yet)
+├── ProviderGateway/    # Internal TypeScript provider runtime for gateway/CLI providers
 ├── infra/caddy/        # Caddy reverse proxy config
 ├── monitoring/grafana/ # Grafana dashboards
 └── docs/               # Operations runbook, architecture decisions
@@ -117,6 +118,9 @@ client.prompt()
 | Feature | Env Vars | Notes |
 |---------|----------|-------|
 | **OpenRouter Free guest path** | `OPENROUTER_API_KEY`, `OPENROUTER_APP_NAME`, `OPENROUTER_REFERRER` | Required only for anonymous `OPENROUTER/openrouter/free`. Blank key disables guest free chat. |
+| **GHCR deploy pulls** | `GHCR_USERNAME`, `GHCR_READ_TOKEN` | Required by VPS deploy workflows to pull private GHCR images. Token needs `read:packages`. |
+| **Codex subscription beta** | `OPENAI_CODEX_SUBSCRIPTION_ENABLED`, `CODEX_CONNECTIONS_ROOT` | Enabled by default in production; uses per-user `codex` CLI auth directories, never a shared ChatGPT account. |
+| **Grok Build subscription beta** | `GROK_CLI_ENABLED`, `GROK_CLI_SESSIONS_DIR` | Enabled by default in production; each user must connect their own xAI/Grok account. |
 | **Brave Search** | — | Users store their own `BRAVE_SEARCH` key in Settings; there is no managed server Brave key. |
 | **Legal Pages** | — | Replace `[TODO: Legal text …]` in `de.json`/`en.json` with counsel-reviewed copy |
 
