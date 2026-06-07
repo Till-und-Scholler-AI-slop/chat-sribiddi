@@ -35,6 +35,7 @@ export class ToolCallLogRepository {
 
   create(input: {
     messageId: number;
+    clientId?: string | null;
     toolName: string;
     inputPayload: string;
     outputPayload?: string | null;
@@ -56,7 +57,7 @@ export class ToolCallLogRepository {
         duration_ms: input.durationMs,
         context_excerpt: input.contextExcerpt ?? null,
         created_at: new Date(),
-        client_id: null,
+        client_id: input.clientId ?? null,
         status: input.status ?? "SUCCESS",
         error_message: input.errorMessage ?? null,
         display_type: input.displayType ?? null,

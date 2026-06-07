@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import {
   isTerminalStreamEvent,
+  isToolCallStreamEvent,
   parseSseEvents
 } from '../chat-stream'
 import {
@@ -91,6 +92,23 @@ describe('parseSseEvents', () => {
     const raw = 'event: error\ndata: {"type":"error","content":"Something went wrong"}\n\n'
     const events = parseSseEvents(raw)
     expect(events).toEqual([{ type: 'error', content: 'Something went wrong' }])
+  })
+
+  it('parses tool-call stream events with normalized duration', () => {
+    const raw = 'event: tool_call_completed\ndata: {"type":"tool_call_completed","clientId":"tool-1","toolName":"calculator","inputPayload":"{}","outputPayload":"4","durationMs":"12","status":"SUCCESS","displayType":"text"}\n\n'
+    const events = parseSseEvents(raw)
+    expect(events).toEqual([{
+      type: 'tool_call_completed',
+      clientId: 'tool-1',
+      toolName: 'calculator',
+      inputPayload: '{}',
+      outputPayload: '4',
+      durationMs: 12,
+      status: 'SUCCESS',
+      displayType: 'text'
+    }])
+    expect(isToolCallStreamEvent(events[0]!)).toBe(true)
+    expect(isTerminalStreamEvent(events[0]!)).toBe(false)
   })
 
   it('parses stream error metadata fields', () => {

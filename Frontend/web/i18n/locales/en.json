@@ -140,7 +140,16 @@
     "output": "Output",
     "contextExcerpt": "Context excerpt",
     "showRawJson": "Show raw JSON",
-    "hideRawJson": "Hide raw JSON"
+    "hideRawJson": "Hide raw JSON",
+    "emptyValue": "—",
+    "statusRunning": "Running",
+    "statusSuccess": "Done",
+    "statusError": "Failed",
+    "toolRunning": "The tool is still running.",
+    "tableSummary": "{rows} rows, {columns} columns",
+    "minValue": "Min: {value}",
+    "maxValue": "Max: {value}",
+    "averageValue": "Avg: {value}"
   },
   "models": {
     "title": "Model catalog",
