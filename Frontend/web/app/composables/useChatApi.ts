@@ -78,12 +78,16 @@ export type BackendMessage = {
 export type ToolCallLog = {
   id?: number | null
   messageId: number
+  clientId?: string | null
   toolName: string
   inputPayload: string
   outputPayload?: string | null
   startedAt?: string | null
   durationMs?: number | null
   contextExcerpt?: string | null
+  status?: 'RUNNING' | 'SUCCESS' | 'ERROR' | string | null
+  errorMessage?: string | null
+  displayType?: string | null
 }
 
 export type TokenUsage = {

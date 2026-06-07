@@ -1,4 +1,5 @@
 import type { ChatStatus, UIMessage } from 'ai'
+import { isToolCallStreamEvent } from '~/composables/chat-stream'
 import type { StreamEvent } from '~/composables/chat-stream'
 import type { BackendMessage, ChatSession, ImportChat, MediaAttachment, ModelOption, TokenUsage } from '~/composables/useChatApi'
 import type { MessagePricing } from '~/composables/chat-helpers'
@@ -71,6 +72,7 @@ export function useChatStore() {
     resetToolCallState,
     rekeyToolCallMetadata,
     setToolCallAvailability,
+    ingestLiveToolCall,
     hasToolCalls,
     getToolCalls,
     getToolCallError,
@@ -496,7 +498,7 @@ export function useChatStore() {
   }
 
   const removeMessageIfEmpty = (conversation: Conversation, message: UIMessage) => {
-    if (getFirstTextContent(message)) {
+    if (getFirstTextContent(message) || hasToolCalls(message.id)) {
       return
     }
 
@@ -544,6 +546,12 @@ export function useChatStore() {
     let currentMessage = deps.assistantMessage
 
     const handler = (event: StreamEvent) => {
+      if (isToolCallStreamEvent(event)) {
+        deps.conversation.status = 'streaming'
+        ingestLiveToolCall(currentMessage.id, event)
+        return
+      }
+
       switch (event.type) {
         case 'text':
           if (event.content) {

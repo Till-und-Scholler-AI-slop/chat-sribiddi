@@ -19,7 +19,12 @@ import type { DocumentService } from "./document-service.js";
 import type { GuestQuotaService } from "./guest-quota-service.js";
 import type { ProviderConnectionService } from "./provider-connection-service.js";
 import type { StreamConcurrencyGate } from "./stream-concurrency-gate.js";
-import type { ExecutedToolRecord, ToolService } from "./tool-service.js";
+import type {
+  ExecutedToolRecord,
+  ToolEventSink,
+  ToolExecutionEvent,
+  ToolService,
+} from "./tool-service.js";
 import type { TokenUsage, UsageService } from "./usage-service.js";
 import type { WebSearchResult, WebSearchService } from "./web-search-service.js";
 
@@ -128,12 +133,16 @@ export class ChatService {
     return (await this.toolLogs.listByMessage(messageId)).map((row) => ({
       id: row.id,
       messageId: row.message_id,
+      clientId: row.client_id,
       toolName: row.tool_name,
       inputPayload: row.input_payload,
       outputPayload: row.output_payload,
       startedAt: toIso(row.started_at),
       durationMs: row.duration_ms,
       contextExcerpt: row.context_excerpt,
+      status: row.status,
+      errorMessage: row.error_message,
+      displayType: row.display_type,
     }));
   }
 
@@ -175,11 +184,16 @@ export class ChatService {
   }
 
   async streamMessage(c: Context, chatId: string, userId: string, request: ChatRequest) {
-    const prepared = await this.prepareAuthenticatedCall(chatId, userId, request);
+    let toolEventSink: ToolEventSink | undefined;
+    const prepared = await this.prepareAuthenticatedCall(chatId, userId, request, (event) =>
+      toolEventSink?.(event),
+    );
     this.concurrency.acquire(userId, prepared.credential.limits.parallelStreams);
     return streamSSE(c, async (stream) => {
       let content = "";
       try {
+        toolEventSink = (event) =>
+          writeStreamEvent(stream, toolStreamEventName(event), toolStreamPayload(event));
         const result = this.ai.stream({
           provider: prepared.executionProvider,
           userId,
@@ -227,6 +241,7 @@ export class ChatService {
           incomplete: true,
         });
       } finally {
+        toolEventSink = undefined;
         this.concurrency.release(userId);
       }
     });
@@ -247,11 +262,22 @@ export class ChatService {
     const mediaContext = this.mediaContext(request.media, resolved.credential.limits);
     await this.messages.updateMessage(messageId, chatId, request.content, mediaContext);
     await this.messages.deleteAfter(chatId, messageId);
-    const prepared = await this.preparePrompt(chat, userId, request, resolved, null, messageId);
+    let toolEventSink: ToolEventSink | undefined;
+    const prepared = await this.preparePrompt(
+      chat,
+      userId,
+      request,
+      resolved,
+      null,
+      messageId,
+      (event) => toolEventSink?.(event),
+    );
     this.concurrency.acquire(userId, resolved.credential.limits.parallelStreams);
     return streamSSE(c, async (stream) => {
       let content = "";
       try {
+        toolEventSink = (event) =>
+          writeStreamEvent(stream, toolStreamEventName(event), toolStreamPayload(event));
         const result = this.ai.stream({
           provider: prepared.executionProvider,
           userId,
@@ -298,6 +324,7 @@ export class ChatService {
           incomplete: true,
         });
       } finally {
+        toolEventSink = undefined;
         this.concurrency.release(userId);
       }
     });
@@ -377,7 +404,12 @@ export class ChatService {
     };
   }
 
-  private async prepareAuthenticatedCall(chatId: string, userId: string, request: ChatRequest) {
+  private async prepareAuthenticatedCall(
+    chatId: string,
+    userId: string,
+    request: ChatRequest,
+    toolEventSink?: ToolEventSink,
+  ) {
     const chat = await this.requireChat(chatId, userId);
     const resolved = await this.resolveCredential(userId, request);
     const mediaContext = this.mediaContext(request.media, resolved.credential.limits);
@@ -392,7 +424,15 @@ export class ChatService {
       total_tokens: null,
     });
     const updatedTitle = await this.maybeUpdateTitle(chat, request.content);
-    return this.preparePrompt(chat, userId, request, resolved, updatedTitle, userMessage.id);
+    return this.preparePrompt(
+      chat,
+      userId,
+      request,
+      resolved,
+      updatedTitle,
+      userMessage.id,
+      toolEventSink,
+    );
   }
 
   private async preparePrompt(
@@ -402,6 +442,7 @@ export class ChatService {
     resolved: Awaited<ReturnType<ChatService["resolveCredential"]>>,
     updatedTitle: string | null,
     editMessageId?: number,
+    toolEventSink?: ToolEventSink,
   ) {
     const history = await this.messages.latestByChat(
       chat.chat_id,
@@ -411,7 +452,7 @@ export class ChatService {
     const braveKey =
       request.webSearchEnabled === true ? await this.apiKeys.getKey(userId, "BRAVE_SEARCH") : null;
     const webResults = braveKey ? await this.webSearch.search(request.content, braveKey) : [];
-    const executableTools = await this.tools.aiTools(chat.chat_id, userId);
+    const executableTools = await this.tools.aiTools(chat.chat_id, userId, toolEventSink);
     const promptMessages = this.promptMessages(
       history,
       request,
@@ -602,6 +643,7 @@ export class ChatService {
     for (const record of records) {
       await this.toolLogs.create({
         messageId,
+        clientId: record.clientId,
         toolName: record.toolName,
         inputPayload: record.inputPayload,
         outputPayload: record.outputPayload,
@@ -624,6 +666,7 @@ export class ChatService {
           .map((item) => item.title)
           .join("\n")
           .slice(0, 1000),
+        status: "SUCCESS",
         displayType: "search-results",
       });
     }
@@ -727,6 +770,28 @@ async function writeStreamEvent(
   payload: unknown,
 ) {
   await stream.writeSSE({ event, data: JSON.stringify(payload) });
+}
+
+function toolStreamEventName(event: ToolExecutionEvent) {
+  if (event.status === "RUNNING") return "tool_call_started";
+  if (event.status === "SUCCESS") return "tool_call_completed";
+  return "tool_call_failed";
+}
+
+function toolStreamPayload(event: ToolExecutionEvent) {
+  return {
+    type: toolStreamEventName(event),
+    clientId: event.clientId,
+    toolName: event.toolName,
+    inputPayload: event.inputPayload,
+    outputPayload: event.outputPayload,
+    startedAt: toIso(event.startedAt),
+    durationMs: event.durationMs,
+    contextExcerpt: event.contextExcerpt,
+    status: event.status,
+    errorMessage: event.errorMessage,
+    displayType: event.displayType,
+  };
 }
 
 function streamErrorType(error: unknown) {

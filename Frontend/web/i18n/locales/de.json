@@ -140,7 +140,16 @@
     "output": "Output",
     "contextExcerpt": "Kontextauszug",
     "showRawJson": "Roh-JSON anzeigen",
-    "hideRawJson": "Roh-JSON ausblenden"
+    "hideRawJson": "Roh-JSON ausblenden",
+    "emptyValue": "—",
+    "statusRunning": "Läuft",
+    "statusSuccess": "Fertig",
+    "statusError": "Fehlgeschlagen",
+    "toolRunning": "Das Tool läuft noch.",
+    "tableSummary": "{rows} Zeilen, {columns} Spalten",
+    "minValue": "Min: {value}",
+    "maxValue": "Max: {value}",
+    "averageValue": "Ø: {value}"
   },
   "models": {
     "title": "Modellkatalog",

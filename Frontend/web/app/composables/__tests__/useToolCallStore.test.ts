@@ -62,7 +62,7 @@ describe('useToolCallStore', () => {
 
   it('rekeys tool-call metadata when a streamed message receives a backend id', async () => {
     const logs = [{
-      messageId: 42,
+      messageId: 0,
       toolName: 'calculator',
       inputPayload: '{}'
     }]
@@ -74,8 +74,53 @@ describe('useToolCallStore', () => {
     store.rekeyToolCallMetadata('tmp-message', 'msg-42')
 
     expect(store.hasToolCalls('msg-42')).toBe(true)
-    expect(store.getToolCalls('msg-42')).toEqual(logs)
+    expect(store.getToolCalls('msg-42')).toEqual([{ ...logs[0], messageId: 42 }])
     expect(store.hasToolCalls('tmp-message')).toBe(false)
+  })
+
+  it('ingests live tool-call events and merges updates by client id', () => {
+    const store = useToolCallStore()
+
+    store.ingestLiveToolCall('tmp-message', {
+      type: 'tool_call_started',
+      clientId: 'tool-1',
+      toolName: 'calculator',
+      inputPayload: '{"expression":"2+2"}',
+      status: 'RUNNING',
+      displayType: 'text'
+    })
+
+    expect(store.hasToolCalls('tmp-message')).toBe(true)
+    expect(store.isToolCallLoading('tmp-message')).toBe(true)
+    expect(store.getToolCalls('tmp-message')).toMatchObject([
+      {
+        messageId: 0,
+        clientId: 'tool-1',
+        toolName: 'calculator',
+        status: 'RUNNING'
+      }
+    ])
+
+    store.ingestLiveToolCall('tmp-message', {
+      type: 'tool_call_completed',
+      clientId: 'tool-1',
+      toolName: 'calculator',
+      inputPayload: '{"expression":"2+2"}',
+      outputPayload: '4',
+      durationMs: 3,
+      status: 'SUCCESS',
+      displayType: 'text'
+    })
+
+    expect(store.isToolCallLoading('tmp-message')).toBe(false)
+    expect(store.getToolCalls('tmp-message')).toMatchObject([
+      {
+        clientId: 'tool-1',
+        outputPayload: '4',
+        durationMs: 3,
+        status: 'SUCCESS'
+      }
+    ])
   })
 
   it('rejects tool-call loading for temporary message ids', async () => {
