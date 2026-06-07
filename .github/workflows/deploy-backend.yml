@@ -135,6 +135,7 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+      packages: read
 
     steps:
       - name: Checkout repository
@@ -182,8 +183,8 @@ jobs:
         env:
           BACKEND_ENV_FILE: ${{ secrets.BACKEND_ENV_FILE }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.actor }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN || github.token }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}

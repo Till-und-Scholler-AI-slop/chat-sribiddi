@@ -200,11 +200,16 @@ where operational state exists.
 
 ## Deploy Flow
 
-Required GitHub secrets for GHCR-based deploys:
+GitHub secrets for GHCR-based deploys:
 
 - `GHCR_USERNAME`: GitHub account or machine user that can read the repository
   packages.
 - `GHCR_READ_TOKEN`: GitHub token with `read:packages` for private GHCR pulls.
+- If those two secrets are absent, the deploy workflows fall back to the
+  short-lived workflow `GITHUB_TOKEN` so the immediate deploy can pull the
+  images it just published. Set the persistent secrets anyway; Watchtower needs
+  durable GHCR credentials in `/root/.docker/config.json` for unattended pulls
+  after the workflow token expires.
 - Existing VPS and app secrets remain in `VPS_HOST`, `VPS_USER`,
   `VPS_PASSWORD`, `BACKEND_ENV_FILE`, `FRONTEND_ENV_FILE`, and provider keys.
   Rotate any root password that was shared outside the secret store and prefer
