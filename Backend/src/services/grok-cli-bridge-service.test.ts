@@ -127,10 +127,54 @@ describe("GrokCliBridgeService", () => {
       await rm(sessionsDir, { recursive: true, force: true });
     }
   });
+
+  it("recovers a completed device login when in-memory pending state was lost", async () => {
+    env.GROK_CLI_ENABLED = true;
+    env.GROK_CLI_BIN = "grok-test";
+    env.GROK_CLI_REQUEST_TIMEOUT_MS = 2_000;
+    const sessionsDir = await mkdtemp(join(tmpdir(), "grok-sessions-"));
+    env.GROK_CLI_SESSIONS_DIR = sessionsDir;
+    const service = new GrokCliBridgeService(() => fakeAcpProcess(() => {}));
+
+    try {
+      const result = await service.pollDeviceLogin("user-3", "lost-login-state");
+
+      expect(result).toMatchObject({
+        mode: "READY",
+        accountLabel: "Grok Build subscription",
+        session: {
+          cliSessionId: "lost-login-state",
+          modelId: "grok-build",
+        },
+      });
+      if (result.mode !== "READY") throw new Error("Expected recovered READY login");
+      expect(result.session.cliHomeDir).toContain(sessionsDir);
+    } finally {
+      await rm(sessionsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps missing device login state invalid when no cached Grok session exists", async () => {
+    env.GROK_CLI_ENABLED = true;
+    env.GROK_CLI_BIN = "grok-test";
+    env.GROK_CLI_REQUEST_TIMEOUT_MS = 2_000;
+    const sessionsDir = await mkdtemp(join(tmpdir(), "grok-sessions-"));
+    env.GROK_CLI_SESSIONS_DIR = sessionsDir;
+    const service = new GrokCliBridgeService(() => fakeAcpProcess(() => {}, { authMethods: [] }));
+
+    try {
+      await expect(service.pollDeviceLogin("user-4", "missing-login-state")).rejects.toThrow(
+        "Grok login state is invalid or expired",
+      );
+    } finally {
+      await rm(sessionsDir, { recursive: true, force: true });
+    }
+  });
 });
 
 function fakeAcpProcess(
   onRequest: (message: { id: number; method: string; params: unknown }) => void,
+  options: { authMethods?: Array<{ id: string }> } = {},
 ): ChildProcessWithoutNullStreams {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
@@ -150,7 +194,10 @@ function fakeAcpProcess(
       onRequest(message);
       if (message.method === "initialize") {
         stdout.write(
-          `${JSON.stringify({ id: message.id, result: { authMethods: [{ id: "cached_token" }] } })}\n`,
+          `${JSON.stringify({
+            id: message.id,
+            result: { authMethods: options.authMethods ?? [{ id: "cached_token" }] },
+          })}\n`,
         );
       } else if (message.method === "authenticate") {
         stdout.write(`${JSON.stringify({ id: message.id, result: {} })}\n`);

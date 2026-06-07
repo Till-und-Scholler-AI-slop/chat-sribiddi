@@ -10,7 +10,9 @@
     "loading": "Loading…",
     "unknown": "Unknown",
     "back": "Back",
-    "reload": "Reload"
+    "reload": "Reload",
+    "copy": "Copy",
+    "copied": "Copied"
   },
   "language": {
     "label": "Language",
@@ -293,6 +295,7 @@
     "deviceFlowDescription": "Open the verification page, enter the code, and wait until the connection is confirmed.",
     "deviceUserCodeLabel": "Device code",
     "deviceVerificationLink": "Open verification page",
+    "deviceCodeCopyFailed": "Could not copy device code.",
     "devicePolling": "We automatically check whether sign-in has completed.",
     "codexDevicePolling": "We automatically check whether ChatGPT/Codex sign-in has completed.",
     "devicePollingBadge": "Waiting for confirmation",

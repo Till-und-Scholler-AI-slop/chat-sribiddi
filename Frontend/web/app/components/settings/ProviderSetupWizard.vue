@@ -66,6 +66,7 @@ const currentIndex = ref(0)
 const connectedProviderIds = ref<string[]>([])
 const providerForms = reactive<Record<string, ProviderFormState>>({})
 const deviceFlow = ref<DeviceFlowState | null>(null)
+const copiedDeviceCode = ref(false)
 let devicePollToken = 0
 
 const providerById = computed(() => new Map(props.providers.map(provider => [provider.id, provider])))
@@ -572,6 +573,7 @@ async function pollDeviceConnection(token: number) {
 function closeDeviceFlow() {
   devicePollToken += 1
   deviceFlow.value = null
+  copiedDeviceCode.value = false
 }
 
 const deviceFlowOpen = computed({
@@ -597,6 +599,22 @@ function rememberOAuthHandoff(provider: ProviderCatalogItem) {
 function openProviderDocs(profile: ProviderConnectionProfile | undefined) {
   if (!profile?.docsUrl) return
   window.open(profile.docsUrl, '_blank', 'noopener,noreferrer')
+}
+
+async function copyDeviceCode() {
+  if (!deviceFlow.value || !import.meta.client) return
+  try {
+    await navigator.clipboard.writeText(deviceFlow.value.userCode)
+    copiedDeviceCode.value = true
+    window.setTimeout(() => {
+      copiedDeviceCode.value = false
+    }, 1500)
+  } catch {
+    toast.add({
+      title: t('settings.deviceCodeCopyFailed'),
+      color: 'warning'
+    })
+  }
 }
 
 function closeWizard() {
@@ -985,11 +1003,25 @@ function startChatting() {
     <template #body>
       <div class="space-y-5">
         <div class="rounded-md border border-gray-200 px-4 py-3 dark:border-gray-800">
-          <div class="text-xs uppercase text-gray-500 dark:text-gray-400">
-            {{ t('settings.deviceUserCodeLabel') }}
-          </div>
-          <div class="mt-1 font-mono text-2xl tracking-widest text-gray-900 dark:text-gray-50">
-            {{ deviceFlow.userCode }}
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-xs uppercase text-gray-500 dark:text-gray-400">
+                {{ t('settings.deviceUserCodeLabel') }}
+              </div>
+              <div class="mt-1 break-all font-mono text-2xl text-gray-900 dark:text-gray-50">
+                {{ deviceFlow.userCode }}
+              </div>
+            </div>
+            <UTooltip :text="copiedDeviceCode ? t('common.copied') : t('common.copy')">
+              <UButton
+                type="button"
+                variant="ghost"
+                color="neutral"
+                :icon="copiedDeviceCode ? 'i-heroicons-check' : 'i-heroicons-clipboard-document'"
+                :aria-label="t('common.copy')"
+                @click="copyDeviceCode"
+              />
+            </UTooltip>
           </div>
         </div>
 

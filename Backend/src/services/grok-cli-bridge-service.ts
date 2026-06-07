@@ -168,7 +168,11 @@ export class GrokCliBridgeService implements GrokCliBridge {
     this.requireEnabled();
     const pending = this.pendingLogins.get(loginId);
     if (!pending || pending.userId !== userId) {
-      throw badRequest("Grok login state is invalid or expired");
+      const recovered = await this.recoverCompletedLogin(userId, loginId);
+      if (recovered) return recovered;
+      throw badRequest(
+        "Grok login state is invalid or expired. Start a new xAI login and keep this window open.",
+      );
     }
     if (Date.now() > pending.expiresAt && pending.exitCode == null) {
       this.pendingLogins.delete(loginId);
@@ -204,6 +208,27 @@ export class GrokCliBridgeService implements GrokCliBridge {
       session,
       accountLabel: "Grok Build subscription",
     };
+  }
+
+  private async recoverCompletedLogin(
+    userId: string,
+    loginId: string,
+  ): Promise<Extract<GrokCliDevicePoll, { mode: "READY" }> | null> {
+    const session = {
+      cliHomeDir: await this.userHomeDir(userId),
+      cliSessionId: loginId,
+      modelId: "grok-build",
+    };
+    try {
+      await this.validateSession(userId, session);
+      return {
+        mode: "READY",
+        session,
+        accountLabel: "Grok Build subscription",
+      };
+    } catch {
+      return null;
+    }
   }
 
   async generate(input: {

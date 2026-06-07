@@ -10,7 +10,9 @@
     "loading": "Wird geladen…",
     "unknown": "Unbekannt",
     "back": "Zurück",
-    "reload": "Neu laden"
+    "reload": "Neu laden",
+    "copy": "Kopieren",
+    "copied": "Kopiert"
   },
   "language": {
     "label": "Sprache",
@@ -293,6 +295,7 @@
     "deviceFlowDescription": "Öffne die Verifizierungsseite, gib den Code ein und warte, bis die Verbindung bestätigt wurde.",
     "deviceUserCodeLabel": "Gerätecode",
     "deviceVerificationLink": "Verifizierungsseite öffnen",
+    "deviceCodeCopyFailed": "Gerätecode konnte nicht kopiert werden.",
     "devicePolling": "Wir prüfen automatisch, ob die Anmeldung abgeschlossen ist.",
     "codexDevicePolling": "Wir prüfen automatisch, ob die ChatGPT/Codex-Anmeldung abgeschlossen ist.",
     "devicePollingBadge": "Wartet auf Bestätigung",
