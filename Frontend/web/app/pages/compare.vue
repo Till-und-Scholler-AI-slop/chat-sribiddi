@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CSSProperties } from 'vue'
 import type { ModelOption } from '~/composables/useChatApi'
-import { isModelLocked } from '~/composables/useChatApi'
+import { isModelLocked } from '~/utils/model-utils'
 
 definePageMeta({
   layout: 'default'

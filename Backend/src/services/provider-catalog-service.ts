@@ -1,5 +1,7 @@
 import { canonicalProviderId, providerIdToLegacy } from "../utils/strings.js";
 
+export type ProviderConnectMode = "FORM" | "REDIRECT" | "DEVICE_CODE" | "CLI_DEVICE_CODE";
+
 export type ProviderAuthMethod =
   | "API_KEY"
   | "OAUTH_PKCE"
@@ -29,6 +31,7 @@ export type ProviderConnectionProfile = {
   requiresApiKey: boolean;
   requiresModelId: boolean;
   oauthEnabled: boolean;
+  connectMode: ProviderConnectMode;
   status: ProviderConnectionStatus;
   docsUrl?: string | undefined;
 };
@@ -104,6 +107,7 @@ function profile(input: {
   requiresApiKey?: boolean;
   requiresModelId?: boolean;
   oauthEnabled?: boolean;
+  connectMode?: ProviderConnectMode;
   status?: ProviderConnectionStatus;
   docsUrl?: string | undefined;
 }): ProviderConnectionProfile {
@@ -116,6 +120,7 @@ function profile(input: {
     requiresApiKey: input.requiresApiKey ?? false,
     requiresModelId: input.requiresModelId ?? false,
     oauthEnabled: input.oauthEnabled ?? false,
+    connectMode: input.connectMode ?? (input.oauthEnabled ? "REDIRECT" : "FORM"),
     status: input.status ?? "NEEDS_CONNECTION",
     docsUrl: input.docsUrl,
   };
@@ -142,8 +147,21 @@ function oauthProfile(
     label,
     authMethod,
     oauthEnabled: true,
+    connectMode: authMethod === "DEVICE_CODE" ? "DEVICE_CODE" : "REDIRECT",
     status: "NEEDS_CONNECTION",
     docsUrl,
+  });
+}
+
+function codexSubscriptionProfile() {
+  return profile({
+    id: "codex-subscription",
+    label: "ChatGPT/Codex subscription",
+    authMethod: "SUBSCRIPTION_CLI",
+    oauthEnabled: true,
+    connectMode: "CLI_DEVICE_CODE",
+    status: "EXPERIMENTAL",
+    docsUrl: "https://developers.openai.com/codex/auth",
   });
 }
 
@@ -202,6 +220,7 @@ function buildCatalog(): ProviderDescriptor[] {
   return [
     descriptor("openai", "OpenAI", "llm", true, false, false, "native", "NEEDS_CONNECTION", [
       apiKeyProfile("https://platform.openai.com/docs/api-reference/authentication"),
+      codexSubscriptionProfile(),
     ]),
     descriptor(
       "anthropic",

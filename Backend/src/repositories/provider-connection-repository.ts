@@ -170,6 +170,12 @@ export type ProviderConnectionSecret = {
   clientId?: string;
   clientSecret?: string;
   quotaProjectId?: string;
+  codexHome?: string;
+  models?: Array<{
+    id: string;
+    label: string;
+    description?: string | null;
+  }>;
   cliHomeDir?: string;
   cliSessionId?: string;
   cliBridge?: "grok-build";

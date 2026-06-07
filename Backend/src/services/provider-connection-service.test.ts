@@ -32,6 +32,16 @@ describe("ProviderConnectionService", () => {
         }),
       ]),
     );
+    expect(catalog.find("openai")?.connectionProfiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "codex-subscription",
+          authMethod: "SUBSCRIPTION_CLI",
+          connectMode: "CLI_DEVICE_CODE",
+          oauthEnabled: true,
+        }),
+      ]),
+    );
     expect(catalog.find("xai")?.connectionProfiles).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -231,6 +241,80 @@ describe("ProviderConnectionService", () => {
       env.GITHUB_COPILOT_OAUTH_CLIENT_ID = previousClientId;
       env.GITHUB_COPILOT_OAUTH_SCOPES = previousScopes;
     }
+  });
+
+  it("starts and completes OpenAI Codex subscription device login", async () => {
+    const crypto = new CryptoService(secret, 1);
+    const rows: ProviderConnectionRow[] = [];
+    const codexCli = {
+      startDeviceAuth: vi.fn(async () => ({
+        mode: "DEVICE_CODE" as const,
+        state: "codex-state",
+        deviceCode: "codex-state",
+        userCode: "ABCD-1234",
+        verificationUri: "https://auth.openai.com/codex/device",
+        verificationUriComplete: "https://auth.openai.com/codex/device",
+        expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        intervalSeconds: 5,
+        codexHome: "/tmp/codex-home",
+        message: null,
+      })),
+      completeDeviceAuth: vi.fn(async () => ({
+        mode: "READY" as const,
+        codexHome: "/tmp/codex-home",
+        modelId: "gpt-5.5",
+        modelLabel: "GPT-5.5",
+        models: [
+          { id: "gpt-5.5", label: "GPT-5.5", description: "Latest coding model" },
+          { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", description: null },
+        ],
+        accountLabel: "ChatGPT/Codex subscription",
+        message: null,
+      })),
+      listModels: vi.fn(async () => [
+        { id: "gpt-5.5", label: "GPT-5.5", description: "Latest coding model" },
+        { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", description: null },
+      ]),
+      deleteCodexHome: vi.fn(async () => undefined),
+      enabled: () => true,
+    };
+    const service = new ProviderConnectionService(
+      fakeRepository(rows, crypto) as never,
+      new ProviderCatalogService(),
+      crypto,
+      undefined,
+      codexCli as never,
+    );
+
+    const start = await service.startConnection(
+      "user-1",
+      "openai",
+      "SUBSCRIPTION_CLI",
+      "codex-subscription",
+      "https://germinai.de/provider-connections/openai/callback",
+    );
+
+    expect(start.mode).toBe("CLI_DEVICE_CODE");
+    expect(start.connectionProfileId).toBe("codex-subscription");
+    expect((start as { userCode?: string }).userCode).toBe("ABCD-1234");
+    expect(start).not.toHaveProperty("codexHome");
+
+    const completed = await service.completeDeviceConnection("user-1", "openai", {
+      deviceCode: "codex-state",
+      connectionProfileId: "codex-subscription",
+    });
+
+    expect(completed.mode).toBe("READY");
+    expect(completed.connection?.authMethod).toBe("SUBSCRIPTION_CLI");
+    const resolved = await service.resolveReadyConnection("user-1", "openai");
+    expect(resolved?.connectionProfileId).toBe("codex-subscription");
+    expect(resolved?.codexHome).toBe("/tmp/codex-home");
+    expect(resolved?.modelId).toBe("gpt-5.5");
+    expect(completed.connection?.defaultModelId).toBe("gpt-5.5");
+    expect(completed.connection?.availableModels).toEqual([
+      { id: "gpt-5.5", label: "GPT-5.5", description: "Latest coding model" },
+      { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", description: null },
+    ]);
   });
 
   it("keeps xAI Grok subscription unavailable when the bridge is not configured", async () => {

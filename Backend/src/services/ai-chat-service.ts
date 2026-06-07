@@ -6,6 +6,7 @@ import { generateText, type ModelMessage, stepCountIs, streamText, type ToolSet 
 import { env } from "../config/env.js";
 import type { Provider } from "../db/types.js";
 import { upstreamError } from "../errors/http-error.js";
+import { generateCodexExec, streamCodexExec } from "./codex-exec-runtime.js";
 import type { ResolvedCredential } from "./credential-access-service.js";
 import type { GrokCliBridge, GrokCliSession } from "./grok-cli-bridge-service.js";
 
@@ -33,6 +34,9 @@ export class AiChatService {
   constructor(private readonly grokCli?: GrokCliBridge | undefined) {}
 
   stream(input: ChatExecutionRequest) {
+    if (isOpenAiCodexSubscription(input)) {
+      return streamCodexExec(input);
+    }
     if (isGrokCliSubscription(input)) {
       return streamGrokCliSubscription(input, this.grokCli);
     }
@@ -48,6 +52,9 @@ export class AiChatService {
   }
 
   async generate(input: ChatExecutionRequest) {
+    if (isOpenAiCodexSubscription(input)) {
+      return generateCodexExec(input);
+    }
     if (isGrokCliSubscription(input)) {
       return generateGrokCliSubscription(input, this.grokCli);
     }
@@ -61,6 +68,13 @@ export class AiChatService {
       ...settings(input.options),
     });
   }
+}
+
+function isOpenAiCodexSubscription(input: ChatExecutionRequest) {
+  return (
+    (input.provider === "OPENAI" || input.provider === "openai") &&
+    input.credential.connection?.authMethod === "SUBSCRIPTION_CLI"
+  );
 }
 
 function isGrokCliSubscription(input: ChatExecutionRequest) {

@@ -23,6 +23,7 @@ export type CredentialSource =
   | "USER_DEVICE_OAUTH"
   | "USER_SUBSCRIPTION_CLI"
   | "USER_LOCAL_ENDPOINT"
+  | "USER_SUBSCRIPTION_CLI"
   | "GUEST_OPENROUTER_FREE";
 
 export type ResolvedCredential = {

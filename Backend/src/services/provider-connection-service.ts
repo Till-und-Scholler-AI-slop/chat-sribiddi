@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { env } from "../config/env.js";
-import type { Provider } from "../db/types.js";
+import type { Provider, ProviderConnectionRow } from "../db/types.js";
 import { badRequest, notFound } from "../errors/http-error.js";
 import {
   connectionDefaultModelId,
@@ -9,6 +9,7 @@ import {
 } from "../repositories/provider-connection-repository.js";
 import { hasText, legacyToProviderId } from "../utils/strings.js";
 import { toIso } from "../utils/time.js";
+import { type CodexCliModel, CodexCliService } from "./codex-cli-service.js";
 import type { CryptoService } from "./crypto-service.js";
 import { type GrokCliBridge, GrokCliUnavailableError } from "./grok-cli-bridge-service.js";
 import type {
@@ -44,6 +45,7 @@ export type ResolvedProviderConnection = {
   quotaProjectId?: string | null | undefined;
   tokenExpiresAt?: Date | null | undefined;
   scopes?: string[] | undefined;
+  codexHome?: string | null | undefined;
   cliHomeDir?: string | null | undefined;
   cliSessionId?: string | null | undefined;
   cliBridge?: "grok-build" | null | undefined;
@@ -107,25 +109,12 @@ export class ProviderConnectionService {
     private readonly providerCatalog: ProviderCatalogService,
     private readonly crypto: CryptoService,
     private readonly grokCli?: GrokCliBridge | undefined,
+    private readonly codexCli: CodexCliService = new CodexCliService(),
   ) {}
 
   async listConnections(userId: string) {
     const rows = await this.repository.listByUser(userId);
-    return rows.map((row) => ({
-      id: row.id,
-      providerId: row.provider_id,
-      connectionProfileId: row.connection_profile_id,
-      authMethod: row.auth_method,
-      status: row.status,
-      displayName: row.display_name,
-      providerAccountLabel: row.provider_account_label,
-      defaultConnection: row.default_connection,
-      tokenExpiresAt: toIso(row.token_expires_at),
-      lastValidatedAt: toIso(row.last_validated_at),
-      createdAt: toIso(row.created_at),
-      updatedAt: toIso(row.updated_at),
-      defaultModelId: connectionDefaultModelId(row),
-    }));
+    return Promise.all(rows.map((row) => this.connectionSummary(row)));
   }
 
   async listCatalogWithStatus(userId: string | null) {
@@ -260,6 +249,10 @@ export class ProviderConnectionService {
     const secret = ready.encrypted_secret_json
       ? this.decryptSecret(ready.encrypted_secret_json)
       : {};
+    const codexDefaultModelId =
+      ready.auth_method === "SUBSCRIPTION_CLI"
+        ? await this.defaultCodexModelId(secret, ready)
+        : null;
     return {
       connectionId: ready.id,
       providerId: ready.provider_id,
@@ -269,7 +262,7 @@ export class ProviderConnectionService {
       baseUrl: secret.baseUrl ?? null,
       headers: secret.headers,
       queryParams: secret.queryParams,
-      modelId: secret.modelId ?? ready.provider_account_label ?? null,
+      modelId: codexDefaultModelId ?? secret.modelId ?? ready.provider_account_label ?? null,
       accessToken: secret.accessToken ?? null,
       refreshToken: secret.refreshToken ?? null,
       clientId: secret.clientId ?? null,
@@ -277,6 +270,7 @@ export class ProviderConnectionService {
       quotaProjectId: secret.quotaProjectId ?? null,
       tokenExpiresAt: ready.token_expires_at ?? null,
       scopes: scopesFrom(secret.scopes, ready.scopes),
+      codexHome: secret.codexHome ?? null,
       cliHomeDir: secret.cliHomeDir ?? null,
       cliSessionId: secret.cliSessionId ?? null,
       cliBridge: secret.cliBridge ?? null,
@@ -293,6 +287,12 @@ export class ProviderConnectionService {
   async deleteConnection(userId: string, connectionId: number) {
     const existing = await this.repository.findByIdAndUser(connectionId, userId);
     if (!existing) throw notFound("Provider connection not found");
+    if (existing.auth_method === "SUBSCRIPTION_CLI") {
+      const secret = existing.encrypted_secret_json
+        ? this.decryptSecret(existing.encrypted_secret_json)
+        : {};
+      await this.codexCli.deleteCodexHome(secret.codexHome);
+    }
     await this.repository.deleteConnection(userId, connectionId);
   }
 
@@ -323,6 +323,38 @@ export class ProviderConnectionService {
     }
     if (provider.id === "github-copilot" && method === "DEVICE_CODE") {
       return this.startGitHubDeviceFlow(userId, connectionProfile);
+    }
+    if (
+      provider.id === "openai" &&
+      method === "SUBSCRIPTION_CLI" &&
+      connectionProfile.id === "codex-subscription"
+    ) {
+      const started = await this.codexCli.startDeviceAuth(userId, connectionProfile.id);
+      if (started.mode === "UNAVAILABLE") {
+        return {
+          mode: "UNAVAILABLE",
+          authorizationUrl: null,
+          state: null,
+          expiresAt: null,
+          authMethod: method,
+          connectionProfileId: connectionProfile.id,
+          message: started.message,
+        };
+      }
+      return {
+        mode: "CLI_DEVICE_CODE" as const,
+        state: started.state,
+        deviceCode: started.deviceCode,
+        userCode: started.userCode,
+        verificationUri: started.verificationUri,
+        verificationUriComplete: started.verificationUriComplete,
+        expiresAt: started.expiresAt,
+        intervalSeconds: started.intervalSeconds,
+        authMethod: method,
+        connectionProfileId: connectionProfile.id,
+        authorizationUrl: started.verificationUriComplete ?? started.verificationUri,
+        message: started.message,
+      };
     }
     if (provider.id === "xai" && method === "SUBSCRIPTION_CLI") {
       return this.startXaiGrokSubscriptionFlow(userId, connectionProfile);
@@ -436,13 +468,20 @@ export class ProviderConnectionService {
         payload,
       );
     }
-    if (provider.id !== "github-copilot") {
-      throw badRequest("Device-code flow is not enabled for this provider");
-    }
     if (!hasText(payload.deviceCode)) {
       throw badRequest("Missing device code");
     }
     const deviceCode = payload.deviceCode.trim();
+    if (provider.id === "openai") {
+      return this.completeOpenAiCodexDeviceConnection(
+        userId,
+        deviceCode,
+        payload.connectionProfileId,
+      );
+    }
+    if (provider.id !== "github-copilot") {
+      throw badRequest("Device-code flow is not enabled for this provider");
+    }
     const pending = this.deviceStates.get(deviceCode);
     if (
       !pending ||
@@ -531,12 +570,124 @@ export class ProviderConnectionService {
     };
   }
 
+  private async completeOpenAiCodexDeviceConnection(
+    userId: string,
+    state: string,
+    connectionProfileId: string | null | undefined,
+  ) {
+    const completed = await this.codexCli.completeDeviceAuth(userId, state, connectionProfileId);
+    if (completed.mode === "PENDING") {
+      return {
+        mode: "PENDING" as const,
+        authMethod: "SUBSCRIPTION_CLI" as const,
+        connectionProfileId: connectionProfileId?.trim() || "codex-subscription",
+        expiresAt: completed.expiresAt,
+        intervalSeconds: completed.intervalSeconds,
+        message: completed.message,
+      };
+    }
+    if (completed.mode === "UNAVAILABLE") {
+      return {
+        mode: "UNAVAILABLE" as const,
+        authMethod: "SUBSCRIPTION_CLI" as const,
+        connectionProfileId: connectionProfileId?.trim() || "codex-subscription",
+        message: completed.message,
+      };
+    }
+    const secret: ProviderConnectionSecret = {
+      codexHome: completed.codexHome,
+      modelId: completed.modelId,
+      models: completed.models,
+    };
+    const connection = await this.saveSecret({
+      userId,
+      providerId: "openai",
+      connectionProfileId: connectionProfileId?.trim() || "codex-subscription",
+      authMethod: "SUBSCRIPTION_CLI",
+      status: "READY",
+      displayName: "OpenAI (ChatGPT/Codex subscription)",
+      providerAccountLabel: completed.modelId,
+      secret,
+    });
+    return {
+      mode: "READY" as const,
+      authMethod: "SUBSCRIPTION_CLI" as const,
+      connectionProfileId: connection.connectionProfileId,
+      connection,
+      message: completed.message,
+    };
+  }
+
   private decryptSecret(value: string): ProviderConnectionSecret {
     const decrypted = this.crypto.decrypt(value);
     try {
       return JSON.parse(decrypted) as ProviderConnectionSecret;
     } catch {
       return { apiKey: decrypted };
+    }
+  }
+
+  private async connectionSummary(row: ProviderConnectionRow) {
+    const availableModels = await this.availableCodexModels(row);
+    const defaultModelId =
+      row.auth_method === "SUBSCRIPTION_CLI"
+        ? (availableModels[0]?.id ?? connectionDefaultModelId(row))
+        : connectionDefaultModelId(row);
+    return {
+      id: row.id,
+      providerId: row.provider_id,
+      connectionProfileId: row.connection_profile_id,
+      authMethod: row.auth_method,
+      status: row.status,
+      displayName: row.display_name,
+      providerAccountLabel: row.provider_account_label,
+      defaultConnection: row.default_connection,
+      tokenExpiresAt: toIso(row.token_expires_at),
+      lastValidatedAt: toIso(row.last_validated_at),
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+      defaultModelId,
+      availableModels,
+    };
+  }
+
+  private async availableCodexModels(row: ProviderConnectionRow): Promise<CodexCliModel[]> {
+    if (
+      row.auth_method !== "SUBSCRIPTION_CLI" ||
+      row.connection_profile_id !== "codex-subscription" ||
+      row.status !== "READY" ||
+      !row.encrypted_secret_json
+    ) {
+      return [];
+    }
+    const secret = this.decryptSecret(row.encrypted_secret_json);
+    const saved = normalizeCodexModels(secret.models);
+    if (!this.codexCli.enabled()) return saved;
+    if (!hasText(secret.codexHome)) return saved;
+    try {
+      const live = await this.codexCli.listModels(secret.codexHome.trim());
+      return live.length > 0 ? live : saved;
+    } catch {
+      return saved;
+    }
+  }
+
+  private async defaultCodexModelId(
+    secret: ProviderConnectionSecret,
+    row: ProviderConnectionRow,
+  ): Promise<string | null> {
+    if (row.connection_profile_id !== "codex-subscription") return null;
+    const saved = normalizeCodexModels(secret.models);
+    if (!this.codexCli.enabled())
+      return saved[0]?.id ?? secret.modelId ?? row.provider_account_label ?? null;
+    if (!hasText(secret.codexHome)) {
+      return saved[0]?.id ?? secret.modelId ?? row.provider_account_label ?? null;
+    }
+    try {
+      const live = await this.codexCli.listModels(secret.codexHome.trim());
+      return live[0]?.id ?? saved[0]?.id ?? secret.modelId ?? row.provider_account_label ?? null;
+    } catch {
+      return saved[0]?.id ?? secret.modelId ?? row.provider_account_label ?? null;
     }
   }
 
@@ -580,6 +731,7 @@ export class ProviderConnectionService {
         providerAccountLabel: row.provider_account_label,
         defaultConnection: row.default_connection,
         defaultModelId: row.provider_account_label,
+        availableModels: [],
       }
     );
   }
@@ -984,6 +1136,27 @@ function scopesFrom(value: unknown, fallback: string | null | undefined) {
     return value.filter((item): item is string => typeof item === "string" && hasText(item));
   if (hasText(fallback)) return fallback.trim().split(/\s+/);
   return [];
+}
+
+function normalizeCodexModels(value: unknown): CodexCliModel[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): CodexCliModel | null => {
+      if (!item || typeof item !== "object") return null;
+      const source = item as Record<string, unknown>;
+      const id = text(source.id);
+      if (!id) return null;
+      return {
+        id,
+        label: text(source.label) ?? id,
+        description: text(source.description),
+      };
+    })
+    .filter((item): item is CodexCliModel => item !== null);
+}
+
+function text(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function firstNonBlank(first: string | null | undefined, second: string | null | undefined) {

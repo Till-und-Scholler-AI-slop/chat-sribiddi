@@ -1,13 +1,7 @@
 import { isTerminalStreamEvent, normalizeSsePayload, parseSseEvents } from '~/composables/chat-stream'
 import type { StreamEvent } from '~/composables/chat-stream'
-import type { PROVIDERS} from '~/utils/model-utils';
+import type { AvailabilityFlag, Provider } from '~/utils/model-utils'
 import { modelEndpointPath, normalizeAvailability } from '~/utils/model-utils'
-
-export { isModelLocked, normalizeAvailability, modelEndpointPath } from '~/utils/model-utils'
-export { type AvailabilityFlag, MODEL_ENDPOINTS, PROVIDERS } from '~/utils/model-utils'
-
- 
-export type Provider = (typeof PROVIDERS)[number]
 
 export const REQUEST_USER_ID_HEADER = 'X-Chat-User-Id'
 

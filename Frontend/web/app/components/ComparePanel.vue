@@ -2,7 +2,7 @@
 import type { ComparePanelState } from '~/composables/useCompareStore'
 import type { ModelOption } from '~/composables/useChatApi'
 import { calculateMessageCost, formatCost } from '~/composables/chat-helpers'
-import { formatTokenCount, PROVIDER_LABELS } from '~/utils/format'
+import { formatRatePerMillion, formatTokenCount, PROVIDER_LABELS } from '~/utils/format'
 
 const props = defineProps<{
   panel: ComparePanelState

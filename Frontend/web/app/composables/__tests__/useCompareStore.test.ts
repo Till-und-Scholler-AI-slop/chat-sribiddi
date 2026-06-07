@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import type { StreamEvent } from '../chat-stream'
-import type { ModelOption, Provider } from '../useChatApi'
+import type { ModelOption } from '../useChatApi'
+import type { Provider } from '../../utils/model-utils'
 import { useCompareStore } from '../useCompareStore'
 
 const apiMock = vi.hoisted(() => ({

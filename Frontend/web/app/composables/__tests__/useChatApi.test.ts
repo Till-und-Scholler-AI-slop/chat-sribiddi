@@ -5,14 +5,16 @@ import {
   parseSseEvents
 } from '../chat-stream'
 import {
-  isModelLocked,
-  modelEndpointPath,
-  normalizeAvailability,
   normalizeBaseUrl,
   REQUEST_USER_ID_HEADER,
   useChatApi,
   withRequestUserId
 } from '../useChatApi'
+import {
+  isModelLocked,
+  modelEndpointPath,
+  normalizeAvailability
+} from '../../utils/model-utils'
 
 describe('normalizeBaseUrl', () => {
   it('removes trailing slash', () => {

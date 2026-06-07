@@ -1,4 +1,8 @@
+import { spawn } from 'node:child_process'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { streamText, type ModelMessage } from 'ai'
@@ -28,6 +32,7 @@ export type GatewayChatRequest = {
   baseUrl?: string | null
   headers?: Record<string, string>
   queryParams?: Record<string, string>
+  codexHome?: string | null
   options?: GatewayRuntimeOptions | null
 }
 
@@ -41,6 +46,10 @@ type GatewayErrorPayload = {
 const host = process.env.PROVIDER_GATEWAY_HOST || '127.0.0.1'
 const port = Number(process.env.PROVIDER_GATEWAY_PORT || '8095')
 const allowPrivateBaseUrls = process.env.PROVIDER_GATEWAY_ALLOW_PRIVATE_BASE_URLS === 'true'
+const codexBinary = process.env.CODEX_CLI_BINARY || 'codex'
+const codexExecTimeoutMs = Number(process.env.CODEX_EXEC_TIMEOUT_MS || '300000')
+const codexExecKillGraceMs = Number(process.env.CODEX_EXEC_KILL_GRACE_MS || '5000')
+const codexExecCloseFallbackMs = 1000
 
 export function sendJson(response: ServerResponse, status: number, payload: unknown) {
   response.writeHead(status, {
@@ -239,6 +248,46 @@ export async function streamOpenAiCompatible(response: ServerResponse, request: 
   response.end()
 }
 
+export async function streamCodexSubscription(response: ServerResponse, request: GatewayChatRequest) {
+  const codexHome = requireText(request.codexHome, 'codexHome')
+  const runDir = await mkdtemp(join(tmpdir(), 'chat-sribiddi-provider-gateway-codex-'))
+  try {
+    const output = await runCodexExec(codexHome, runDir, request)
+    const parsed = parseCodexExecJsonl(output.stdout)
+    if (parsed.error) {
+      throw new GatewayRequestError('provider_reconnect_required', parsed.error, 403)
+    }
+    if (output.timedOut) {
+      throw new GatewayRequestError('provider_timeout', 'OpenAI Codex subscription request timed out', 504)
+    }
+    if (output.code !== 0) {
+      throw new GatewayRequestError(
+        'provider_reconnect_required',
+        sanitizeErrorMessage(output.stderr || output.stdout || `Codex exited with ${output.code}`),
+        403
+      )
+    }
+    if (!parsed.text.trim()) {
+      throw new GatewayRequestError(
+        'provider_error',
+        'OpenAI Codex subscription returned no assistant message',
+        502
+      )
+    }
+    startSse(response)
+    writeSseEvent(response, 'message', { type: 'text', content: parsed.text })
+    writeSseEvent(response, 'done', {
+      type: 'done',
+      promptTokens: parsed.usage?.inputTokens,
+      generationTokens: parsed.usage?.outputTokens,
+      totalTokens: parsed.usage?.totalTokens
+    })
+    response.end()
+  } finally {
+    await rm(runDir, { recursive: true, force: true })
+  }
+}
+
 async function safeUsage(
   usage: PromiseLike<{ inputTokens?: number; outputTokens?: number; totalTokens?: number }>
 ) {
@@ -253,6 +302,10 @@ function canUseOpenAiCompatible(request: GatewayChatRequest): boolean {
   return Boolean(request.baseUrl && request.baseUrl.trim())
 }
 
+function canUseCodexSubscription(request: GatewayChatRequest): boolean {
+  return request.authMethod === 'SUBSCRIPTION_CLI' && Boolean(request.codexHome?.trim())
+}
+
 export function createProviderGatewayServer() {
   return createServer(async (request, response) => {
     try {
@@ -265,6 +318,10 @@ export function createProviderGatewayServer() {
         const body = normalizeChatRequest(await readJson<GatewayChatRequest>(request))
         if (body.providerId === 'mock') {
           sendMockStream(response, body)
+          return
+        }
+        if (canUseCodexSubscription(body)) {
+          await streamCodexSubscription(response, body)
           return
         }
         if (canUseOpenAiCompatible(body)) {
@@ -316,7 +373,147 @@ function errorPayload(error: unknown): GatewayErrorPayload {
 }
 
 function sanitizeErrorMessage(message: string): string {
-  return message.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+  return message
+    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+    .replace(/\b[A-Z0-9]{4,}-[A-Z0-9-]{4,}\b/g, '[device-code]')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+async function runCodexExec(codexHome: string, runDir: string, request: GatewayChatRequest) {
+  const child = spawn(
+    codexBinary,
+    [
+      'exec',
+      '--json',
+      '--ephemeral',
+      '--ignore-user-config',
+      '--skip-git-repo-check',
+      '--sandbox',
+      'read-only',
+      '-c',
+      'approval_policy="never"',
+      '-m',
+      request.modelId,
+      '-C',
+      runDir,
+      '-'
+    ],
+    {
+      cwd: runDir,
+      env: {
+        ...process.env,
+        CODEX_HOME: codexHome,
+        RUST_LOG: process.env.RUST_LOG || 'error'
+      },
+      stdio: ['pipe', 'pipe', 'pipe']
+    }
+  )
+  child.stdin.end(codexPrompt(request.messages))
+  const stdout: Buffer[] = []
+  const stderr: Buffer[] = []
+  child.stdout.on('data', chunk => stdout.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+  child.stderr.on('data', chunk => stderr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+  child.on('error', error => stderr.push(Buffer.from(error.message)))
+  const { code, timedOut } = await waitForCodexClose(child, codexExecTimeoutMs)
+  return {
+    code,
+    timedOut,
+    stdout: Buffer.concat(stdout).toString('utf8'),
+    stderr: Buffer.concat(stderr).toString('utf8')
+  }
+}
+
+function waitForCodexClose(
+  child: ReturnType<typeof spawn>,
+  timeoutMs: number
+): Promise<{ code: number | null; timedOut: boolean }> {
+  return new Promise(resolve => {
+    let settled = false
+    let timedOut = false
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null
+    let killTimer: ReturnType<typeof setTimeout> | null = null
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null
+
+    const finish = (code: number | null) => {
+      if (settled) return
+      settled = true
+      if (timeoutTimer) clearTimeout(timeoutTimer)
+      if (killTimer) clearTimeout(killTimer)
+      if (fallbackTimer) clearTimeout(fallbackTimer)
+      resolve({ code, timedOut })
+    }
+
+    child.once('close', code => finish(code))
+    timeoutTimer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGTERM')
+      killTimer = setTimeout(() => {
+        child.kill('SIGKILL')
+        fallbackTimer = setTimeout(() => finish(null), codexExecCloseFallbackMs)
+        fallbackTimer.unref?.()
+      }, codexExecKillGraceMs)
+      killTimer.unref?.()
+    }, timeoutMs)
+    timeoutTimer.unref?.()
+  })
+}
+
+export function parseCodexExecJsonl(output: string) {
+  let text = ''
+  let error: string | null = null
+  let usage: { inputTokens: number | null; outputTokens: number | null; totalTokens: number | null } | null = null
+  for (const line of output.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    let event: Record<string, unknown>
+    try {
+      event = JSON.parse(line) as Record<string, unknown>
+    } catch {
+      continue
+    }
+    if (event.type === 'error') {
+      error = textValue(event.message) || textValue(event.error) || 'Codex request failed'
+      continue
+    }
+    if (event.type === 'turn.failed') {
+      error = textValue(event.message) || 'Codex turn failed'
+      continue
+    }
+    if (event.type === 'turn.completed') {
+      usage = usageFrom(event.usage)
+      continue
+    }
+    if (event.type === 'item.completed') {
+      const item = event.item as Record<string, unknown> | undefined
+      if (item?.type === 'agent_message') {
+        text = textValue(item.text) || text
+      }
+    }
+  }
+  return { text, error: error ? sanitizeErrorMessage(error) : null, usage }
+}
+
+function codexPrompt(messages: GatewayMessage[]) {
+  return messages.map(message => `${message.role.toUpperCase()}:\n${message.content.trim()}`).join('\n\n')
+}
+
+function usageFrom(value: unknown) {
+  if (!value || typeof value !== 'object') return null
+  const source = value as Record<string, unknown>
+  return {
+    inputTokens: numberOrNull(source.input_tokens ?? source.inputTokens),
+    outputTokens: numberOrNull(source.output_tokens ?? source.outputTokens),
+    totalTokens: numberOrNull(source.total_tokens ?? source.totalTokens)
+  }
+}
+
+function numberOrNull(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function textValue(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
 class GatewayRequestError extends Error {

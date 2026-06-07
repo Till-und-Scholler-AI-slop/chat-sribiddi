@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import type { UIMessage } from 'ai'
 import type { ModelOption, ToolCallLog } from '../useChatApi'
-import { appendTextToMessage, calculateMessageCost, estimateAssistantOutputTokens, estimateConversationTokens, estimatePreSendCost, estimateTextTokens, extractAssistantText, extractTokenUsage, favoriteModelKey, filterToolCallLogs, formatCost, formatRatePerMillion, parseAttachmentContext, parsePersistedMessageId, resolveStreamOutcome } from '../chat-helpers'
+import { favoriteModelKey } from '../../utils/model-utils'
+import { formatRatePerMillion } from '../../utils/format'
+import { appendTextToMessage, calculateMessageCost, estimateAssistantOutputTokens, estimateConversationTokens, estimatePreSendCost, estimateTextTokens, extractAssistantText, extractTokenUsage, filterToolCallLogs, formatCost, parseAttachmentContext, parsePersistedMessageId, resolveStreamOutcome } from '../chat-helpers'
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {

@@ -1,5 +1,5 @@
-import type { Provider, ModelOption } from '~/composables/useChatApi'
-import { formatRatePerMillion as _formatRatePerMillion } from '~/composables/chat-helpers'
+import type { ModelOption } from '~/composables/useChatApi'
+import type { Provider } from '~/utils/model-utils'
 
 export const PROVIDER_LABELS: Record<Provider, string> = {
   OPENAI: 'OpenAI',
@@ -25,9 +25,14 @@ export function formatMimeType(mimeType: string): string {
 }
 
 export function optionPriceLabel(option: ModelOption): string | null {
-  return _formatRatePerMillion(option.promptPrice)
+  return formatRatePerMillion(option.promptPrice)
 }
 
 export function formatRatePerMillion(priceStr: string | null | undefined): string | null {
-  return _formatRatePerMillion(priceStr)
+  if (!priceStr) return null
+  const rate = Number(priceStr)
+  if (Number.isNaN(rate)) return null
+  if (rate === 0) return '$0'
+  const perMillion = rate * 1_000_000
+  return perMillion >= 1 ? `$${perMillion.toFixed(2)}` : `$${perMillion.toFixed(4)}`
 }
