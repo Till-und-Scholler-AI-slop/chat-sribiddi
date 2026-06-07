@@ -78,6 +78,9 @@ const selectedProviders = computed(() =>
     .map(id => providerById.value.get(id))
     .filter((provider): provider is ProviderCatalogItem => Boolean(provider))
 )
+const deviceVerificationUrl = computed(() =>
+  deviceFlow.value?.verificationUriComplete || deviceFlow.value?.verificationUri || '#'
+)
 const currentProvider = computed(() => selectedProviders.value[currentIndex.value])
 const currentProfile = computed(() => currentProvider.value ? selectedProfile(currentProvider.value) : undefined)
 const currentForm = computed(() => currentProvider.value ? providerForm(currentProvider.value) : undefined)
@@ -1025,14 +1028,15 @@ function startChatting() {
           </div>
         </div>
 
-        <UButton
-          :to="deviceFlow.verificationUriComplete || deviceFlow.verificationUri"
+        <a
+          :href="deviceVerificationUrl"
           target="_blank"
-          color="primary"
-          icon="i-heroicons-arrow-top-right-on-square"
-          :label="t('settings.deviceVerificationLink')"
-          block
-        />
+          rel="noopener noreferrer"
+          class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary/90"
+        >
+          <UIcon name="i-heroicons-arrow-top-right-on-square" class="size-5" />
+          <span>{{ t('settings.deviceVerificationLink') }}</span>
+        </a>
 
         <p class="text-sm text-gray-500 dark:text-gray-400">
           {{ deviceFlow.message || t('settings.devicePolling') }}

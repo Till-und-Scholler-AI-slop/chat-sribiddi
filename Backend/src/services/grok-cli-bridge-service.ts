@@ -100,6 +100,7 @@ export class GrokCliBridgeService implements GrokCliBridge {
 
   async startDeviceLogin(userId: string): Promise<GrokCliDeviceStart> {
     this.requireEnabled();
+    this.cancelPendingLoginsForUser(userId);
     const loginId = randomToken(24);
     const homeDir = await this.userHomeDir(userId);
     const workspaceDir = join(homeDir, "workspace");
@@ -228,6 +229,14 @@ export class GrokCliBridgeService implements GrokCliBridge {
       };
     } catch {
       return null;
+    }
+  }
+
+  private cancelPendingLoginsForUser(userId: string) {
+    for (const [loginId, pending] of this.pendingLogins.entries()) {
+      if (pending.userId !== userId) continue;
+      this.pendingLogins.delete(loginId);
+      if (pending.exitCode == null) pending.child.kill("SIGTERM");
     }
   }
 
@@ -505,9 +514,10 @@ async function waitForDeviceChallenge(pending: PendingLogin) {
 }
 
 function extractDeviceChallenge(output: string) {
-  const verificationUri =
-    output.match(/https:\/\/[^\s)'"<>]+/i)?.[0]?.replace(/[.,;:]+$/, "") ?? null;
+  const verificationUri = extractVerificationUri(output);
+  const queryUserCode = verificationUri ? userCodeFromUri(verificationUri) : null;
   const userCode =
+    queryUserCode ??
     output.match(/\b[A-Z0-9]{4,}(?:-[A-Z0-9]{4,})+\b/)?.[0] ??
     output.match(/(?:user\s*)?code[:\s]+([A-Z0-9-]{6,})/i)?.[1] ??
     null;
@@ -517,6 +527,23 @@ function extractDeviceChallenge(output: string) {
     verificationUri,
     verificationUriComplete: verificationUri.includes(userCode) ? verificationUri : null,
   };
+}
+
+function extractVerificationUri(output: string) {
+  const urls = output.match(/https:\/\/[^\s)'"<>]+/gi) ?? [];
+  return (
+    urls.map((url) => url.replace(/[.,;:]+$/, "")).find((url) => Boolean(userCodeFromUri(url))) ??
+    urls[0]?.replace(/[.,;:]+$/, "") ??
+    null
+  );
+}
+
+function userCodeFromUri(value: string) {
+  try {
+    return new URL(value).searchParams.get("user_code")?.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 function formatPrompt(messages: ModelMessage[]) {

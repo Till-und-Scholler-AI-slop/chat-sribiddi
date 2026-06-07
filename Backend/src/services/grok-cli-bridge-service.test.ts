@@ -128,6 +128,71 @@ describe("GrokCliBridgeService", () => {
     }
   });
 
+  it("uses the xAI URL user_code as the device code source of truth", async () => {
+    env.GROK_CLI_ENABLED = true;
+    env.GROK_CLI_BIN = "grok-test";
+    env.GROK_CLI_LOGIN_PROMPT_TIMEOUT_MS = 2_000;
+    env.GROK_CLI_LOGIN_TOTAL_TIMEOUT_MS = 10_000;
+    const sessionsDir = await mkdtemp(join(tmpdir(), "grok-sessions-"));
+    env.GROK_CLI_SESSIONS_DIR = sessionsDir;
+    const children: ChildProcessWithoutNullStreams[] = [];
+    const service = new GrokCliBridgeService(() => {
+      const child = fakeDeviceLoginProcess(`
+To sign in, open this URL in your browser:
+
+  https://accounts.x.ai/oauth2/device?user_code=URLCODE123
+
+If prompted, confirm this code:
+
+  TEXT-9999
+`);
+      children.push(child);
+      return child;
+    });
+
+    try {
+      const login = await service.startDeviceLogin("user-url-code");
+
+      expect(login.userCode).toBe("URLCODE123");
+      expect(login.verificationUriComplete).toBe(
+        "https://accounts.x.ai/oauth2/device?user_code=URLCODE123",
+      );
+    } finally {
+      for (const child of children) child.kill("SIGTERM");
+      await rm(sessionsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("cancels a previous pending device login when the same user starts another one", async () => {
+    env.GROK_CLI_ENABLED = true;
+    env.GROK_CLI_BIN = "grok-test";
+    env.GROK_CLI_LOGIN_PROMPT_TIMEOUT_MS = 2_000;
+    env.GROK_CLI_LOGIN_TOTAL_TIMEOUT_MS = 10_000;
+    const sessionsDir = await mkdtemp(join(tmpdir(), "grok-sessions-"));
+    env.GROK_CLI_SESSIONS_DIR = sessionsDir;
+    const children: ChildProcessWithoutNullStreams[] = [];
+    const service = new GrokCliBridgeService(() => {
+      const code = children.length === 0 ? "FIRST1234" : "SECOND123";
+      const child = fakeDeviceLoginProcess(
+        `Open https://accounts.x.ai/oauth2/device?user_code=${code}\nConfirm ${code}\n`,
+      );
+      children.push(child);
+      return child;
+    });
+
+    try {
+      await service.startDeviceLogin("user-repeat");
+      await service.startDeviceLogin("user-repeat");
+
+      expect(children).toHaveLength(2);
+      expect(children[0]?.kill).toHaveBeenCalledWith("SIGTERM");
+      expect(children[1]?.kill).not.toHaveBeenCalled();
+    } finally {
+      for (const child of children) child.kill("SIGTERM");
+      await rm(sessionsDir, { recursive: true, force: true });
+    }
+  });
+
   it("recovers a completed device login when in-memory pending state was lost", async () => {
     env.GROK_CLI_ENABLED = true;
     env.GROK_CLI_BIN = "grok-test";
@@ -223,7 +288,9 @@ function fakeAcpProcess(
   return child;
 }
 
-function fakeDeviceLoginProcess(): ChildProcessWithoutNullStreams {
+function fakeDeviceLoginProcess(
+  output = "Open https://auth.x.ai/device and enter XAI1-1234\n",
+): ChildProcessWithoutNullStreams {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   const stdin = new PassThrough();
@@ -239,7 +306,7 @@ function fakeDeviceLoginProcess(): ChildProcessWithoutNullStreams {
     return true;
   });
   process.nextTick(() => {
-    stdout.write("Open https://auth.x.ai/device and enter XAI1-1234\n");
+    stdout.write(output);
   });
   return child;
 }
