@@ -30,6 +30,9 @@ test('creates a chat, sends a prompt, and renders the mocked streamed response',
   await expect(highlightedCode).toBeVisible()
   await expect(highlightedCode).toHaveClass(/github-(light|dark-dimmed)/)
   await expect(highlightedCode.locator('span[style*="color"]').first()).toBeVisible()
+  await expect(page.locator('.msg-user').filter({ hasText: 'Hallo E2E' })).toHaveCSS('user-select', 'none')
+  await expect(page.locator('.msg-assistant')).toHaveCSS('user-select', 'none')
+  await expect(page.locator('.msg-assistant .code-block-container')).toHaveCSS('user-select', 'text')
 })
 
 test('anonymous chat persists locally across reloads', async ({ page }) => {
