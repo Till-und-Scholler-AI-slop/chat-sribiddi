@@ -139,43 +139,23 @@ export function useChatStore() {
     localStorage.setItem(GUEST_CHAT_STORAGE_KEY, JSON.stringify({ chats: items }))
   }
 
+  let persistGuestConversationsTimer: ReturnType<typeof setTimeout> | null = null
+  const PERSIST_DEBOUNCE_MS = 250
+
+  const cancelPendingGuestPersist = () => {
+    if (!persistGuestConversationsTimer) return
+    clearTimeout(persistGuestConversationsTimer)
+    persistGuestConversationsTimer = null
+  }
+
   const clearGuestChats = () => {
+    cancelPendingGuestPersist()
     if (!import.meta.client) return
     localStorage.removeItem(GUEST_CHAT_STORAGE_KEY)
   }
 
-  let persistGuestConversationsTimer: ReturnType<typeof setTimeout> | null = null
-  const PERSIST_DEBOUNCE_MS = 250
-
-  const persistGuestConversations = () => {
-    // Coalesce rapid bursts of writes (every assistant token, every keystroke)
-    // so the JSON.stringify + localStorage.setItem only runs after the
-    // caller has stopped mutating state for a moment.
-    if (persistGuestConversationsTimer) return
-    persistGuestConversationsTimer = setTimeout(() => {
-      persistGuestConversationsTimer = null
-      const localChats: StoredGuestChat[] = conversations.value
-        .filter(conversation => conversation.local)
-        .map(conversation => ({
-          session: conversation.session,
-          messages: conversation.messages.map(message => ({
-            ...message,
-            createdAt: message.createdAt instanceof Date
-              ? message.createdAt.toISOString()
-              : message.createdAt
-          })),
-          model: conversation.model ?? null,
-          lastPrompt: conversation.lastPrompt
-        }))
-      writeGuestChats(localChats)
-    }, PERSIST_DEBOUNCE_MS)
-  }
-
-  const flushGuestConversations = () => {
-    if (!persistGuestConversationsTimer) return
-    clearTimeout(persistGuestConversationsTimer)
-    persistGuestConversationsTimer = null
-    const localChats: StoredGuestChat[] = conversations.value
+  const currentGuestConversationSnapshot = (): StoredGuestChat[] =>
+    conversations.value
       .filter(conversation => conversation.local)
       .map(conversation => ({
         session: conversation.session,
@@ -188,7 +168,20 @@ export function useChatStore() {
         model: conversation.model ?? null,
         lastPrompt: conversation.lastPrompt
       }))
-    writeGuestChats(localChats)
+
+  const writeCurrentGuestConversations = () => {
+    writeGuestChats(currentGuestConversationSnapshot())
+  }
+
+  const persistGuestConversations = () => {
+    // Coalesce rapid bursts of writes (every assistant token, every keystroke)
+    // so the JSON.stringify + localStorage.setItem only runs after the
+    // caller has stopped mutating state for a moment.
+    if (persistGuestConversationsTimer) return
+    persistGuestConversationsTimer = setTimeout(() => {
+      persistGuestConversationsTimer = null
+      writeCurrentGuestConversations()
+    }, PERSIST_DEBOUNCE_MS)
   }
 
   const guestChatsForImport = (): ImportChat[] =>

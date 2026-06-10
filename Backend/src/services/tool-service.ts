@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
+import { request as httpRequest } from "node:http";
+import type { IncomingHttpHeaders, IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 import { env } from "../config/env.js";
@@ -181,9 +184,9 @@ export class ToolService {
     if (enabled.has("url-fetcher")) {
       tools["url-fetcher"] = tool({
         description:
-          "Fetch the text content of a public HTTP web page. Private, localhost, and HTTPS URLs are blocked.",
+          "Fetch the text content of a public HTTP(S) web page. Private and localhost URLs are blocked.",
         inputSchema: z.object({
-          url: z.string().describe("Public HTTP URL to fetch"),
+          url: z.string().describe("Public HTTP(S) URL to fetch"),
         }),
         execute: async ({ url }) =>
           executeRecorded(records, "url-fetcher", { url }, () => fetchPublicUrl(url), eventSink),
@@ -509,24 +512,11 @@ class ExpressionParser {
 
 const URL_FETCH_TIMEOUT_MS = 10_000;
 const URL_FETCH_MAX_BODY_BYTES = 1_000_000;
+const URL_FETCH_MAX_REDIRECTS = 3;
 
 async function fetchPublicUrl(rawUrl: string) {
   const url = normalizeToolUrl(rawUrl);
-  const safeAddress = await resolvePublicAddress(url);
-  if (safeAddress.family === 6) {
-    url.hostname = `[${safeAddress.address}]`;
-  } else {
-    url.hostname = safeAddress.address;
-  }
-  const response = await fetch(url, {
-    headers: {
-      Accept: "text/html,text/plain,application/json",
-      "User-Agent": env.TOOLS_USER_AGENT,
-    },
-    signal: AbortSignal.timeout(URL_FETCH_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status} fetching URL`);
-  const body = await readBoundedText(response, URL_FETCH_MAX_BODY_BYTES);
+  const body = await fetchPublicUrlText(url);
   const text = htmlToText(body);
   return text.length > 50_000 ? `${text.slice(0, 50_000)}\n\n[Content truncated at 50KB]` : text;
 }
@@ -542,6 +532,62 @@ function normalizeToolUrl(rawUrl: string) {
   url.password = "";
   url.hash = "";
   return url;
+}
+
+async function fetchPublicUrlText(url: URL, redirectCount = 0): Promise<string> {
+  const response = await requestPublicUrl(url);
+  if (isRedirect(response.statusCode)) {
+    const location = firstHeader(response.headers.location);
+    if (!location) throw new Error(`HTTP ${response.statusCode} redirect did not include Location`);
+    if (redirectCount >= URL_FETCH_MAX_REDIRECTS) {
+      throw new Error("Too many redirects while fetching URL");
+    }
+    return fetchPublicUrlText(normalizeToolUrl(new URL(location, url).toString()), redirectCount + 1);
+  }
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new Error(`HTTP ${response.statusCode} fetching URL`);
+  }
+  return response.body;
+}
+
+async function requestPublicUrl(url: URL) {
+  const originalHost = url.hostname.replace(/^\[|\]$/g, "");
+  const safeAddress = await resolvePublicAddress(url);
+  const request = url.protocol === "https:" ? httpsRequest : httpRequest;
+  return new Promise<{ statusCode: number; headers: IncomingHttpHeaders; body: string }>(
+    (resolve, reject) => {
+      const req = request(
+        {
+          host: safeAddress.address,
+          family: safeAddress.family,
+          port: url.port ? Number.parseInt(url.port, 10) : url.protocol === "https:" ? 443 : 80,
+          method: "GET",
+          path: `${url.pathname}${url.search}`,
+          headers: {
+            Accept: "text/html,text/plain,application/json",
+            Host: url.host,
+            "User-Agent": env.TOOLS_USER_AGENT,
+          },
+          servername: isLikelyIpAddress(originalHost) ? undefined : originalHost,
+          timeout: URL_FETCH_TIMEOUT_MS,
+        },
+        (response) => {
+          readBoundedIncomingText(response, URL_FETCH_MAX_BODY_BYTES)
+            .then((body) =>
+              resolve({
+                statusCode: response.statusCode ?? 0,
+                headers: response.headers,
+                body,
+              }),
+            )
+            .catch(reject);
+        },
+      );
+      req.on("timeout", () => req.destroy(new Error("URL fetch timed out")));
+      req.on("error", reject);
+      req.end();
+    },
+  );
 }
 
 async function resolvePublicAddress(url: URL) {
@@ -619,8 +665,8 @@ function isPrivateIpv6(address: string) {
   // Normalize zone identifier if present (fe80::1%eth0).
   const withoutZone = address.split("%", 1)[0] ?? "";
   if (withoutZone === "::" || withoutZone === "::1") return true;
-  // 64:ff9b:1::/48 — well-known NAT64 prefix, treat as suspicious public mapping
-  if (withoutZone.startsWith("64:ff9b:")) return false;
+  // IPv4 translation/tunneling prefixes can smuggle private IPv4 targets.
+  if (withoutZone.startsWith("64:ff9b:") || withoutZone.startsWith("2002:")) return true;
   // Unique local addresses (fc00::/7)
   if (
     withoutZone.startsWith("fc") ||
@@ -631,51 +677,65 @@ function isPrivateIpv6(address: string) {
     // fe80::/10 link-local, fec0::/10 deprecated site-local, ff00::/8 multicast
     return true;
   }
-  // 6to4 (2002::/16) — embedded IPv4 in the lower 32 bits
-  if (withoutZone.startsWith("2002:")) {
-    const last = withoutZone.split(":").slice(-2).join(".");
-    if (isPrivateIpv4(last)) return true;
-  }
-  // IPv4-mapped (::ffff:a.b.c.d) — should match the mapped IPv4
-  const mapped = withoutZone.match(/^::ffff:([0-9.]+)$/);
-  if (mapped) return isPrivateIpv4(mapped[1] ?? "");
+  const mapped = ipv4MappedIpv6ToIpv4(withoutZone);
+  if (mapped) return isPrivateIpv4(mapped);
   return false;
 }
 
-async function readBoundedText(response: Response, maxBytes: number) {
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8", { fatal: false });
+function ipv4MappedIpv6ToIpv4(address: string) {
+  const dotted = address.match(/^::ffff:([0-9.]+)$/);
+  if (dotted) return dotted[1] ?? "";
+  const hex = address.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (!hex) return null;
+  const high = Number.parseInt(hex[1] ?? "", 16);
+  const low = Number.parseInt(hex[2] ?? "", 16);
+  if (!Number.isFinite(high) || !Number.isFinite(low)) return null;
+  return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
+}
+
+function isRedirect(statusCode: number) {
+  return statusCode >= 300 && statusCode < 400;
+}
+
+function firstHeader(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function readBoundedIncomingText(response: IncomingMessage, maxBytes: number) {
+  const chunks: Buffer[] = [];
   let received = 0;
   let truncated = false;
-  let result = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      received += value.byteLength;
-      if (received > maxBytes) {
-        const remaining = Math.max(0, maxBytes - (received - value.byteLength));
-        result += decoder.decode(value.subarray(0, remaining), { stream: true });
+  let settled = false;
+  return new Promise<string>((resolve, reject) => {
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      const body = Buffer.concat(chunks).toString("utf8");
+      resolve(truncated ? `${body}\n\n[Content truncated]` : body);
+    };
+    response.on("data", (chunk: Buffer | string) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      const remaining = maxBytes - received;
+      if (remaining > 0) {
+        chunks.push(buffer.subarray(0, remaining));
+      }
+      received += buffer.byteLength;
+      if (received > maxBytes && !truncated) {
         truncated = true;
-        break;
+        response.destroy();
+        finish();
       }
-      result += decoder.decode(value, { stream: true });
-    }
-    result += decoder.decode();
-  } finally {
-    if (truncated) {
-      try {
-        await reader.cancel();
-      } catch {
-        // best-effort
-      }
-    }
-    reader.releaseLock();
-  }
-  if (truncated) result += "\n\n[Content truncated]";
-  return result;
+    });
+    response.on("end", finish);
+    response.on("aborted", () => {
+      if (truncated) finish();
+      else reject(new Error("URL fetch response aborted"));
+    });
+    response.on("error", (error) => {
+      if (truncated) finish();
+      else reject(error);
+    });
+  });
 }
 
 function htmlToText(html: string) {
