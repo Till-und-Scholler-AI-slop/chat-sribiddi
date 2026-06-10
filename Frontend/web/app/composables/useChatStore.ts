@@ -173,7 +173,13 @@ export function useChatStore() {
     writeGuestChats(currentGuestConversationSnapshot())
   }
 
-  const persistGuestConversations = () => {
+  const persistGuestConversations = (options: { immediate?: boolean } = {}) => {
+    if (options.immediate) {
+      cancelPendingGuestPersist()
+      writeCurrentGuestConversations()
+      return
+    }
+
     // Coalesce rapid bursts of writes (every assistant token, every keystroke)
     // so the JSON.stringify + localStorage.setItem only runs after the
     // caller has stopped mutating state for a moment.
@@ -791,14 +797,14 @@ export function useChatStore() {
       conversation.status = outcome.status
       conversation.error = outcome.error
       if (conversation.local) {
-        persistGuestConversations()
+        persistGuestConversations({ immediate: true })
       }
 
       if (outcome.status === 'error') {
         if (!getFirstTextContent(currentAssistantMessage)) {
           removeMessageIfEmpty(conversation, currentAssistantMessage)
           if (conversation.local) {
-            persistGuestConversations()
+            persistGuestConversations({ immediate: true })
           }
           return null
         }
@@ -818,7 +824,7 @@ export function useChatStore() {
       conversation.status = 'error'
       conversation.activeRequest = undefined
       if (conversation.local) {
-        persistGuestConversations()
+        persistGuestConversations({ immediate: true })
       }
       return null
     }
