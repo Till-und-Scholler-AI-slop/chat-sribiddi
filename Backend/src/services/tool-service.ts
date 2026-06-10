@@ -507,18 +507,27 @@ class ExpressionParser {
   }
 }
 
+const URL_FETCH_TIMEOUT_MS = 10_000;
+const URL_FETCH_MAX_BODY_BYTES = 1_000_000;
+
 async function fetchPublicUrl(rawUrl: string) {
   const url = normalizeToolUrl(rawUrl);
-  await assertPublicHttpHost(url);
+  const safeAddress = await resolvePublicAddress(url);
+  if (safeAddress.family === 6) {
+    url.hostname = `[${safeAddress.address}]`;
+  } else {
+    url.hostname = safeAddress.address;
+  }
   const response = await fetch(url, {
     headers: {
       Accept: "text/html,text/plain,application/json",
       "User-Agent": env.TOOLS_USER_AGENT,
     },
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(URL_FETCH_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status} fetching URL`);
-  const text = htmlToText(await response.text());
+  const body = await readBoundedText(response, URL_FETCH_MAX_BODY_BYTES);
+  const text = htmlToText(body);
   return text.length > 50_000 ? `${text.slice(0, 50_000)}\n\n[Content truncated at 50KB]` : text;
 }
 
@@ -526,8 +535,8 @@ function normalizeToolUrl(rawUrl: string) {
   const withScheme =
     rawUrl.startsWith("http://") || rawUrl.startsWith("https://") ? rawUrl : `http://${rawUrl}`;
   const url = new URL(withScheme);
-  if (url.protocol !== "http:") {
-    throw new Error("Only public HTTP URLs are supported by this tool.");
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Only public HTTP(S) URLs are supported by this tool.");
   }
   url.username = "";
   url.password = "";
@@ -535,10 +544,16 @@ function normalizeToolUrl(rawUrl: string) {
   return url;
 }
 
-async function assertPublicHttpHost(url: URL) {
-  const host = url.hostname.toLowerCase();
-  if (!host || host === "localhost" || host.endsWith(".localhost")) {
+async function resolvePublicAddress(url: URL) {
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
     throw new Error("Localhost URLs are not allowed.");
+  }
+  if (isLikelyIpAddress(host)) {
+    if (isPrivateAddress(host)) {
+      throw new Error("URL resolves to a private or reserved IP address.");
+    }
+    return { address: stripIpv6Brackets(host), family: host.includes(":") ? 6 : 4 };
   }
   const addresses = await lookup(host, { all: true });
   if (addresses.length === 0) throw new Error("Could not resolve host.");
@@ -547,29 +562,120 @@ async function assertPublicHttpHost(url: URL) {
       throw new Error("URL resolves to a private or reserved IP address.");
     }
   }
+  const preferred = addresses.find((item) => item.family === 4) ?? addresses[0];
+  if (!preferred) throw new Error("Could not resolve host.");
+  return { address: preferred.address, family: preferred.family };
+}
+
+function isLikelyIpAddress(host: string) {
+  if (host.includes(":")) return true;
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host);
+}
+
+function stripIpv6Brackets(host: string) {
+  return host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
 }
 
 function isPrivateAddress(address: string) {
-  if (address.includes(":")) {
-    const normalized = address.toLowerCase();
-    return (
-      normalized === "::1" ||
-      normalized.startsWith("fc") ||
-      normalized.startsWith("fd") ||
-      normalized.startsWith("fe80:")
-    );
-  }
+  const normalized = stripIpv6Brackets(address).toLowerCase();
+  if (normalized.includes(":")) return isPrivateIpv6(normalized);
+  return isPrivateIpv4(normalized);
+}
+
+function isPrivateIpv4(address: string) {
   const parts = address.split(".").map(Number);
-  const [a, b] = parts;
-  if (parts.length !== 4 || a == null || b == null) return true;
-  return (
-    a === 10 ||
-    a === 127 ||
-    a === 0 ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 169 && b === 254)
-  );
+  if (parts.length !== 4) return true;
+  const [a, b, c, d] = parts;
+  if (
+    a == null ||
+    b == null ||
+    c == null ||
+    d == null ||
+    a > 255 ||
+    b > 255 ||
+    c > 255 ||
+    d > 255
+  ) {
+    return true;
+  }
+  if (a === 0) return true; // current network
+  if (a === 10) return true; // 10.0.0.0/8
+  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
+  if (a === 127) return true; // 127.0.0.0/8 loopback
+  if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 private
+  if (a === 192 && b === 0 && c === 0) return true; // 192.0.0.0/24 IETF
+  if (a === 192 && b === 0 && c === 2) return true; // 192.0.2.0/24 TEST-NET-1
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16 private
+  if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15 benchmarking
+  if (a === 198 && b === 51 && c === 100) return true; // 198.51.100.0/24 TEST-NET-2
+  if (a === 203 && b === 0 && c === 113) return true; // 203.0.113.0/24 TEST-NET-3
+  if (a >= 224 && a <= 239) return true; // 224.0.0.0/4 multicast
+  if (a >= 240) return true; // 240.0.0.0/4 reserved + 255.255.255.255 broadcast
+  return false;
+}
+
+function isPrivateIpv6(address: string) {
+  // Normalize zone identifier if present (fe80::1%eth0).
+  const withoutZone = address.split("%", 1)[0] ?? "";
+  if (withoutZone === "::" || withoutZone === "::1") return true;
+  // 64:ff9b:1::/48 — well-known NAT64 prefix, treat as suspicious public mapping
+  if (withoutZone.startsWith("64:ff9b:")) return false;
+  // Unique local addresses (fc00::/7)
+  if (
+    withoutZone.startsWith("fc") ||
+    withoutZone.startsWith("fd") ||
+    withoutZone.startsWith("fe") ||
+    withoutZone.startsWith("ff")
+  ) {
+    // fe80::/10 link-local, fec0::/10 deprecated site-local, ff00::/8 multicast
+    return true;
+  }
+  // 6to4 (2002::/16) — embedded IPv4 in the lower 32 bits
+  if (withoutZone.startsWith("2002:")) {
+    const last = withoutZone.split(":").slice(-2).join(".");
+    if (isPrivateIpv4(last)) return true;
+  }
+  // IPv4-mapped (::ffff:a.b.c.d) — should match the mapped IPv4
+  const mapped = withoutZone.match(/^::ffff:([0-9.]+)$/);
+  if (mapped) return isPrivateIpv4(mapped[1] ?? "");
+  return false;
+}
+
+async function readBoundedText(response: Response, maxBytes: number) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: false });
+  let received = 0;
+  let truncated = false;
+  let result = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      received += value.byteLength;
+      if (received > maxBytes) {
+        const remaining = Math.max(0, maxBytes - (received - value.byteLength));
+        result += decoder.decode(value.subarray(0, remaining), { stream: true });
+        truncated = true;
+        break;
+      }
+      result += decoder.decode(value, { stream: true });
+    }
+    result += decoder.decode();
+  } finally {
+    if (truncated) {
+      try {
+        await reader.cancel();
+      } catch {
+        // best-effort
+      }
+    }
+    reader.releaseLock();
+  }
+  if (truncated) result += "\n\n[Content truncated]";
+  return result;
 }
 
 function htmlToText(html: string) {

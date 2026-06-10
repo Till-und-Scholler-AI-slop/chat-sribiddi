@@ -6,9 +6,12 @@ import { generateText, type ModelMessage, stepCountIs, streamText, type ToolSet 
 import { env } from "../config/env.js";
 import type { Provider } from "../db/types.js";
 import { upstreamError } from "../errors/http-error.js";
+import { fetchWithTimeout } from "../utils/fetch.js";
 import { generateCodexExec, streamCodexExec } from "./codex-exec-runtime.js";
 import type { ResolvedCredential } from "./credential-access-service.js";
 import type { GrokCliBridge, GrokCliSession } from "./grok-cli-bridge-service.js";
+
+const GOOGLE_GENERATE_TIMEOUT_MS = 60_000;
 
 export type RuntimeOptions = {
   temperature?: number | null | undefined;
@@ -199,7 +202,7 @@ function languageModel(input: ChatExecutionRequest) {
 async function postGoogleGenerateContent(input: ChatExecutionRequest) {
   const accessToken = input.credential.connection?.accessToken?.trim();
   if (!accessToken) throw upstreamError("Google OAuth access token is missing");
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.modelId)}:generateContent`,
     {
       method: "POST",
@@ -212,6 +215,7 @@ async function postGoogleGenerateContent(input: ChatExecutionRequest) {
         ),
       },
       body: JSON.stringify(googleRequestBody(input.messages, input.options)),
+      timeoutMs: GOOGLE_GENERATE_TIMEOUT_MS,
     },
   );
   if (!response.ok) {

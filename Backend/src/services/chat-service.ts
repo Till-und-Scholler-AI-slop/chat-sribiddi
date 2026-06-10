@@ -1,8 +1,8 @@
-import type { ModelMessage, UserContent } from "ai";
+import type { ModelMessage, ToolSet, UserContent } from "ai";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { env } from "../config/env.js";
-import type { MessageRow, Provider, Role } from "../db/types.js";
+import type { MessageRow, NewMessage, Provider, Role } from "../db/types.js";
 import { badRequest, HttpError, notFound } from "../errors/http-error.js";
 import {
   type ChatRepository,
@@ -83,8 +83,9 @@ export class ChatService {
     const imported = [];
     for (const item of chats.filter(Boolean).slice(0, 30)) {
       const chat = await this.chats.create(userId, item.title, item.createdAt ?? undefined);
-      for (const message of (item.messages ?? []).slice(0, 100)) {
-        await this.messages.create({
+      const messages = (item.messages ?? []).slice(0, 100);
+      if (messages.length > 0) {
+        const newMessages: NewMessage[] = messages.map((message) => ({
           chat_id: chat.chat_id,
           message: message.message,
           context: null,
@@ -93,7 +94,8 @@ export class ChatService {
           prompt_tokens: null,
           generation_tokens: null,
           total_tokens: null,
-        });
+        }));
+        await this.messages.createMany(newMessages);
       }
       imported.push(chatDto(chat));
     }
@@ -184,64 +186,24 @@ export class ChatService {
   }
 
   async streamMessage(c: Context, chatId: string, userId: string, request: ChatRequest) {
-    let toolEventSink: ToolEventSink | undefined;
-    const prepared = await this.prepareAuthenticatedCall(chatId, userId, request, (event) =>
-      toolEventSink?.(event),
-    );
+    const sink = createToolEventSinkRef();
+    const prepared = await this.prepareAuthenticatedCall(chatId, userId, request, sink.dispatcher);
     this.concurrency.acquire(userId, prepared.credential.limits.parallelStreams);
     return streamSSE(c, async (stream) => {
-      let content = "";
+      sink.attach((event) =>
+        writeStreamEvent(stream, toolStreamEventName(event), toolStreamPayload(event)),
+      );
       try {
-        toolEventSink = (event) =>
-          writeStreamEvent(stream, toolStreamEventName(event), toolStreamPayload(event));
-        const result = this.ai.stream({
-          provider: prepared.executionProvider,
+        await this.runAuthenticatedStream({
+          stream,
+          chatId,
           userId,
-          modelId: request.modelId,
-          credential: prepared.credential,
-          messages: prepared.promptMessages,
-          options: request.options ?? null,
-          tools: prepared.aiTools,
-        });
-        for await (const chunk of result.textStream) {
-          content += chunk;
-          await writeStreamEvent(stream, "message", { type: "text", content: chunk });
-        }
-        const usage = tokenUsage(await result.usage);
-        const assistant = await this.persistAssistant(chatId, content, prepared, usage);
-        await this.recordUsage(
-          userId,
-          prepared.provider,
-          request.modelId,
-          assistant.id,
-          usage,
-          prepared.credential,
-        );
-        const hasToolCalls = await this.recordToolLogs(
-          assistant.id,
-          prepared.toolRecords,
-          prepared.webResults,
-        );
-        await writeStreamEvent(stream, "done", {
-          type: "done",
-          promptTokens: usage.promptTokens,
-          generationTokens: usage.generationTokens,
-          totalTokens: usage.totalTokens,
-          chatTitle: prepared.updatedTitle,
-          messageId: assistant.id,
-          hasToolCalls,
-        });
-      } catch (error) {
-        await writeStreamEvent(stream, "error", {
-          type: "error",
-          content: error instanceof Error ? error.message : "Streaming error",
-          provider: prepared.provider,
-          modelId: request.modelId,
-          errorType: streamErrorType(error),
-          incomplete: true,
+          request,
+          prepared,
+          includeChatTitle: true,
         });
       } finally {
-        toolEventSink = undefined;
+        sink.detach();
         this.concurrency.release(userId);
       }
     });
@@ -262,7 +224,7 @@ export class ChatService {
     const mediaContext = this.mediaContext(request.media, resolved.credential.limits);
     await this.messages.updateMessage(messageId, chatId, request.content, mediaContext);
     await this.messages.deleteAfter(chatId, messageId);
-    let toolEventSink: ToolEventSink | undefined;
+    const sink = createToolEventSinkRef();
     const prepared = await this.preparePrompt(
       chat,
       userId,
@@ -270,64 +232,98 @@ export class ChatService {
       resolved,
       null,
       messageId,
-      (event) => toolEventSink?.(event),
+      sink.dispatcher,
     );
     this.concurrency.acquire(userId, resolved.credential.limits.parallelStreams);
     return streamSSE(c, async (stream) => {
-      let content = "";
+      sink.attach((event) =>
+        writeStreamEvent(stream, toolStreamEventName(event), toolStreamPayload(event)),
+      );
       try {
-        toolEventSink = (event) =>
-          writeStreamEvent(stream, toolStreamEventName(event), toolStreamPayload(event));
-        const result = this.ai.stream({
-          provider: prepared.executionProvider,
+        await this.runAuthenticatedStream({
+          stream,
+          chatId,
           userId,
-          modelId: request.modelId,
-          credential: prepared.credential,
-          messages: prepared.promptMessages,
-          options: request.options ?? null,
-          tools: prepared.aiTools,
-        });
-        for await (const chunk of result.textStream) {
-          content += chunk;
-          await writeStreamEvent(stream, "message", { type: "text", content: chunk });
-        }
-        const usage = tokenUsage(await result.usage);
-        const assistant = await this.persistAssistant(chatId, content, prepared, usage);
-        await this.recordUsage(
-          userId,
-          prepared.provider,
-          request.modelId,
-          assistant.id,
-          usage,
-          prepared.credential,
-        );
-        const hasToolCalls = await this.recordToolLogs(
-          assistant.id,
-          prepared.toolRecords,
-          prepared.webResults,
-        );
-        await writeStreamEvent(stream, "done", {
-          type: "done",
-          promptTokens: usage.promptTokens,
-          generationTokens: usage.generationTokens,
-          totalTokens: usage.totalTokens,
-          messageId: assistant.id,
-          hasToolCalls,
-        });
-      } catch (error) {
-        await writeStreamEvent(stream, "error", {
-          type: "error",
-          content: error instanceof Error ? error.message : "Streaming error",
-          provider: prepared.provider,
-          modelId: request.modelId,
-          errorType: streamErrorType(error),
-          incomplete: true,
+          request,
+          prepared,
+          includeChatTitle: false,
         });
       } finally {
-        toolEventSink = undefined;
+        sink.detach();
         this.concurrency.release(userId);
       }
     });
+  }
+
+  private async runAuthenticatedStream(args: {
+    stream: { writeSSE: (message: { event?: string; data: string }) => Promise<void> };
+    chatId: string;
+    userId: string;
+    request: ChatRequest;
+    prepared: Awaited<ReturnType<ChatService["preparePrompt"]>> & {
+      provider: Provider;
+      executionProvider: Provider | string;
+      credential: ResolvedCredential;
+      promptMessages: ModelMessage[];
+      updatedTitle: string | null;
+      webResults: WebSearchResult[];
+      aiTools: ToolSet | undefined;
+      toolRecords: ExecutedToolRecord[];
+    };
+    includeChatTitle: boolean;
+  }) {
+    const { stream, chatId, userId, request, prepared, includeChatTitle } = args;
+    try {
+      const result = this.ai.stream({
+        provider: prepared.executionProvider,
+        userId,
+        modelId: request.modelId,
+        credential: prepared.credential,
+        messages: prepared.promptMessages,
+        options: request.options ?? null,
+        tools: prepared.aiTools,
+      });
+      let content = "";
+      for await (const chunk of result.textStream) {
+        content += chunk;
+        await writeStreamEvent(stream, "message", { type: "text", content: chunk });
+      }
+      const usage = tokenUsage(await result.usage);
+      const assistant = await this.persistAssistant(chatId, content, prepared, usage);
+      await this.recordUsage(
+        userId,
+        prepared.provider,
+        request.modelId,
+        assistant.id,
+        usage,
+        prepared.credential,
+      );
+      const hasToolCalls = await this.recordToolLogs(
+        assistant.id,
+        prepared.toolRecords,
+        prepared.webResults,
+      );
+      await writeStreamEvent(stream, "done", {
+        type: "done",
+        promptTokens: usage.promptTokens,
+        generationTokens: usage.generationTokens,
+        totalTokens: usage.totalTokens,
+        ...(includeChatTitle && prepared.updatedTitle
+          ? { chatTitle: prepared.updatedTitle }
+          : {}),
+        messageId: assistant.id,
+        hasToolCalls,
+      });
+    } catch (error) {
+      await writeStreamEvent(stream, "error", {
+        type: "error",
+        content: error instanceof Error ? error.message : "Streaming error",
+        provider: prepared.provider,
+        modelId: request.modelId,
+        errorType: streamErrorType(error),
+        incomplete: true,
+      });
+    }
   }
 
   async streamAnonymousMessage(
@@ -342,6 +338,7 @@ export class ChatService {
     );
     const promptMessages = this.anonymousMessages(request);
     return streamSSE(c, async (stream) => {
+      let quotaCommitted = false;
       try {
         const result = this.ai.stream({
           provider: "OPENROUTER",
@@ -362,8 +359,8 @@ export class ChatService {
           totalTokens: usage.totalTokens,
         });
         quotaReservation.commit();
+        quotaCommitted = true;
       } catch (error) {
-        await quotaReservation.rollback();
         await writeStreamEvent(stream, "error", {
           type: "error",
           content: error instanceof Error ? error.message : "Streaming error",
@@ -372,6 +369,10 @@ export class ChatService {
           errorType: streamErrorType(error),
           incomplete: true,
         });
+      } finally {
+        if (!quotaCommitted) {
+          await quotaReservation.rollback();
+        }
       }
     });
   }
@@ -640,36 +641,38 @@ export class ChatService {
     records: ExecutedToolRecord[],
     webResults: WebSearchResult[],
   ) {
-    for (const record of records) {
-      await this.toolLogs.create({
-        messageId,
-        clientId: record.clientId,
-        toolName: record.toolName,
-        inputPayload: record.inputPayload,
-        outputPayload: record.outputPayload,
-        startedAt: record.startedAt,
-        durationMs: record.durationMs,
-        contextExcerpt: record.contextExcerpt,
-        status: record.status,
-        errorMessage: record.errorMessage,
-        displayType: record.displayType,
-      });
-    }
-    if (webResults.length > 0) {
-      await this.toolLogs.create({
-        messageId,
-        toolName: "brave-search",
-        inputPayload: JSON.stringify({}),
-        outputPayload: JSON.stringify(webResults),
-        durationMs: 0,
-        contextExcerpt: webResults
-          .map((item) => item.title)
-          .join("\n")
-          .slice(0, 1000),
-        status: "SUCCESS",
-        displayType: "search-results",
-      });
-    }
+    const toolInserts = records.map((record) => ({
+      messageId,
+      clientId: record.clientId,
+      toolName: record.toolName,
+      inputPayload: record.inputPayload,
+      outputPayload: record.outputPayload,
+      startedAt: record.startedAt,
+      durationMs: record.durationMs,
+      contextExcerpt: record.contextExcerpt,
+      status: record.status,
+      errorMessage: record.errorMessage,
+      displayType: record.displayType,
+    }));
+    const webInsert =
+      webResults.length > 0
+        ? [
+            {
+              messageId,
+              toolName: "brave-search",
+              inputPayload: JSON.stringify({}),
+              outputPayload: JSON.stringify(webResults),
+              durationMs: 0,
+              contextExcerpt: webResults
+                .map((item) => item.title)
+                .join("\n")
+                .slice(0, 1000),
+              status: "SUCCESS",
+              displayType: "search-results",
+            },
+          ]
+        : [];
+    await this.toolLogs.createMany([...toolInserts, ...webInsert]);
     return records.length > 0 || webResults.length > 0;
   }
 }
@@ -796,4 +799,25 @@ function toolStreamPayload(event: ToolExecutionEvent) {
 
 function streamErrorType(error: unknown) {
   return error instanceof HttpError ? error.code : "UPSTREAM_ERROR";
+}
+
+/**
+ * A two-stage event sink: `dispatcher` is given to the service layer at
+ * prepare time (before the SSE stream exists), and `attach` swaps in the
+ * real writer once streaming starts. `detach` clears the writer so any
+ * lingering async tool events after stream completion are dropped.
+ */
+function createToolEventSinkRef() {
+  let target: ToolEventSink | undefined;
+  return {
+    dispatcher: (event: ToolExecutionEvent) => {
+      target?.(event);
+    },
+    attach(sink: ToolEventSink) {
+      target = sink;
+    },
+    detach() {
+      target = undefined;
+    },
+  };
 }

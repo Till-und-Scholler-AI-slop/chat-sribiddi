@@ -13,6 +13,7 @@ const CODEX_DEVICE_AUTH_KILL_GRACE_MS = 5_000;
 const CODEX_MODEL_CATALOG_CACHE_TTL_MS = 10 * 60_000;
 const CODEX_MODEL_CATALOG_TIMEOUT_MS = 30_000;
 const CODEX_MODEL_CATALOG_OUTPUT_LIMIT = 20 * 1024 * 1024;
+const CODEX_LOGIN_STATUS_TIMEOUT_MS = 10_000;
 
 export type CodexCliModel = {
   id: string;
@@ -344,7 +345,7 @@ async function codexLoginStatus(codexHome: string) {
     env: codexEnv(codexHome),
     stdio: ["ignore", "ignore", "ignore"],
   });
-  const code = await new Promise<number | null>((resolve) => child.on("close", resolve));
+  const code = await waitForProcessClose(child, CODEX_LOGIN_STATUS_TIMEOUT_MS);
   return code === 0;
 }
 

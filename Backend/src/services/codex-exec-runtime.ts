@@ -11,6 +11,7 @@ import type { ChatExecutionRequest } from "./ai-chat-service.js";
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 const CODEX_EXEC_KILL_GRACE_MS = 5_000;
 const CODEX_EXEC_CLOSE_FALLBACK_MS = 1_000;
+const CODEX_EXEC_OUTPUT_LIMIT = 20 * 1024 * 1024;
 
 type CodexExecResult = {
   text: string;
@@ -73,15 +74,36 @@ async function runCodexExec(input: ChatExecutionRequest): Promise<CodexExecResul
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
+    child.stdin.on("error", () => {
+      // The CLI may close stdin early; ignore backpressure errors so we
+      // still surface the assistant output.
+    });
     child.stdin.end(prompt);
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+    let stdoutBytes = 0;
+    let outputTruncated = false;
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutBytes += chunk.byteLength;
+      if (stdoutBytes > CODEX_EXEC_OUTPUT_LIMIT) {
+        if (!outputTruncated) {
+          outputTruncated = true;
+          child.kill("SIGTERM");
+        }
+        return;
+      }
+      stdout.push(chunk);
+    });
     child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
     child.on("error", (error) => stderr.push(Buffer.from(error.message, "utf8")));
     const { code, timedOut } = await waitForCodexClose(child, env.CODEX_EXEC_TIMEOUT_MS);
     const stdoutText = Buffer.concat(stdout).toString("utf8");
     const stderrText = Buffer.concat(stderr).toString("utf8");
+    if (outputTruncated) {
+      throw upstreamError(
+        `OpenAI Codex subscription response exceeded the ${CODEX_EXEC_OUTPUT_LIMIT} byte limit`,
+      );
+    }
     if (timedOut) {
       throw upstreamError("OpenAI Codex subscription request timed out");
     }

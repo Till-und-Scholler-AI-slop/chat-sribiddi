@@ -2,6 +2,7 @@ import type { Page, Route } from '@playwright/test'
 
 type MockBackendOptions = {
   authenticated?: boolean
+  markdownResponseChunks?: string[]
 }
 
 const USER_SETTINGS_STORAGE_KEY = 'chat-sribiddi:user-settings:v2'
@@ -76,6 +77,7 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 
 export async function mockBackend(page: Page, options: MockBackendOptions = {}) {
   let authenticated = options.authenticated ?? true
+  const responseChunks = options.markdownResponseChunks ?? markdownResponseChunks
   const chats = new Map<string, { chatId: string; title: string }>()
 
   await page.addInitScript(({ backendBaseUrl, storageKey }) => {
@@ -174,7 +176,7 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
           'Content-Type': 'text/event-stream'
         },
         body:
-          markdownResponseChunks.map(streamTextEvent).join('') +
+          responseChunks.map(streamTextEvent).join('') +
           'event: done\n' +
           'data: {"type":"done","messageId":123,"hasToolCalls":false,"promptTokens":4,"generationTokens":2,"totalTokens":6}\n\n'
       })
@@ -189,7 +191,7 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
           'Content-Type': 'text/event-stream'
         },
         body:
-          markdownResponseChunks.map(streamTextEvent).join('') +
+          responseChunks.map(streamTextEvent).join('') +
           'event: done\n' +
           'data: {"type":"done","hasToolCalls":false,"promptTokens":4,"generationTokens":2,"totalTokens":6}\n\n'
       })

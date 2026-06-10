@@ -48,16 +48,17 @@ export class DocumentService {
       sha256,
       status: "READY",
     });
-    for (let i = 0; i < chunks.length; i += 1) {
-      const chunk = chunks[i];
-      await this.documents.createChunk({
-        documentId: document.id,
-        chunkIndex: i,
-        text: chunk?.text ?? "",
-        pageStart: chunk?.pageStart ?? null,
-        pageEnd: chunk?.pageEnd ?? null,
-        tokenEstimate: chunk?.tokenEstimate ?? 0,
-      });
+    if (chunks.length > 0) {
+      await this.documents.createChunks(
+        chunks.map((chunk, i) => ({
+          documentId: document.id,
+          chunkIndex: i,
+          text: chunk?.text ?? "",
+          pageStart: chunk?.pageStart ?? null,
+          pageEnd: chunk?.pageEnd ?? null,
+          tokenEstimate: chunk?.tokenEstimate ?? 0,
+        })),
+      );
     }
     return documentDto(document);
   }

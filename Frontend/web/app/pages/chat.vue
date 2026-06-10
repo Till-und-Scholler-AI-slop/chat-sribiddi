@@ -42,6 +42,7 @@ const {
   tokenUsageMap,
   webSearchEnabled
 } = useChatStore()
+const { toolCallAvailabilityMap } = useToolCallStore()
 const { checkAuth } = useAuth()
 const { settings } = useUserSettings()
 const { exportRunbook, uploadDocument } = useChatApi()
@@ -293,35 +294,26 @@ watch(
   newLength => scrollAfterMessageLengthChange(newLength),
 )
 
-// Auto-load tool calls when a message indicates it has them
+// Auto-load tool calls when availability flips on — avoids re-running on every stream chunk.
 watch(
-  () => activeConversation.value?.messages?.map(msg => ({
-    id: msg.id,
-    role: msg.role,
-    hasTools: hasToolCalls(msg.id),
-    toolCount: getToolCalls(msg.id).length,
-  })),
-  (newSnapshots, oldSnapshots) => {
-    if (!newSnapshots) return
-    const oldSnapshotsById = new Map(oldSnapshots?.map(snapshot => [snapshot.id, snapshot]) ?? [])
+  toolCallAvailabilityMap,
+  (newMap, oldMap) => {
+    const msgs = activeConversation.value?.messages
+    if (!msgs) return
 
-    for (const snapshot of newSnapshots) {
-      if (snapshot.role !== 'assistant') continue
-      if (!snapshot.hasTools) continue
-      if (snapshot.toolCount !== 0) continue
-      if (isToolCallLoading(snapshot.id)) continue
+    for (const msg of msgs) {
+      if (msg.role !== 'assistant') continue
+      if (newMap[msg.id] !== true) continue
+      if (oldMap?.[msg.id] === true) continue
+      if (getToolCalls(msg.id).length !== 0) continue
+      if (isToolCallLoading(msg.id)) continue
 
-      const prev = oldSnapshotsById.get(snapshot.id)
-      const justBecameToolAware =
-        !prev || (prev.hasTools === false && snapshot.hasTools === true)
-
-      if (justBecameToolAware) {
-        ensureToolCalls(snapshot.id).catch(() => {
-          // error surfaced through store state
-        })
-      }
+      ensureToolCalls(msg.id).catch(() => {
+        // error surfaced through store state
+      })
     }
   },
+  { deep: true },
 )
 
 // Scroll while streaming (last message text grows in place), throttled per animation frame

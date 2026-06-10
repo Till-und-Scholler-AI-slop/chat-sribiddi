@@ -35,6 +35,38 @@ test('creates a chat, sends a prompt, and renders the mocked streamed response',
   await expect(page.locator('.msg-assistant .code-block-container')).toHaveCSS('user-select', 'text')
 })
 
+test('renders quoted chat markdown without filled grey panels', async ({ page }) => {
+  await mockBackend(page, {
+    authenticated: true,
+    markdownResponseChunks: [
+      '> Quoted assistant text\n\n',
+      'Regular assistant text'
+    ]
+  })
+
+  await page.goto('/chat')
+
+  const prompt = page.getByRole('textbox', { name: 'Type your message here…' })
+  await expect(prompt).toBeVisible({ timeout: hydrationTimeout })
+  await expect(page.getByTestId('chat-page')).toHaveAttribute('data-ready', 'true', { timeout: hydrationTimeout })
+
+  await prompt.click()
+  await prompt.pressSequentially('> Quoted user text')
+  await expect(page.getByTestId('chat-submit')).toBeEnabled()
+  await page.getByTestId('chat-submit').click()
+
+  const userQuote = page.locator('.msg-user .blockquote')
+  const assistantQuote = page.locator('.msg-assistant .blockquote')
+  await expect(userQuote).toBeVisible()
+  await expect(assistantQuote).toBeVisible()
+  await expect(page.getByText('Regular assistant text')).toBeVisible()
+
+  for (const quote of [userQuote, assistantQuote]) {
+    await expect(quote).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(quote).toHaveCSS('box-shadow', 'none')
+  }
+})
+
 test('anonymous chat persists locally across reloads', async ({ page }) => {
   await mockBackend(page, { authenticated: false })
 

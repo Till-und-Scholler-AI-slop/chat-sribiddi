@@ -5,7 +5,10 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { env } from "../config/env.js";
 import { unauthorized } from "../errors/http-error.js";
 import type { UserRepository } from "../repositories/user-repository.js";
+import { fetchWithTimeout } from "../utils/fetch.js";
 import { constantTimeEqual } from "./crypto-service.js";
+
+const OAUTH_TOKEN_TIMEOUT_MS = 10_000;
 
 export const REQUEST_USER_ID_HEADER = "X-Chat-User-Id";
 const SESSION_COOKIE = "CHATSRIBIDDI_SESSION";
@@ -25,7 +28,17 @@ type PendingOAuth = {
 };
 
 export class AuthService {
-  private readonly jwks = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
+  private readonly jwks = createRemoteJWKSet(
+    new URL("https://www.googleapis.com/oauth2/v3/certs"),
+    {
+      // Keep JWKS hot for 10 minutes, allow up to 30s of cooldown between
+      // background refreshes so we never block request handlers waiting on
+      // a slow Google certs endpoint.
+      cacheMaxAge: 10 * 60_000,
+      cooldownDuration: 30_000,
+      timeoutDuration: 5_000,
+    },
+  );
 
   constructor(private readonly userRepository: UserRepository) {}
 
@@ -100,18 +113,22 @@ export class AuthService {
       return c.redirect(`${env.APP_FRONTEND_URL}/login?error=missing_code`, 302);
     }
 
-    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        code,
-        client_id: env.GOOGLE_CLIENT_ID ?? "",
-        client_secret: env.GOOGLE_CLIENT_SECRET ?? "",
-        redirect_uri: this.googleRedirectUri(),
-        grant_type: "authorization_code",
-        code_verifier: pending.verifier,
-      }),
-    });
+    const tokenResponse = await fetchWithTimeout(
+      "https://oauth2.googleapis.com/token",
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          code,
+          client_id: env.GOOGLE_CLIENT_ID ?? "",
+          client_secret: env.GOOGLE_CLIENT_SECRET ?? "",
+          redirect_uri: this.googleRedirectUri(),
+          grant_type: "authorization_code",
+          code_verifier: pending.verifier,
+        }),
+        timeoutMs: OAUTH_TOKEN_TIMEOUT_MS,
+      },
+    );
     if (!tokenResponse.ok) {
       const body = await tokenResponse.text();
       console.warn("Google OAuth token exchange failed", tokenResponse.status, body);

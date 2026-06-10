@@ -78,6 +78,33 @@ export class DocumentRepository {
       .executeTakeFirst();
   }
 
+  createChunks(
+    inputs: Array<{
+      documentId: number;
+      chunkIndex: number;
+      text: string;
+      tokenEstimate: number;
+      pageStart?: number | null;
+      pageEnd?: number | null;
+    }>,
+  ) {
+    if (inputs.length === 0) return [];
+    return this.db
+      .insertInto("document_chunks")
+      .values(
+        inputs.map((input) => ({
+          document_id: input.documentId,
+          chunk_index: input.chunkIndex,
+          text: input.text,
+          token_estimate: input.tokenEstimate,
+          page_start: input.pageStart ?? null,
+          page_end: input.pageEnd ?? null,
+        })),
+      )
+      .returningAll()
+      .execute();
+  }
+
   listRelevantChunks(chatId: string, query: string, limit: number) {
     const terms = query
       .split(/\s+/)

@@ -5,6 +5,19 @@ import { HttpError } from "../errors/http-error.js";
 import type { AppVariables } from "./request-context.js";
 
 const buckets = new Map<string, { resetAt: number; count: number }>();
+let lastPrunedBucket = minuteBucket();
+
+/** Drops rate-limit counters from previous minute windows to avoid unbounded growth. */
+export function pruneExpiredRateLimitBuckets(now = Date.now()) {
+  const currentBucket = minuteBucket(now);
+  if (currentBucket === lastPrunedBucket) return;
+  lastPrunedBucket = currentBucket;
+  for (const [key, entry] of buckets) {
+    if (entry.resetAt <= now) {
+      buckets.delete(key);
+    }
+  }
+}
 
 export const rateLimitMiddleware = (
   appContext: AppContext,
@@ -14,6 +27,7 @@ export const rateLimitMiddleware = (
       await next();
       return;
     }
+    pruneExpiredRateLimitBuckets();
     const userId = appContext.services.auth.resolveUserId(c);
     const limit = userId
       ? env.RATE_LIMIT_AUTHENTICATED_PER_MINUTE
@@ -31,8 +45,8 @@ export const rateLimitMiddleware = (
   };
 };
 
-function minuteBucket() {
-  return Math.floor(Date.now() / 60_000);
+function minuteBucket(now = Date.now()) {
+  return Math.floor(now / 60_000);
 }
 
 function clientIp(request: Request) {

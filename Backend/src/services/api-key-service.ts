@@ -27,7 +27,7 @@ export class ApiKeyService {
     if (hasText(connectionKey)) return connectionKey;
     const row = await this.repository.find(userId, provider);
     if (!row) return null;
-    const apiKey = this.crypto.decrypt(row.encrypted_key);
+    const apiKey = await this.crypto.decrypt(row.encrypted_key);
     if (row.key_version < this.crypto.activeKeyVersion()) {
       await this.repository.upsert(
         userId,

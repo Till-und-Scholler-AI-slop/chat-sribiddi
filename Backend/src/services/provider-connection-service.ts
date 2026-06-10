@@ -7,6 +7,7 @@ import {
   type ProviderConnectionRepository,
   type ProviderConnectionSecret,
 } from "../repositories/provider-connection-repository.js";
+import { fetchWithTimeout } from "../utils/fetch.js";
 import { hasText, legacyToProviderId } from "../utils/strings.js";
 import { toIso } from "../utils/time.js";
 import { type CodexCliModel, CodexCliService } from "./codex-cli-service.js";
@@ -27,6 +28,10 @@ const CREDENTIAL_SAVE_METHODS: ProviderAuthMethod[] = [
 ];
 const TOKEN_REFRESH_SKEW_MS = 2 * 60_000;
 const GITHUB_DEVICE_POLL_SLOW_DOWN_SECONDS = 5;
+const GITHUB_OAUTH_TIMEOUT_MS = 15_000;
+const OPENROUTER_OAUTH_TIMEOUT_MS = 15_000;
+const GOOGLE_OAUTH_TIMEOUT_MS = 15_000;
+const CODEX_MODEL_SUMMARY_TTL_MS = 30_000;
 
 export type ResolvedProviderConnection = {
   connectionId: number;
@@ -100,9 +105,34 @@ type GitHubTokenResponse = {
   error_description?: string;
 };
 
+type ConnectionSummaryDto = {
+  id: number;
+  providerId: string;
+  connectionProfileId: string;
+  authMethod: string;
+  status: string;
+  displayName: string | null;
+  providerAccountLabel: string | null;
+  defaultConnection: boolean;
+  tokenExpiresAt: string | null;
+  lastValidatedAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  defaultModelId: string | null;
+  availableModels: CodexCliModel[];
+};
+
+type CachedConnectionSummary = {
+  expiresAt: number;
+  rowHash: string;
+  summary: ConnectionSummaryDto;
+};
+
 export class ProviderConnectionService {
   private readonly oauthStates = new Map<string, PendingOAuthState>();
   private readonly deviceStates = new Map<string, PendingDeviceState>();
+  private readonly connectionSummaryCache = new Map<number, CachedConnectionSummary>();
+  private readonly connectionSummaryInFlight = new Map<number, Promise<ConnectionSummaryDto>>();
 
   constructor(
     private readonly repository: ProviderConnectionRepository,
@@ -111,6 +141,20 @@ export class ProviderConnectionService {
     private readonly grokCli?: GrokCliBridge | undefined,
     private readonly codexCli: CodexCliService = new CodexCliService(),
   ) {}
+
+  private pruneExpiredPendingStates(now = Date.now()) {
+    const oauthTtlMs = 15 * 60_000;
+    for (const [state, pending] of this.oauthStates) {
+      if (now - pending.createdAt > oauthTtlMs) {
+        this.oauthStates.delete(state);
+      }
+    }
+    for (const [deviceCode, pending] of this.deviceStates) {
+      if (now > pending.expiresAt) {
+        this.deviceStates.delete(deviceCode);
+      }
+    }
+  }
 
   async listConnections(userId: string) {
     const rows = await this.repository.listByUser(userId);
@@ -223,7 +267,8 @@ export class ProviderConnectionService {
       authMethods: API_KEY_COMPATIBLE_METHODS,
     });
     if (!row?.encrypted_secret_json) return null;
-    return this.decryptSecret(row.encrypted_secret_json).apiKey ?? null;
+    const secret = await this.decryptSecret(row.encrypted_secret_json);
+    return secret.apiKey ?? null;
   }
 
   async hasReadyConnection(userId: string, providerIdRaw: string) {
@@ -247,7 +292,7 @@ export class ProviderConnectionService {
     if (!row) return null;
     const ready = (await this.refreshIfNeeded(row)) ?? row;
     const secret = ready.encrypted_secret_json
-      ? this.decryptSecret(ready.encrypted_secret_json)
+      ? await this.decryptSecret(ready.encrypted_secret_json)
       : {};
     const codexDefaultModelId =
       ready.auth_method === "SUBSCRIPTION_CLI"
@@ -289,11 +334,12 @@ export class ProviderConnectionService {
     if (!existing) throw notFound("Provider connection not found");
     if (existing.auth_method === "SUBSCRIPTION_CLI") {
       const secret = existing.encrypted_secret_json
-        ? this.decryptSecret(existing.encrypted_secret_json)
+        ? await this.decryptSecret(existing.encrypted_secret_json)
         : {};
       await this.codexCli.deleteCodexHome(secret.codexHome);
     }
     await this.repository.deleteConnection(userId, connectionId);
+    this.connectionSummaryCache.delete(connectionId);
   }
 
   deleteByUser(userId: string) {
@@ -375,7 +421,7 @@ export class ProviderConnectionService {
       throw badRequest("Missing OpenRouter OAuth state or code");
     }
     const pending = this.consumeOAuthState(userId, "openrouter", state);
-    const response = await fetch("https://openrouter.ai/api/v1/auth/keys", {
+    const response = await fetchWithTimeout("https://openrouter.ai/api/v1/auth/keys", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -383,6 +429,7 @@ export class ProviderConnectionService {
         code_verifier: pending.codeVerifier,
         code_challenge_method: "S256",
       }),
+      timeoutMs: OPENROUTER_OAUTH_TIMEOUT_MS,
     });
     if (!response.ok) {
       throw badRequest(`OpenRouter OAuth failed with HTTP ${response.status}`);
@@ -618,8 +665,8 @@ export class ProviderConnectionService {
     };
   }
 
-  private decryptSecret(value: string): ProviderConnectionSecret {
-    const decrypted = this.crypto.decrypt(value);
+  private async decryptSecret(value: string): Promise<ProviderConnectionSecret> {
+    const decrypted = await this.crypto.decrypt(value);
     try {
       return JSON.parse(decrypted) as ProviderConnectionSecret;
     } catch {
@@ -628,12 +675,32 @@ export class ProviderConnectionService {
   }
 
   private async connectionSummary(row: ProviderConnectionRow) {
+    const rowHash = hashConnectionRow(row);
+    const cached = this.connectionSummaryCache.get(row.id);
+    if (cached && cached.expiresAt > Date.now() && cached.rowHash === rowHash) {
+      return cached.summary;
+    }
+    const inFlight = this.connectionSummaryInFlight.get(row.id);
+    if (inFlight) return inFlight;
+    const promise = this.buildConnectionSummary(row, rowHash);
+    this.connectionSummaryInFlight.set(row.id, promise);
+    try {
+      return await promise;
+    } finally {
+      this.connectionSummaryInFlight.delete(row.id);
+    }
+  }
+
+  private async buildConnectionSummary(
+    row: ProviderConnectionRow,
+    rowHash: string,
+  ): Promise<ConnectionSummaryDto> {
     const availableModels = await this.availableCodexModels(row);
     const defaultModelId =
       row.auth_method === "SUBSCRIPTION_CLI"
         ? (availableModels[0]?.id ?? connectionDefaultModelId(row))
         : connectionDefaultModelId(row);
-    return {
+    const summary: ConnectionSummaryDto = {
       id: row.id,
       providerId: row.provider_id,
       connectionProfileId: row.connection_profile_id,
@@ -649,6 +716,12 @@ export class ProviderConnectionService {
       defaultModelId,
       availableModels,
     };
+    this.connectionSummaryCache.set(row.id, {
+      expiresAt: Date.now() + CODEX_MODEL_SUMMARY_TTL_MS,
+      rowHash,
+      summary,
+    });
+    return summary;
   }
 
   private async availableCodexModels(row: ProviderConnectionRow): Promise<CodexCliModel[]> {
@@ -660,7 +733,7 @@ export class ProviderConnectionService {
     ) {
       return [];
     }
-    const secret = this.decryptSecret(row.encrypted_secret_json);
+    const secret = await this.decryptSecret(row.encrypted_secret_json);
     const saved = normalizeCodexModels(secret.models);
     if (!this.codexCli.enabled()) return saved;
     if (!hasText(secret.codexHome)) return saved;
@@ -720,23 +793,12 @@ export class ProviderConnectionService {
       providerAccountId: input.providerAccountId ?? null,
       providerAccountLabel: input.providerAccountLabel ?? null,
     });
-    return (
-      (await this.listConnections(input.userId)).find((item) => item.id === row.id) ?? {
-        id: row.id,
-        providerId: row.provider_id,
-        connectionProfileId: row.connection_profile_id,
-        authMethod: row.auth_method,
-        status: row.status,
-        displayName: row.display_name,
-        providerAccountLabel: row.provider_account_label,
-        defaultConnection: row.default_connection,
-        defaultModelId: row.provider_account_label,
-        availableModels: [],
-      }
-    );
+    this.connectionSummaryCache.delete(row.id);
+    return this.connectionSummary(row);
   }
 
   private startOpenRouterPkce(userId: string, callbackUri: string, connectionProfileId: string) {
+    this.pruneExpiredPendingStates();
     const state = randomToken(32);
     const verifier = randomToken(64);
     const challenge = sha256Base64Url(verifier);
@@ -766,6 +828,7 @@ export class ProviderConnectionService {
   }
 
   private startGoogleOAuth(userId: string, callbackUri: string, connectionProfileId: string) {
+    this.pruneExpiredPendingStates();
     const google = googleOAuthConfig();
     if (!google.configured) {
       return {
@@ -814,6 +877,7 @@ export class ProviderConnectionService {
     userId: string,
     connectionProfile: ProviderConnectionProfile,
   ) {
+    this.pruneExpiredPendingStates();
     const github = githubCopilotOAuthConfig();
     if (!github.configured) {
       return {
@@ -826,7 +890,7 @@ export class ProviderConnectionService {
         message: "GitHub Copilot OAuth is not configured.",
       };
     }
-    const response = await fetch(github.deviceCodeUri, {
+    const response = await fetchWithTimeout(github.deviceCodeUri, {
       method: "POST",
       headers: {
         accept: "application/json",
@@ -836,6 +900,7 @@ export class ProviderConnectionService {
         client_id: github.clientId,
         scope: github.scopes.join(" "),
       }),
+      timeoutMs: GITHUB_OAUTH_TIMEOUT_MS,
     });
     if (!response.ok) throw badRequest(`GitHub device flow failed with HTTP ${response.status}`);
     const json = (await response.json()) as GitHubDeviceCodeResponse;
@@ -1016,7 +1081,7 @@ export class ProviderConnectionService {
     ) {
       return row;
     }
-    const secret = row.encrypted_secret_json ? this.decryptSecret(row.encrypted_secret_json) : {};
+    const secret = row.encrypted_secret_json ? await this.decryptSecret(row.encrypted_secret_json) : {};
     if (!hasText(secret.refreshToken)) return row;
     const google = googleOAuthConfig();
     const clientId = firstNonBlank(secret.clientId, google.clientId);
@@ -1049,6 +1114,7 @@ export class ProviderConnectionService {
         tokenExpiresAt: expiresAt(token.expires_in),
         scopes: scopes.length ? scopes.join(" ") : null,
       });
+      this.connectionSummaryCache.delete(row.id);
       return updated ?? row;
     } catch {
       return row;
@@ -1057,23 +1123,25 @@ export class ProviderConnectionService {
 }
 
 async function exchangeGoogleToken(body: URLSearchParams): Promise<GoogleTokenResponse> {
-  const response = await fetch(googleOAuthConfig().tokenUri, {
+  const response = await fetchWithTimeout(googleOAuthConfig().tokenUri, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
+    timeoutMs: GOOGLE_OAUTH_TIMEOUT_MS,
   });
   if (!response.ok) throw badRequest(`Google OAuth failed with HTTP ${response.status}`);
   return (await response.json()) as GoogleTokenResponse;
 }
 
 async function exchangeGitHubDeviceToken(body: URLSearchParams): Promise<GitHubTokenResponse> {
-  const response = await fetch(githubCopilotOAuthConfig().accessTokenUri, {
+  const response = await fetchWithTimeout(githubCopilotOAuthConfig().accessTokenUri, {
     method: "POST",
     headers: {
       accept: "application/json",
       "content-type": "application/x-www-form-urlencoded",
     },
     body,
+    timeoutMs: GITHUB_OAUTH_TIMEOUT_MS,
   });
   if (!response.ok) throw badRequest(`GitHub OAuth failed with HTTP ${response.status}`);
   return (await response.json()) as GitHubTokenResponse;
@@ -1252,4 +1320,24 @@ function normalizeEndpointUrl(value: string) {
   parsed.hash = "";
   parsed.search = "";
   return parsed.toString().replace(/\/$/, "");
+}
+
+/**
+ * Stable, low-cardinality fingerprint of the fields that influence a connection
+ * summary. Used to validate cached summaries; if any tracked field changes
+ * between calls (e.g. status flips from PENDING to READY, or `updated_at`
+ * advances) the cache entry is rebuilt instead of returning a stale view.
+ */
+function hashConnectionRow(row: ProviderConnectionRow) {
+  const parts = [
+    row.status,
+    row.display_name ?? "",
+    row.provider_account_id ?? "",
+    row.provider_account_label ?? "",
+    row.token_expires_at instanceof Date ? row.token_expires_at.getTime() : row.token_expires_at ?? "",
+    row.last_validated_at instanceof Date ? row.last_validated_at.getTime() : row.last_validated_at ?? "",
+    row.updated_at instanceof Date ? row.updated_at.getTime() : row.updated_at ?? "",
+    row.auth_method,
+  ];
+  return createHash("sha1").update(parts.join("|")).digest("hex");
 }

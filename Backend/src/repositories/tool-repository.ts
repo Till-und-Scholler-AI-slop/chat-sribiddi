@@ -65,4 +65,43 @@ export class ToolCallLogRepository {
       .returningAll()
       .executeTakeFirstOrThrow();
   }
+
+  createMany(
+    inputs: Array<{
+      messageId: number;
+      clientId?: string | null;
+      toolName: string;
+      inputPayload: string;
+      outputPayload?: string | null;
+      startedAt?: Date;
+      durationMs: number;
+      contextExcerpt?: string | null;
+      status?: string;
+      errorMessage?: string | null;
+      displayType?: string | null;
+    }>,
+  ) {
+    if (inputs.length === 0) return [];
+    const now = new Date();
+    return this.db
+      .insertInto("tool_call_logs")
+      .values(
+        inputs.map((input) => ({
+          message_id: input.messageId,
+          tool_name: input.toolName,
+          input_payload: input.inputPayload,
+          output_payload: input.outputPayload ?? null,
+          started_at: input.startedAt ?? now,
+          duration_ms: input.durationMs,
+          context_excerpt: input.contextExcerpt ?? null,
+          created_at: now,
+          client_id: input.clientId ?? null,
+          status: input.status ?? "SUCCESS",
+          error_message: input.errorMessage ?? null,
+          display_type: input.displayType ?? null,
+        })),
+      )
+      .returningAll()
+      .execute();
+  }
 }

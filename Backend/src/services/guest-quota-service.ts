@@ -6,7 +6,7 @@ import { HttpError } from "../errors/http-error.js";
 type Counter = { day: string; count: number };
 
 export class GuestQuotaService {
-  private readonly memory = new Map<string, Counter>();
+  readonly memory = new Map<string, Counter>();
   private readonly redis =
     env.RATE_LIMIT_BACKEND === "redis"
       ? new Redis({
@@ -56,6 +56,7 @@ export class GuestQuotaService {
     }
 
     const today = day();
+    this.pruneStaleMemoryCounters(today);
     const current = this.memory.get(key);
     if (!current || current.day !== today) {
       this.memory.set(key, { day: today, count: 1 });
@@ -82,6 +83,14 @@ export class GuestQuotaService {
       if (!current) continue;
       if (current.count <= 1) this.memory.delete(key);
       else current.count -= 1;
+    }
+  }
+
+  pruneStaleMemoryCounters(today: string) {
+    for (const [key, counter] of this.memory) {
+      if (counter.day !== today) {
+        this.memory.delete(key);
+      }
     }
   }
 

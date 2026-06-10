@@ -1,9 +1,40 @@
-import { isTerminalStreamEvent, normalizeSsePayload, parseSseEvents } from '~/composables/chat-stream'
+import { isTerminalStreamEvent, SseEventParser } from '~/composables/chat-stream'
 import type { StreamEvent } from '~/composables/chat-stream'
 import type { AvailabilityFlag, Provider } from '~/utils/model-utils'
 import { modelEndpointPath, normalizeAvailability } from '~/utils/model-utils'
 
 export const REQUEST_USER_ID_HEADER = 'X-Chat-User-Id'
+
+const SSE_FETCH_TIMEOUT_MS = 10 * 60 * 1000
+
+/**
+ * Combine a caller-supplied `AbortSignal` with a timeout signal so the SSE
+ * request always terminates, even if neither the backend nor the caller ever
+ * aborts the stream. The first abort wins.
+ */
+function composeAbortSignals(...signals: Array<AbortSignal | undefined>): AbortSignal {
+  const usable = signals.filter((signal): signal is AbortSignal => Boolean(signal))
+  if (usable.length === 0) {
+    return new AbortController().signal
+  }
+  if (usable.length === 1) {
+    return usable[0]!
+  }
+  const controller = new AbortController()
+  const forward = (event: Event) => {
+    if (!controller.signal.aborted) {
+      controller.abort((event.target as AbortSignal | null)?.reason)
+    }
+  }
+  for (const signal of usable) {
+    if (signal.aborted) {
+      controller.abort(signal.reason)
+      break
+    }
+    signal.addEventListener('abort', forward, { once: true })
+  }
+  return controller.signal
+}
 
 export type ModelOption = {
   label: string
@@ -217,9 +248,16 @@ export function useChatApi() {
   )
 
   const userIdState = useState<string | null>('chat-user-id', () => null)
+  // Cache the resolved id within a single Nuxt app instance so the dozens of
+  // outgoing requests in a typical chat session don't repeatedly hit
+  // localStorage. The cache stays consistent because the id is created once
+  // per browser and never mutated after assignment.
+  let cachedUserId: string | null = null
 
   const resolveUserId = () => {
+    if (cachedUserId && cachedUserId !== 'anonymous') return cachedUserId
     if (userIdState.value && userIdState.value.trim() !== '') {
+      cachedUserId = userIdState.value
       return userIdState.value
     }
 
@@ -227,6 +265,7 @@ export function useChatApi() {
       const stored = localStorage.getItem('chat-user-id')
       if (stored && stored.trim() !== '') {
         userIdState.value = stored
+        cachedUserId = stored
         return stored
       }
 
@@ -235,10 +274,12 @@ export function useChatApi() {
         `user-${Date.now()}-${Math.random().toString(16).slice(2)}`
       localStorage.setItem('chat-user-id', generated)
       userIdState.value = generated
+      cachedUserId = generated
       return generated
     }
 
     userIdState.value = 'anonymous'
+    cachedUserId = 'anonymous'
     return 'anonymous'
   }
 
@@ -415,7 +456,7 @@ export function useChatApi() {
       credentials: 'include',
       headers,
       body,
-      signal
+      signal: composeAbortSignals(signal, AbortSignal.timeout(SSE_FETCH_TIMEOUT_MS))
     })
 
     if (!response.ok) {
@@ -434,51 +475,47 @@ export function useChatApi() {
     }
 
     const decoder = new TextDecoder()
-    let buffer = ''
+    const parser = new SseEventParser()
+
+    const dispatchEvents = async (events: StreamEvent[]) => {
+      for (const event of events) {
+        onEvent(event)
+        if (isTerminalStreamEvent(event)) {
+          await reader.cancel()
+          return true
+        }
+      }
+      return false
+    }
+
+    const abortIfRequested = () => {
+      if (signal?.aborted) {
+        throw new DOMException('The operation was aborted.', 'AbortError')
+      }
+    }
 
     try {
-      let searchFrom = 0
       while (true) {
+        abortIfRequested()
+
         const { done, value } = await reader.read()
         if (done) break
 
-        buffer += normalizeSsePayload(decoder.decode(value, { stream: true }))
-
-        // Process complete SSE events (delimited by double newline)
-        let idx: number
-        while ((idx = buffer.indexOf('\n\n', searchFrom)) !== -1) {
-          const part = buffer.substring(0, idx)
-          buffer = buffer.substring(idx + 2)
-          searchFrom = 0
-
-          const events = parseSseEvents(part + '\n\n')
-          for (const event of events) {
-            onEvent(event)
-            if (isTerminalStreamEvent(event)) {
-              await reader.cancel()
-              return
-            }
-          }
+        const events = parser.push(decoder.decode(value, { stream: true }))
+        if (await dispatchEvents(events)) {
+          return
         }
-        searchFrom = Math.max(0, buffer.length - 1)
       }
+
+      abortIfRequested()
 
       const trailing = decoder.decode()
-      if (trailing) {
-        buffer += normalizeSsePayload(trailing)
-      }
-
-      // Process any remaining buffer
-      if (buffer.trim()) {
-        const events = parseSseEvents(buffer + '\n\n')
-        for (const event of events) {
-          onEvent(event)
-          if (isTerminalStreamEvent(event)) {
-            await reader.cancel()
-            return
-          }
-        }
-      }
+      const tailEvents = parser.push(trailing)
+      const flushEvents = tailEvents.length === 0 ? parser.flush() : tailEvents
+      await dispatchEvents(flushEvents)
+    } catch (error) {
+      await reader.cancel().catch(() => {})
+      throw error
     } finally {
       reader.releaseLock()
     }
