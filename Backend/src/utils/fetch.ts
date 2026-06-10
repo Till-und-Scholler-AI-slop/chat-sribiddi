@@ -15,7 +15,10 @@ export async function fetchWithTimeout(
     else signal.addEventListener("abort", onAbort, { once: true });
   }
   const effective = clampTimeout(timeoutMs ?? fallbackTimeoutMs);
-  const timer = setTimeout(() => controller.abort(new Error("Upstream request timed out")), effective);
+  const timer = setTimeout(
+    () => controller.abort(new Error("Upstream request timed out")),
+    effective,
+  );
   timer.unref?.();
   try {
     return await fetch(input, { ...rest, signal: controller.signal });

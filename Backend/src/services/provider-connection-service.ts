@@ -1081,7 +1081,9 @@ export class ProviderConnectionService {
     ) {
       return row;
     }
-    const secret = row.encrypted_secret_json ? await this.decryptSecret(row.encrypted_secret_json) : {};
+    const secret = row.encrypted_secret_json
+      ? await this.decryptSecret(row.encrypted_secret_json)
+      : {};
     if (!hasText(secret.refreshToken)) return row;
     const google = googleOAuthConfig();
     const clientId = firstNonBlank(secret.clientId, google.clientId);
@@ -1334,9 +1336,13 @@ function hashConnectionRow(row: ProviderConnectionRow) {
     row.display_name ?? "",
     row.provider_account_id ?? "",
     row.provider_account_label ?? "",
-    row.token_expires_at instanceof Date ? row.token_expires_at.getTime() : row.token_expires_at ?? "",
-    row.last_validated_at instanceof Date ? row.last_validated_at.getTime() : row.last_validated_at ?? "",
-    row.updated_at instanceof Date ? row.updated_at.getTime() : row.updated_at ?? "",
+    row.token_expires_at instanceof Date
+      ? row.token_expires_at.getTime()
+      : (row.token_expires_at ?? ""),
+    row.last_validated_at instanceof Date
+      ? row.last_validated_at.getTime()
+      : (row.last_validated_at ?? ""),
+    row.updated_at instanceof Date ? row.updated_at.getTime() : (row.updated_at ?? ""),
     row.auth_method,
   ];
   return createHash("sha1").update(parts.join("|")).digest("hex");

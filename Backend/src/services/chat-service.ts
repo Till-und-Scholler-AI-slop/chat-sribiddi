@@ -308,9 +308,7 @@ export class ChatService {
         promptTokens: usage.promptTokens,
         generationTokens: usage.generationTokens,
         totalTokens: usage.totalTokens,
-        ...(includeChatTitle && prepared.updatedTitle
-          ? { chatTitle: prepared.updatedTitle }
-          : {}),
+        ...(includeChatTitle && prepared.updatedTitle ? { chatTitle: prepared.updatedTitle } : {}),
         messageId: assistant.id,
         hasToolCalls,
       });

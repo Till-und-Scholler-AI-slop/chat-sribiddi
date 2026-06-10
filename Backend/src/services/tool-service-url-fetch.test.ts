@@ -78,11 +78,7 @@ async function urlFetcherTools() {
   return service.aiTools("chat-1", "user-1");
 }
 
-function mockNodeRequest(
-  statusCode: number,
-  headers: Record<string, string>,
-  body: string,
-) {
+function mockNodeRequest(statusCode: number, headers: Record<string, string>, body: string) {
   return (_options: RequestOptions, callback: (response: PassThrough) => void) => {
     const request = new EventEmitter() as EventEmitter & {
       end: () => void;

@@ -73,11 +73,7 @@ export class MessageRepository {
 
   createMany(inputs: NewMessage[]) {
     if (inputs.length === 0) return [];
-    return this.db
-      .insertInto("messages")
-      .values(inputs)
-      .returningAll()
-      .execute();
+    return this.db.insertInto("messages").values(inputs).returningAll().execute();
   }
 
   findByIdAndChat(messageId: number, chatId: string) {

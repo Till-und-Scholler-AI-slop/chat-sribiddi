@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
-import { request as httpRequest } from "node:http";
 import type { IncomingHttpHeaders, IncomingMessage } from "node:http";
+import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
@@ -542,7 +542,10 @@ async function fetchPublicUrlText(url: URL, redirectCount = 0): Promise<string> 
     if (redirectCount >= URL_FETCH_MAX_REDIRECTS) {
       throw new Error("Too many redirects while fetching URL");
     }
-    return fetchPublicUrlText(normalizeToolUrl(new URL(location, url).toString()), redirectCount + 1);
+    return fetchPublicUrlText(
+      normalizeToolUrl(new URL(location, url).toString()),
+      redirectCount + 1,
+    );
   }
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw new Error(`HTTP ${response.statusCode} fetching URL`);

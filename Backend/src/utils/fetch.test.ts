@@ -44,7 +44,10 @@ describe("fetchWithTimeout", () => {
       });
     }) as typeof fetch;
     const controller = new AbortController();
-    const promise = fetchWithTimeout("https://example.com", { timeoutMs: 30_000, signal: controller.signal });
+    const promise = fetchWithTimeout("https://example.com", {
+      timeoutMs: 30_000,
+      signal: controller.signal,
+    });
     queueMicrotask(() => controller.abort());
     await expect(promise).rejects.toThrow();
   });

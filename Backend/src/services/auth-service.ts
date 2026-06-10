@@ -113,22 +113,19 @@ export class AuthService {
       return c.redirect(`${env.APP_FRONTEND_URL}/login?error=missing_code`, 302);
     }
 
-    const tokenResponse = await fetchWithTimeout(
-      "https://oauth2.googleapis.com/token",
-      {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          code,
-          client_id: env.GOOGLE_CLIENT_ID ?? "",
-          client_secret: env.GOOGLE_CLIENT_SECRET ?? "",
-          redirect_uri: this.googleRedirectUri(),
-          grant_type: "authorization_code",
-          code_verifier: pending.verifier,
-        }),
-        timeoutMs: OAUTH_TOKEN_TIMEOUT_MS,
-      },
-    );
+    const tokenResponse = await fetchWithTimeout("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: env.GOOGLE_CLIENT_ID ?? "",
+        client_secret: env.GOOGLE_CLIENT_SECRET ?? "",
+        redirect_uri: this.googleRedirectUri(),
+        grant_type: "authorization_code",
+        code_verifier: pending.verifier,
+      }),
+      timeoutMs: OAUTH_TOKEN_TIMEOUT_MS,
+    });
     if (!tokenResponse.ok) {
       const body = await tokenResponse.text();
       console.warn("Google OAuth token exchange failed", tokenResponse.status, body);
