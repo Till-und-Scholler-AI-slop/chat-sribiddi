@@ -17,6 +17,26 @@ permissions:
   contents: read
 
 jobs:
+  workflow-lint:
+    name: Workflow CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run actionlint
+        uses: docker://rhysd/actionlint:1.7.12
+
+      - name: Reject unsafe SSH line rewriting
+        shell: bash
+        run: |
+          if grep -R -n -E 'script_stop:[[:space:]]*true' .github/workflows; then
+            echo '::error::script_stop rewrites multiline SSH scripts and breaks shell control structures; rely on set -eu instead.'
+            exit 1
+          fi
+
   frontend:
     name: Frontend CI
     runs-on: ubuntu-latest

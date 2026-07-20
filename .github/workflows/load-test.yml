@@ -45,7 +45,6 @@ jobs:
       K6_VUS: "100"
       K6_ITERATIONS_PER_VU: "10"
       NO_PROXY: 127.0.0.1,localhost
-      no_proxy: 127.0.0.1,localhost
 
     steps:
       - name: Check out repository
