@@ -1,9 +1,4 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
-import { fileURLToPath } from 'node:url'
-
-const markstreamCodeRenderer = fileURLToPath(
-    new URL('./app/utils/markstreamCodeRenderer.ts', import.meta.url)
-)
 
 const knownSourcemapWarningPlugins = [
     'nuxt:module-preload-polyfill',
@@ -110,11 +105,6 @@ export default defineNuxtConfig({
         optimizeDeps: {
             include: markdownHighlightOptimizeDeps,
             exclude: ['markstream-vue', 'stream-markdown']
-        },
-        resolve: {
-            alias: {
-                'stream-markdown': markstreamCodeRenderer
-            }
         },
         build: {
             sourcemap: false,

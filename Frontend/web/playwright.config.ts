@@ -5,6 +5,9 @@ const webServerEnv = Object.fromEntries(
 )
 const isCI = !!process.env.CI
 const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH
+const webServerCommand = isCI
+  ? 'node .output/server/index.mjs'
+  : 'bun run dev -- --host 127.0.0.1 --port 3000'
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -20,7 +23,7 @@ export default defineConfig({
     trace: 'retain-on-failure'
   },
   webServer: {
-    command: 'bun run dev -- --host 127.0.0.1 --port 3000',
+    command: webServerCommand,
     env: {
       ...webServerEnv,
       HOST: '127.0.0.1',

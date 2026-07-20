@@ -1,9 +1,5 @@
 <script setup lang="ts">
-import MarkdownRender, { MarkdownCodeBlockNode, setCustomComponents } from 'markstream-vue'
-
-setCustomComponents('chat', {
-  code_block: MarkdownCodeBlockNode
-})
+import MarkdownRender from 'markstream-vue'
 
 const props = withDefaults(defineProps<{
   text?: string
@@ -48,6 +44,8 @@ const isDark = computed(() => {
       :render-batch-size="16"
       :render-batch-delay="8"
       :render-batch-budget-ms="4"
+      code-renderer="shiki"
+      :render-code-blocks-as-pre="false"
       :code-block-dark-theme="darkCodeTheme"
       :code-block-light-theme="lightCodeTheme"
       :code-block-props="codeBlockProps"
