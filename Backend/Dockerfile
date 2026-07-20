@@ -2,7 +2,7 @@ FROM node:22-bookworm-slim AS deps
 WORKDIR /workspace/Backend
 
 COPY packages/provider-contract/package.json packages/provider-contract/package-lock.json packages/provider-contract/index.js packages/provider-contract/index.d.ts /workspace/packages/provider-contract/
-COPY Backend/package.json Backend/package-lock.json ./
+COPY Backend/package.json Backend/package-lock.json Backend/.npmrc ./
 RUN npm ci --omit=dev --prefix /workspace/packages/provider-contract && npm ci
 
 FROM deps AS build
@@ -22,7 +22,7 @@ RUN apt-get update \
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 COPY packages/provider-contract/package.json packages/provider-contract/package-lock.json packages/provider-contract/index.js packages/provider-contract/index.d.ts /workspace/packages/provider-contract/
-COPY Backend/package.json Backend/package-lock.json ./
+COPY Backend/package.json Backend/package-lock.json Backend/.npmrc ./
 RUN npm ci --omit=dev --prefix /workspace/packages/provider-contract \
   && npm ci --omit=dev \
   && npm cache clean --force
