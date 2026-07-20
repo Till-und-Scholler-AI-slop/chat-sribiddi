@@ -163,7 +163,6 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
-          script_stop: true
           script: |
             set -eu
             rm -rf /tmp/chat-sribiddi-deploy-backend
@@ -199,7 +198,6 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
-          script_stop: true
           command_timeout: 40m
           envs: BACKEND_ENV_FILE,OPENROUTER_API_KEY,GHCR_USERNAME,GHCR_READ_TOKEN,DEPLOY_IMAGE_TAG
           script: |
