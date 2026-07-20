@@ -1,39 +1,102 @@
-import { isTerminalStreamEvent, SseEventParser } from '~/composables/chat-stream'
+import {
+  createFrameBatchedStreamDispatcher,
+  isTerminalStreamEvent,
+  SseEventParser
+} from '~/composables/chat-stream'
 import type { StreamEvent } from '~/composables/chat-stream'
 import type { AvailabilityFlag, Provider } from '~/utils/model-utils'
 import { modelEndpointPath, normalizeAvailability } from '~/utils/model-utils'
 
 export const REQUEST_USER_ID_HEADER = 'X-Chat-User-Id'
 
-const SSE_FETCH_TIMEOUT_MS = 10 * 60 * 1000
+export const API_REQUEST_TIMEOUT_MS = 15_000
+export const AUTH_REQUEST_TIMEOUT_MS = 10_000
+export const UPLOAD_REQUEST_TIMEOUT_MS = 60_000
+export const SSE_IDLE_TIMEOUT_MS = 45_000
+export const SSE_MAX_DURATION_MS = 31 * 60 * 1000
 
 /**
  * Combine a caller-supplied `AbortSignal` with a timeout signal so the SSE
  * request always terminates, even if neither the backend nor the caller ever
  * aborts the stream. The first abort wins.
  */
-function composeAbortSignals(...signals: Array<AbortSignal | undefined>): AbortSignal {
-  const usable = signals.filter((signal): signal is AbortSignal => Boolean(signal))
-  if (usable.length === 0) {
-    return new AbortController().signal
+export type ApiErrorKind = 'http' | 'network' | 'timeout' | 'aborted' | 'protocol'
+
+export class ApiRequestError extends Error {
+  readonly kind: ApiErrorKind
+  readonly status: number | null
+  readonly code: string | null
+  readonly retryAfterSeconds: number | null
+
+  constructor(
+    kind: ApiErrorKind,
+    message: string,
+    options: {
+      status?: number | null
+      code?: string | null
+      retryAfterSeconds?: number | null
+      cause?: unknown
+    } = {}
+  ) {
+    super(message, { cause: options.cause })
+    this.name = 'ApiRequestError'
+    this.kind = kind
+    this.status = options.status ?? null
+    this.code = options.code ?? null
+    this.retryAfterSeconds = options.retryAfterSeconds ?? null
   }
-  if (usable.length === 1) {
-    return usable[0]!
-  }
+}
+
+type TimedAbortContext = {
+  signal: AbortSignal
+  cleanup: () => void
+  timedOut: () => boolean
+}
+
+function createTimedAbortContext(
+  source: AbortSignal | undefined,
+  timeoutMs: number
+): TimedAbortContext {
   const controller = new AbortController()
-  const forward = (event: Event) => {
-    if (!controller.signal.aborted) {
-      controller.abort((event.target as AbortSignal | null)?.reason)
+  let didTimeout = false
+  const forwardAbort = () => {
+    if (!controller.signal.aborted) controller.abort(source?.reason)
+  }
+  if (source?.aborted) forwardAbort()
+  else source?.addEventListener('abort', forwardAbort, { once: true })
+
+  const timeoutId = setTimeout(() => {
+    didTimeout = true
+    controller.abort(new ApiRequestError('timeout', `Request timed out after ${timeoutMs}ms`))
+  }, timeoutMs)
+
+  return {
+    signal: controller.signal,
+    timedOut: () => didTimeout,
+    cleanup: () => {
+      clearTimeout(timeoutId)
+      source?.removeEventListener('abort', forwardAbort)
     }
   }
-  for (const signal of usable) {
-    if (signal.aborted) {
-      controller.abort(signal.reason)
-      break
-    }
-    signal.addEventListener('abort', forward, { once: true })
+}
+
+function normalizeFetchError(
+  error: unknown,
+  context: TimedAbortContext,
+  source?: AbortSignal
+): ApiRequestError {
+  if (context.timedOut()) {
+    return new ApiRequestError('timeout', 'Request timed out.', { cause: error })
   }
-  return controller.signal
+  if (source?.aborted) {
+    return new ApiRequestError('aborted', 'Request cancelled.', { cause: error })
+  }
+  if (error instanceof ApiRequestError) return error
+  return new ApiRequestError(
+    'network',
+    error instanceof Error ? error.message : 'Network request failed.',
+    { cause: error }
+  )
 }
 
 export type ModelOption = {
@@ -63,6 +126,7 @@ export type MediaAttachment = {
   mimeType: string
   data: string
   name?: string
+  byteSize?: number
 }
 
 export type DocumentAttachment = {
@@ -76,7 +140,8 @@ export type ChatDocument = {
   filename: string
   mimeType: string
   byteSize: number
-  status: 'READY' | string
+  status: 'PROCESSING' | 'READY' | 'FAILED' | string
+  errorCode?: string | null
   createdAt?: string | null
 }
 
@@ -125,6 +190,13 @@ export type TokenUsage = {
   promptTokens: number | null
   generationTokens: number | null
   totalTokens: number | null
+}
+
+export type ChatCapabilities = {
+  maxAttachments: number
+  maxAttachmentBytes: number
+  maxTotalAttachmentBytes: number
+  maxDocumentBytes: number
 }
 
 export type SendMessageResponse = {
@@ -224,6 +296,33 @@ export async function readErrorText(response: Response) {
   }
 }
 
+async function responseError(response: Response): Promise<ApiRequestError> {
+  const raw = await readErrorText(response)
+  let code: string | null = null
+  let message = raw || `Request failed (${response.status} ${response.statusText})`
+
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>
+      code = typeof parsed.code === 'string' ? parsed.code : null
+      const candidate = parsed.message ?? parsed.error
+      if (typeof candidate === 'string' && candidate.trim()) message = candidate.trim()
+    } catch {
+      // Plain-text backend errors remain useful as-is.
+    }
+  }
+
+  const retryAfter = response.headers.get('Retry-After')
+  const retryAfterSeconds = retryAfter && Number.isFinite(Number(retryAfter))
+    ? Number(retryAfter)
+    : null
+  return new ApiRequestError('http', message, {
+    status: response.status,
+    code,
+    retryAfterSeconds
+  })
+}
+
 export function getCsrfToken(): string | null {
   if (typeof document === 'undefined') return null
   const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/)
@@ -288,7 +387,11 @@ export function useChatApi() {
     return `${baseUrl.value}${normalized}`
   }
 
-  const requestJson = async <T>(path: string, options: RequestInit) => {
+  const requestJson = async <T>(
+    path: string,
+    options: RequestInit,
+    timeoutMs = API_REQUEST_TIMEOUT_MS
+  ) => {
     let headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options.headers as Record<string, string> || {})
@@ -306,30 +409,44 @@ export function useChatApi() {
       headers = withRequestUserId(headers, resolveUserId())
     }
 
-    const response = await fetch(buildUrl(path), {
-      credentials: 'include',
-      ...options,
-      headers
-    })
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        throw new AuthCheckError('unauthorized')
+    const abortContext = createTimedAbortContext(options.signal || undefined, timeoutMs)
+    try {
+      const response = await fetch(buildUrl(path), {
+        credentials: 'include',
+        ...options,
+        headers,
+        signal: abortContext.signal
+      })
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new AuthCheckError('unauthorized')
+        }
+        throw await responseError(response)
       }
-      const errorText = await readErrorText(response)
-      throw new Error(
-        errorText || `Request failed (${response.status} ${response.statusText})`
-      )
-    }
 
-    if (response.status === 204) {
-      return null as T
-    }
+      if (response.status === 204) {
+        return null as T
+      }
 
-    return (await response.json()) as T
+      return (await response.json()) as T
+    } catch (error) {
+      if (error instanceof AuthCheckError) throw error
+      if (abortContext.timedOut() || options.signal?.aborted) {
+        throw normalizeFetchError(error, abortContext, options.signal || undefined)
+      }
+      if (error instanceof ApiRequestError) throw error
+      throw normalizeFetchError(error, abortContext, options.signal || undefined)
+    } finally {
+      abortContext.cleanup()
+    }
   }
 
-  const requestForm = async <T>(path: string, formData: FormData, options: RequestInit = {}) => {
+  const requestForm = async <T>(
+    path: string,
+    formData: FormData,
+    options: RequestInit = {},
+    timeoutMs = UPLOAD_REQUEST_TIMEOUT_MS
+  ) => {
     let headers: Record<string, string> = {
       ...(options.headers as Record<string, string> || {})
     }
@@ -346,32 +463,41 @@ export function useChatApi() {
       headers = withRequestUserId(headers, resolveUserId())
     }
 
-    const response = await fetch(buildUrl(path), {
-      credentials: 'include',
-      ...options,
-      method,
-      body: formData,
-      headers
-    })
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        throw new AuthCheckError('unauthorized')
+    const abortContext = createTimedAbortContext(options.signal || undefined, timeoutMs)
+    try {
+      const response = await fetch(buildUrl(path), {
+        credentials: 'include',
+        ...options,
+        method,
+        body: formData,
+        headers,
+        signal: abortContext.signal
+      })
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new AuthCheckError('unauthorized')
+        }
+        throw await responseError(response)
       }
-      const errorText = await readErrorText(response)
-      throw new Error(
-        errorText || `Request failed (${response.status} ${response.statusText})`
-      )
-    }
 
-    if (response.status === 204) {
-      return null as T
+      if (response.status === 204) {
+        return null as T
+      }
+      const raw = await response.text()
+      if (!raw.trim()) {
+        return null as T
+      }
+      return JSON.parse(raw) as T
+    } catch (error) {
+      if (error instanceof AuthCheckError) throw error
+      if (abortContext.timedOut() || options.signal?.aborted) {
+        throw normalizeFetchError(error, abortContext, options.signal || undefined)
+      }
+      if (error instanceof ApiRequestError) throw error
+      throw normalizeFetchError(error, abortContext, options.signal || undefined)
+    } finally {
+      abortContext.cleanup()
     }
-    const raw = await response.text()
-    if (!raw.trim()) {
-      return null as T
-    }
-    return JSON.parse(raw) as T
   }
 
   const createChat = async (input: CreateChatInput = {}) => {
@@ -400,6 +526,10 @@ export function useChatApi() {
 
   const fetchMessageToolCalls = async (messageId: number) => {
     return requestJson<ToolCallLog[]>(`/messages/${messageId}/tool-calls`, { method: 'GET' })
+  }
+
+  const fetchChatCapabilities = async () => {
+    return requestJson<ChatCapabilities>('/chat/capabilities', { method: 'GET' })
   }
 
   const uploadDocument = async (chatId: string, file: File) => {
@@ -451,37 +581,96 @@ export function useChatApi() {
       headers = withRequestUserId(headers, resolveUserId())
     }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      credentials: 'include',
-      headers,
-      body,
-      signal: composeAbortSignals(signal, AbortSignal.timeout(SSE_FETCH_TIMEOUT_MS))
-    })
+    const streamController = new AbortController()
+    let timeoutKind: 'idle' | 'maximum' | null = null
+    let idleTimer: ReturnType<typeof setTimeout> | null = null
+    const abortFromCaller = () => {
+      if (!streamController.signal.aborted) streamController.abort(signal?.reason)
+    }
+    if (signal?.aborted) abortFromCaller()
+    else signal?.addEventListener('abort', abortFromCaller, { once: true })
+
+    const resetIdleTimeout = () => {
+      if (idleTimer) clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => {
+        timeoutKind = 'idle'
+        streamController.abort(new ApiRequestError('timeout', 'Response stream became idle.'))
+      }, SSE_IDLE_TIMEOUT_MS)
+    }
+    resetIdleTimeout()
+    const maximumTimer = setTimeout(() => {
+      timeoutKind = 'maximum'
+      streamController.abort(new ApiRequestError('timeout', 'Response stream exceeded its maximum duration.'))
+    }, SSE_MAX_DURATION_MS)
+    const cleanupTimeouts = () => {
+      if (idleTimer) clearTimeout(idleTimer)
+      clearTimeout(maximumTimer)
+      signal?.removeEventListener('abort', abortFromCaller)
+    }
+
+    let response: Response
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+        body,
+        signal: streamController.signal
+      })
+    } catch (error) {
+      cleanupTimeouts()
+      if (timeoutKind === 'idle') {
+        throw new ApiRequestError('timeout', 'Response stream was idle for too long.', { cause: error })
+      }
+      if (timeoutKind === 'maximum') {
+        throw new ApiRequestError('timeout', 'Response stream exceeded 31 minutes.', { cause: error })
+      }
+      if (signal?.aborted) {
+        throw new ApiRequestError('aborted', 'Request cancelled.', { cause: error })
+      }
+      throw new ApiRequestError(
+        'network',
+        error instanceof Error ? error.message : 'Unable to open response stream.',
+        { cause: error }
+      )
+    }
 
     if (!response.ok) {
-      if (response.status === 401) {
-        throw new AuthCheckError('unauthorized')
+      try {
+        if (response.status === 401) {
+          throw new AuthCheckError('unauthorized')
+        }
+        const error = await responseError(response)
+        if (timeoutKind === 'idle') {
+          throw new ApiRequestError('timeout', 'Response stream was idle for too long.', { cause: error })
+        }
+        if (timeoutKind === 'maximum') {
+          throw new ApiRequestError('timeout', 'Response stream exceeded 31 minutes.', { cause: error })
+        }
+        if (signal?.aborted) {
+          throw new ApiRequestError('aborted', 'Request cancelled.', { cause: error })
+        }
+        throw error
+      } finally {
+        cleanupTimeouts()
       }
-      const errorText = await readErrorText(response)
-      throw new Error(
-        errorText || `Request failed (${response.status} ${response.statusText})`
-      )
     }
 
     const reader = response.body?.getReader()
     if (!reader) {
-      throw new Error('Response body is not readable')
+      cleanupTimeouts()
+      throw new ApiRequestError('protocol', 'Response body is not readable')
     }
 
     const decoder = new TextDecoder()
     const parser = new SseEventParser()
+    const dispatcher = createFrameBatchedStreamDispatcher(onEvent)
 
     const dispatchEvents = async (events: StreamEvent[]) => {
       for (const event of events) {
-        onEvent(event)
+        dispatcher.push(event)
         if (isTerminalStreamEvent(event)) {
-          await reader.cancel()
+          await reader.cancel().catch(() => {})
           return true
         }
       }
@@ -489,8 +678,14 @@ export function useChatApi() {
     }
 
     const abortIfRequested = () => {
-      if (signal?.aborted) {
-        throw new DOMException('The operation was aborted.', 'AbortError')
+      if (streamController.signal.aborted) {
+        if (timeoutKind === 'idle') {
+          throw new ApiRequestError('timeout', 'Response stream was idle for too long.')
+        }
+        if (timeoutKind === 'maximum') {
+          throw new ApiRequestError('timeout', 'Response stream exceeded 31 minutes.')
+        }
+        throw new ApiRequestError('aborted', 'Request cancelled.')
       }
     }
 
@@ -501,6 +696,7 @@ export function useChatApi() {
         const { done, value } = await reader.read()
         if (done) break
 
+        resetIdleTimeout()
         const events = parser.push(decoder.decode(value, { stream: true }))
         if (await dispatchEvents(events)) {
           return
@@ -513,10 +709,24 @@ export function useChatApi() {
       const tailEvents = parser.push(trailing)
       const flushEvents = tailEvents.length === 0 ? parser.flush() : tailEvents
       await dispatchEvents(flushEvents)
+      dispatcher.flush()
     } catch (error) {
+      dispatcher.flush()
       await reader.cancel().catch(() => {})
+      if (error instanceof ApiRequestError) throw error
+      if (timeoutKind === 'idle') {
+        throw new ApiRequestError('timeout', 'Response stream was idle for too long.', { cause: error })
+      }
+      if (timeoutKind === 'maximum') {
+        throw new ApiRequestError('timeout', 'Response stream exceeded 31 minutes.', { cause: error })
+      }
+      if (signal?.aborted) {
+        throw new ApiRequestError('aborted', 'Request cancelled.', { cause: error })
+      }
       throw error
     } finally {
+      dispatcher.flush()
+      cleanupTimeouts()
       reader.releaseLock()
     }
   }
@@ -625,15 +835,20 @@ export function useChatApi() {
     if (import.meta.client) {
       Object.assign(headers, withRequestUserId({}, resolveUserId()))
     }
+    const abortContext = createTimedAbortContext(undefined, AUTH_REQUEST_TIMEOUT_MS)
     let response: Response
     try {
       response = await fetch(buildUrl('/secured'), {
         method: 'GET',
         credentials: 'include',
-        headers
+        headers,
+        signal: abortContext.signal
       })
-    } catch {
-      throw new AuthCheckError('network')
+    } catch (error) {
+      const normalized = normalizeFetchError(error, abortContext)
+      throw new AuthCheckError('network', normalized.message)
+    } finally {
+      abortContext.cleanup()
     }
     if (response.status === 401) {
       return false
@@ -700,6 +915,7 @@ export function useChatApi() {
     fetchChats,
     fetchChatMessages,
     fetchMessageToolCalls,
+    fetchChatCapabilities,
     uploadDocument,
     fetchDocuments,
     deleteDocument,

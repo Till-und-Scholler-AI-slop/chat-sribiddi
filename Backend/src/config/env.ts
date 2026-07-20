@@ -36,6 +36,14 @@ const jdbcToPgUrl = (value: string | undefined) => {
 
 const randomDevSecret = () => randomBytes(32).toString("base64");
 
+export const booleanEnv = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  return value;
+}, z.boolean());
+
 const envSchema = z.object({
   NODE_ENV: z.string().default("development"),
   PORT: z.coerce.number().int().positive().default(8080),
@@ -56,7 +64,8 @@ const envSchema = z.object({
   POSTGRES_IDLE_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().nonnegative().default(60_000),
   REDIS_HOST: z.string().default("localhost"),
   REDIS_PORT: z.coerce.number().int().positive().default(6379),
-  RATE_LIMIT_ENABLED: z.coerce.boolean().default(true),
+  REDIS_PASSWORD: z.string().optional(),
+  RATE_LIMIT_ENABLED: booleanEnv.default(true),
   RATE_LIMIT_BACKEND: z.enum(["redis", "memory"]).default("redis"),
   RATE_LIMIT_ANONYMOUS_PER_MINUTE: z.coerce.number().int().positive().default(300),
   RATE_LIMIT_AUTHENTICATED_PER_MINUTE: z.coerce.number().int().positive().default(600),
@@ -68,7 +77,7 @@ const envSchema = z.object({
   SESSION_COOKIE_MAX_AGE: z.string().optional(),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
-  GOOGLE_PROVIDER_OAUTH_ENABLED: z.coerce.boolean().default(true),
+  GOOGLE_PROVIDER_OAUTH_ENABLED: booleanEnv.default(true),
   GOOGLE_PROVIDER_OAUTH_CLIENT_ID: z.string().optional(),
   GOOGLE_PROVIDER_OAUTH_CLIENT_SECRET: z.string().optional(),
   GOOGLE_PROVIDER_OAUTH_USER_PROJECT: z.string().optional(),
@@ -99,9 +108,12 @@ const envSchema = z.object({
   CHAT_MESSAGE_PAGE_SIZE: z.coerce.number().int().positive().default(50),
   CHAT_PAGE_SIZE: z.coerce.number().int().positive().default(50),
   CHAT_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(1_800_000),
+  CHAT_STREAM_HEARTBEAT_MS: z.coerce.number().int().positive().default(15_000),
+  SHUTDOWN_GRACE_MS: z.coerce.number().int().positive().default(60_000),
   CHAT_MAX_MEDIA_ATTACHMENTS: z.coerce.number().int().nonnegative().default(5),
   CHAT_MAX_MEDIA_ATTACHMENT_BYTES: z.coerce.number().int().positive().default(5_242_880),
   CHAT_MAX_MEDIA_TOTAL_BYTES: z.coerce.number().int().positive().default(20_971_520),
+  CHAT_MAX_DOCUMENT_BYTES: z.coerce.number().int().positive().default(6_291_456),
   ACCESS_AUTH_PARALLEL_STREAMS: z.coerce.number().int().positive().default(1),
   ACCESS_AUTH_CONTEXT_MESSAGE_LIMIT: z.coerce.number().int().positive().default(20),
   ACCESS_AUTH_MAX_ATTACHMENTS: z.coerce.number().int().nonnegative().default(5),
@@ -116,15 +128,18 @@ const envSchema = z.object({
   WEB_SEARCH_REQUEST_TIMEOUT: z.string().default("10s"),
   WEB_SEARCH_USER_AGENT: z.string().default("ChatSribiddi/1.0 (WebSearch)"),
   TOOLS_USER_AGENT: z.string().default("ChatSribiddi/1.0 (Tool)"),
-  PROVIDER_GATEWAY_ENABLED: z.coerce.boolean().default(true),
+  PROVIDER_GATEWAY_ENABLED: booleanEnv.default(true),
   PROVIDER_GATEWAY_BASE_URL: z.string().default("http://127.0.0.1:8095"),
-  OPENAI_CODEX_SUBSCRIPTION_ENABLED: z.coerce.boolean().default(true),
+  PROVIDER_GATEWAY_SHARED_SECRET: z.string().optional(),
+  PROVIDER_GATEWAY_PROVIDERS: z.string().optional(),
+  METRICS_TOKEN: z.string().optional(),
+  OPENAI_CODEX_SUBSCRIPTION_ENABLED: booleanEnv.default(true),
   OPENAI_CODEX_SUBSCRIPTION_MODEL: z.string().default(""),
   CODEX_CLI_BINARY: z.string().default("codex"),
   CODEX_CONNECTIONS_ROOT: z.string().default(join(tmpdir(), "chat-sribiddi-codex-connections")),
   CODEX_DEVICE_AUTH_START_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   CODEX_EXEC_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
-  GROK_CLI_ENABLED: z.coerce.boolean().default(true),
+  GROK_CLI_ENABLED: booleanEnv.default(true),
   GROK_CLI_BIN: z.string().default("grok"),
   GROK_CLI_SESSIONS_DIR: z.string().default("/tmp/chat-sribiddi-grok-sessions"),
   GROK_CLI_LOGIN_PROMPT_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
@@ -144,12 +159,26 @@ const databaseUrl =
 const encryptionSecret = raw.ENCRYPTION_SECRET ?? (isProduction ? undefined : randomDevSecret());
 const sessionSecret =
   raw.SESSION_SECRET ?? encryptionSecret ?? (isProduction ? undefined : randomDevSecret());
+const providerGatewayProviders = raw.PROVIDER_GATEWAY_ENABLED
+  ? new Set(
+      (raw.PROVIDER_GATEWAY_PROVIDERS ?? (isProduction ? "openrouter" : ""))
+        .split(",")
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean),
+    )
+  : new Set<string>();
 
 if (!encryptionSecret) {
   throw new Error("ENCRYPTION_SECRET must be configured in production");
 }
 if (!sessionSecret) {
   throw new Error("SESSION_SECRET or ENCRYPTION_SECRET must be configured in production");
+}
+if (isProduction && raw.PROVIDER_GATEWAY_ENABLED && !raw.PROVIDER_GATEWAY_SHARED_SECRET?.trim()) {
+  throw new Error("PROVIDER_GATEWAY_SHARED_SECRET must be configured in production");
+}
+if (isProduction && !raw.METRICS_TOKEN?.trim()) {
+  throw new Error("METRICS_TOKEN must be configured in production");
 }
 
 export const env = {
@@ -165,6 +194,7 @@ export const env = {
   trustedProxies: raw.RATE_LIMIT_TRUSTED_PROXIES.split(",")
     .map((item) => item.trim())
     .filter(Boolean),
+  providerGatewayProviders,
   sessionMaxAgeMs: durationMs(raw.SESSION_COOKIE_MAX_AGE ?? raw.SESSION_TIMEOUT, 30 * 86_400_000),
   webSearchTimeoutMs: durationMs(raw.WEB_SEARCH_REQUEST_TIMEOUT, 10_000),
 };

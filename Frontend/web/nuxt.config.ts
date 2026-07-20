@@ -98,6 +98,14 @@ export default defineNuxtConfig({
     modules: ['@nuxt/ui', '@nuxt/eslint', '@nuxtjs/i18n'],
     css: ['~/assets/css/main.css'],
     sourcemap: false,
+    routeRules: {
+        '/chat': { ssr: false },
+        '/compare': { ssr: false },
+        '/models': { ssr: false },
+        '/settings': { ssr: false },
+        '/usage': { ssr: false },
+        '/billing': { ssr: false }
+    },
     vite: {
         optimizeDeps: {
             include: markdownHighlightOptimizeDeps,

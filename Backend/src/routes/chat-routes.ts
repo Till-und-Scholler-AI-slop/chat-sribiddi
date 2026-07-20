@@ -138,18 +138,21 @@ export function chatRoutes(appContext: AppContext) {
   app.post("/chats/:chatId/messages", async (c) => {
     const userId = await currentUserId(c, appContext);
     const body = await parseJson(c, chatRequestSchema);
+    setChatLogContext(c, body);
     return c.json(await appContext.services.chat.sendMessage(c.req.param("chatId"), userId, body));
   });
 
   app.post("/chats/:chatId/messages/stream", async (c) => {
     const userId = await currentUserId(c, appContext);
     const body = await parseJson(c, chatRequestSchema);
+    setChatLogContext(c, body);
     return appContext.services.chat.streamMessage(c, c.req.param("chatId"), userId, body);
   });
 
   app.post("/chats/:chatId/messages/:messageId/stream", async (c) => {
     const userId = await currentUserId(c, appContext);
     const body = await parseJson(c, chatRequestSchema);
+    setChatLogContext(c, body);
     return appContext.services.chat.editAndStreamMessage(
       c,
       c.req.param("chatId"),
@@ -166,7 +169,7 @@ export function chatRoutes(appContext: AppContext) {
     if (!(file instanceof File)) throw badRequest("file is required");
     return c.json(
       await appContext.services.documents.upload(c.req.param("chatId"), userId, file),
-      201,
+      202,
     );
   });
 
@@ -239,10 +242,22 @@ export function chatRoutes(appContext: AppContext) {
       throw badRequest("Use the authenticated chat endpoint for signed-in sessions");
     }
     const body = await parseJson(c, anonymousRequestSchema);
+    setChatLogContext(c, body);
     return appContext.services.chat.streamAnonymousMessage(c, body);
   });
 
   return app;
+}
+
+function setChatLogContext(
+  c: { set: (key: "provider", value: string) => void },
+  body: {
+    provider?: string | null | undefined;
+    providerId?: string | null | undefined;
+  },
+) {
+  const provider = body.providerId?.trim() || body.provider?.trim();
+  if (provider) c.set("provider", provider.toLowerCase().slice(0, 80));
 }
 
 function providerRoleSchema() {

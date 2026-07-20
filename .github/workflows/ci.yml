@@ -1,6 +1,9 @@
 name: CI
 
 on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 2 * * *'
   pull_request:
     branches: [main]
   push:
@@ -96,6 +99,12 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Install and test provider contract
+        working-directory: packages/provider-contract
+        run: |
+          npm ci
+          npm test
+
   provider-gateway:
     name: ProviderGateway CI
     runs-on: ubuntu-latest
@@ -117,6 +126,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Run lint
+        run: npm run lint
 
       - name: Build
         run: npm run build

@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  PROVIDER_MODEL_CATALOG_PATH,
+  ProviderModelCatalogResponseSchema,
+} from "@chat-sribiddi/provider-contract";
 import YAML from "yaml";
 import { env } from "../config/env.js";
 import type { Provider } from "../db/types.js";
@@ -81,6 +85,9 @@ export class ModelCatalogService {
   }
 
   private async fetchOpenRouterModels(apiKey: string | null) {
+    if (env.PROVIDER_GATEWAY_ENABLED) {
+      return this.fetchGatewayModels("openrouter");
+    }
     if (!apiKey) return [];
     try {
       const response = await fetch(env.OPENROUTER_MODEL_CATALOG_URL, {
@@ -92,6 +99,27 @@ export class ModelCatalogService {
       return (json.data ?? [])
         .map(openRouterModel)
         .filter((item): item is ModelOption => item !== null);
+    } catch {
+      return [];
+    }
+  }
+
+  private async fetchGatewayModels(provider: string): Promise<ModelOption[]> {
+    const secret = env.PROVIDER_GATEWAY_SHARED_SECRET?.trim();
+    if (!secret) return [];
+    try {
+      const url = new URL(
+        PROVIDER_MODEL_CATALOG_PATH,
+        `${env.PROVIDER_GATEWAY_BASE_URL.replace(/\/$/, "")}/`,
+      );
+      url.searchParams.set("provider", provider);
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${secret}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) return [];
+      const parsed = ProviderModelCatalogResponseSchema.safeParse(await response.json());
+      return parsed.success ? parsed.data.models : [];
     } catch {
       return [];
     }

@@ -221,3 +221,53 @@ export function isToolCallStreamEvent(event: StreamEvent): event is StreamEvent 
     || event.type === 'tool_call_failed'
   )
 }
+
+type ScheduledFrame = {
+  cancel: () => void
+}
+
+function scheduleFrame(callback: () => void): ScheduledFrame {
+  if (typeof requestAnimationFrame === 'function') {
+    const id = requestAnimationFrame(callback)
+    return { cancel: () => cancelAnimationFrame(id) }
+  }
+
+  const id = setTimeout(callback, 16)
+  return { cancel: () => clearTimeout(id) }
+}
+
+/**
+ * Coalesces adjacent text/reasoning deltas into at most one reactive update per
+ * animation frame. Non-delta events are delivered synchronously after pending
+ * content has been flushed so terminal and tool-call ordering stays intact.
+ */
+export function createFrameBatchedStreamDispatcher(onEvent: (event: StreamEvent) => void) {
+  let pending: StreamEvent[] = []
+  let scheduled: ScheduledFrame | null = null
+
+  const flush = () => {
+    scheduled?.cancel()
+    scheduled = null
+    const events = pending
+    pending = []
+    for (const event of events) onEvent(event)
+  }
+
+  const push = (event: StreamEvent) => {
+    if ((event.type === 'text' || event.type === 'reasoning') && event.content) {
+      const previous = pending[pending.length - 1]
+      if (previous?.type === event.type) {
+        previous.content = `${previous.content || ''}${event.content}`
+      } else {
+        pending.push({ ...event })
+      }
+      scheduled ??= scheduleFrame(flush)
+      return
+    }
+
+    flush()
+    onEvent(event)
+  }
+
+  return { push, flush }
+}

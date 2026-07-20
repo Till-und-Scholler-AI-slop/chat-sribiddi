@@ -1,0 +1,15 @@
+.git
+.github
+.agents
+.codex
+**/node_modules
+**/dist
+**/.nuxt
+**/.output
+**/coverage
+**/test-results
+Frontend
+docs
+infra
+monitoring
+*.md

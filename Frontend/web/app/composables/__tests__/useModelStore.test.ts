@@ -93,6 +93,16 @@ describe('useModelStore', () => {
     expect(store.sortedModels.value).toEqual([googleModel, openAiModel])
   })
 
+  it('deduplicates concurrent catalog loads', async () => {
+    apiMock.fetchModels.mockResolvedValue([])
+    const store = useModelStore()
+
+    await Promise.all([store.ensureModels(), useModelStore().ensureModels()])
+
+    expect(apiMock.fetchModels).toHaveBeenCalledTimes(4)
+    expect(keyApiMock.getProviders).toHaveBeenCalledTimes(1)
+  })
+
   it('persists and resolves the last-used model', async () => {
     apiMock.fetchModels.mockImplementation(async (provider: Provider) => {
       if (provider === 'OPENAI') return [openAiModel]

@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:17-alpine
+    image: postgres:18-alpine3.22
     ports: ["127.0.0.1:5432:5432"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-chat_sribiddi}
@@ -12,11 +12,22 @@ services:
       timeout: 5s
       retries: 5
 
-    volumes: ["db:/var/lib/postgresql/data"]
+    volumes: ["db:/var/lib/postgresql"]
 
   redis:
     image: redis:8.6.1-alpine
     ports: ["127.0.0.1:6379:6379"]
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - noeviction
+    volumes: ["redis:/data"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -39,8 +50,8 @@ services:
 
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: Backend/Dockerfile
     env_file:
       - path: .env
         required: false
@@ -62,4 +73,6 @@ services:
 
 volumes:
   db:
+    driver: local
+  redis:
     driver: local

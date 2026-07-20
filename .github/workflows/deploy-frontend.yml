@@ -11,11 +11,11 @@ on:
 
 concurrency:
   group: deploy-frontend
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   FRONTEND_IMAGE: ghcr.io/till-und-scholler-ai-slop/chat-sribiddi-frontend
-  IMAGE_TAG: main
+  IMAGE_TAG: sha-${{ github.sha }}
 
 jobs:
   validate-frontend:
@@ -88,7 +88,6 @@ jobs:
           push: true
           tags: |
             ${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
-            ${{ env.FRONTEND_IMAGE }}:sha-${{ github.sha }}
 
   deploy-frontend:
     needs: build-image
@@ -135,13 +134,14 @@ jobs:
           FRONTEND_ENV_FILE: ${{ secrets.FRONTEND_ENV_FILE }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.actor }}
           GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN || github.token }}
+          DEPLOY_IMAGE_TAG: sha-${{ github.sha }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
           script_stop: true
           command_timeout: 40m
-          envs: FRONTEND_ENV_FILE,GHCR_USERNAME,GHCR_READ_TOKEN
+          envs: FRONTEND_ENV_FILE,GHCR_USERNAME,GHCR_READ_TOKEN,DEPLOY_IMAGE_TAG
           script: |
             set -eu
             APP_DIR=/opt/chat-sribiddi
@@ -159,6 +159,15 @@ jobs:
               exit 1
             fi
 
+            PREVIOUS_IMAGE_TAG=""
+            if [ -f "$APP_DIR/Frontend-web/.env" ]; then
+              PREVIOUS_IMAGE_TAG=$(sed -n 's/^IMAGE_TAG=//p' "$APP_DIR/Frontend-web/.env" | tail -n 1)
+            fi
+            case "$DEPLOY_IMAGE_TAG" in
+              sha-*) ;;
+              *) echo "Refusing mutable image tag: $DEPLOY_IMAGE_TAG"; exit 1 ;;
+            esac
+
             mkdir -p "$APP_DIR"
             rm -rf "$APP_DIR/Frontend-web"
             mkdir -p "$APP_DIR/Frontend-web"
@@ -167,14 +176,45 @@ jobs:
             printf '%s\n' "$FRONTEND_ENV_FILE" > "$APP_DIR/Frontend-web/.env"
             tmp_file=$(mktemp)
             grep -v "^IMAGE_TAG=" "$APP_DIR/Frontend-web/.env" > "$tmp_file" || true
-            printf 'IMAGE_TAG=main\n' >> "$tmp_file"
+            printf 'IMAGE_TAG=%s\n' "$DEPLOY_IMAGE_TAG" >> "$tmp_file"
             mv "$tmp_file" "$APP_DIR/Frontend-web/.env"
             chmod 600 "$APP_DIR/Frontend-web/.env"
 
             printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
             cd "$APP_DIR/Frontend-web"
-            docker compose --env-file .env -f deploy/docker-compose.prod.yml pull
-            docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --remove-orphans
+            compose() {
+              docker compose --env-file .env -f deploy/docker-compose.prod.yml "$@"
+            }
+            rollback_frontend() {
+              case "$PREVIOUS_IMAGE_TAG" in
+                sha-*)
+                  echo "Rolling back frontend to $PREVIOUS_IMAGE_TAG"
+                  tmp_file=$(mktemp)
+                  grep -v '^IMAGE_TAG=' .env > "$tmp_file" || true
+                  printf 'IMAGE_TAG=%s\n' "$PREVIOUS_IMAGE_TAG" >> "$tmp_file"
+                  mv "$tmp_file" .env
+                  compose pull
+                  compose up -d --remove-orphans --wait --wait-timeout 180
+                  ;;
+                *)
+                  echo "No immutable previous IMAGE_TAG is available for rollback"
+                  ;;
+              esac
+            }
+
+            compose pull
+            if ! compose up -d --remove-orphans --wait --wait-timeout 180; then
+              rollback_frontend
+              exit 1
+            fi
+            if ! curl --fail --silent --show-error --max-time 15 http://127.0.0.1:3000/ >/dev/null; then
+              rollback_frontend
+              exit 1
+            fi
+            if ! curl --fail --silent --show-error --max-time 15 https://germinai.de/ >/dev/null; then
+              rollback_frontend
+              exit 1
+            fi
 
             rm -rf "$STAGE_DIR"

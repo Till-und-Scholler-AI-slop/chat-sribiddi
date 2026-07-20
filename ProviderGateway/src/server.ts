@@ -1,533 +1,496 @@
-import { spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import { streamText, type ModelMessage } from 'ai'
+import { createHash, timingSafeEqual } from "node:crypto";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { pathToFileURL } from "node:url";
+import {
+  PROVIDER_CONTRACT_VERSION,
+  PROVIDER_MODEL_CATALOG_PATH,
+  PROVIDER_STREAM_PATH,
+  type ProviderStreamRequest,
+  ProviderStreamRequestSchema,
+} from "@chat-sribiddi/provider-contract";
+import { ZodError } from "zod";
+import { type GatewayConfigOverrides, loadGatewayConfig } from "./config.js";
+import { asGatewayError, GatewayError } from "./errors.js";
+import { GatewayMetrics } from "./metrics.js";
+import { ProviderModelCatalog } from "./model-catalog.js";
+import {
+  executeProvider,
+  ProcessRegistry,
+  type ProviderSink,
+  parseCodexExecJsonl,
+  validateOpenAiCompatibleBaseUrl,
+} from "./providers.js";
+import { ProviderSseWriter } from "./sse.js";
 
-type GatewayMessage = {
-  role: 'system' | 'user' | 'assistant'
-  content: string
-}
+export { parseCodexExecJsonl, validateOpenAiCompatibleBaseUrl };
 
-type GatewayRuntimeOptions = {
-  temperature?: number
-  topP?: number
-  topK?: number
-  maxOutputTokens?: number
-  frequencyPenalty?: number
-  presencePenalty?: number
-  stopSequences?: string[]
-}
+type ProviderExecutor = typeof executeProvider;
 
-export type GatewayChatRequest = {
-  providerId: string
-  modelId: string
-  messages: GatewayMessage[]
-  stream?: boolean
-  authMethod?: string
-  apiKey?: string | null
-  baseUrl?: string | null
-  headers?: Record<string, string>
-  queryParams?: Record<string, string>
-  codexHome?: string | null
-  options?: GatewayRuntimeOptions | null
-}
+type RequestLogContext = {
+  requestId?: string;
+  provider?: string;
+  errorCode?: string;
+  providerStreamStarted?: boolean;
+};
 
-type GatewayErrorPayload = {
-  error: {
-    type: string
-    message: string
+export type ProviderGatewayOptions = {
+  config?: GatewayConfigOverrides;
+  executor?: ProviderExecutor;
+  metrics?: GatewayMetrics;
+};
+
+export class ProviderGatewayRuntime {
+  readonly config;
+  readonly metrics;
+  readonly processes = new ProcessRegistry();
+  readonly modelCatalog;
+  private readonly controllers = new Set<AbortController>();
+  private acceptingRequests = true;
+  private shutdownPromise: Promise<void> | null = null;
+
+  constructor(configOverrides: GatewayConfigOverrides = {}, metrics = new GatewayMetrics()) {
+    this.config = loadGatewayConfig(configOverrides);
+    this.metrics = metrics;
+    this.modelCatalog = new ProviderModelCatalog(this.config);
+  }
+
+  isReady() {
+    return this.acceptingRequests;
+  }
+
+  beginDrain() {
+    this.acceptingRequests = false;
+  }
+
+  register(controller: AbortController) {
+    this.controllers.add(controller);
+    return () => this.controllers.delete(controller);
+  }
+
+  shutdown(server: Server) {
+    this.shutdownPromise ??= this.performShutdown(server);
+    return this.shutdownPromise;
+  }
+
+  private async performShutdown(server: Server) {
+    this.beginDrain();
+    let closeError: Error | null = null;
+    const closed = new Promise<void>((resolve) => {
+      server.close((error) => {
+        closeError = error ?? null;
+        resolve();
+      });
+    });
+    server.closeIdleConnections?.();
+    const drained = await Promise.race([
+      closed.then(() => true),
+      delay(this.config.shutdownGraceMs).then(() => false),
+    ]);
+    if (!drained) {
+      for (const controller of this.controllers) {
+        controller.abort(
+          new GatewayError("gateway_shutdown", "Provider gateway is shutting down", 503, true),
+        );
+      }
+      this.processes.terminateAll(this.config.cliKillGraceMs);
+      server.closeAllConnections?.();
+      await Promise.race([closed, delay(this.config.cliKillGraceMs + 1_000)]);
+    }
+    if (closeError) throw closeError;
   }
 }
 
-const host = process.env.PROVIDER_GATEWAY_HOST || '127.0.0.1'
-const port = Number(process.env.PROVIDER_GATEWAY_PORT || '8095')
-const allowPrivateBaseUrls = process.env.PROVIDER_GATEWAY_ALLOW_PRIVATE_BASE_URLS === 'true'
-const codexBinary = process.env.CODEX_CLI_BINARY || 'codex'
-const codexExecTimeoutMs = Number(process.env.CODEX_EXEC_TIMEOUT_MS || '300000')
-const codexExecKillGraceMs = Number(process.env.CODEX_EXEC_KILL_GRACE_MS || '5000')
-const codexExecCloseFallbackMs = 1000
+export function createProviderGateway(options: ProviderGatewayOptions = {}) {
+  const runtime = new ProviderGatewayRuntime(options.config, options.metrics);
+  const executor = options.executor ?? executeProvider;
+  const server = createServer((request, response) => {
+    void handleRequest(request, response, runtime, executor);
+  });
+  server.requestTimeout = runtime.config.bodyReadTimeoutMs;
+  server.headersTimeout = Math.min(30_000, runtime.config.bodyReadTimeoutMs);
+  server.keepAliveTimeout = 5_000;
+  server.maxRequestsPerSocket = 1_000;
+  server.on("clientError", (_error, socket) => {
+    if (socket.writable) socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+  });
+  return { server, runtime };
+}
+
+export function createProviderGatewayServer(options: ProviderGatewayOptions = {}) {
+  return createProviderGateway(options).server;
+}
+
+async function handleRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  runtime: ProviderGatewayRuntime,
+  executor: ProviderExecutor,
+) {
+  const method = request.method ?? "GET";
+  const path = requestPath(request);
+  const route = metricRoute(path);
+  const startedAt = performance.now();
+  const logContext: RequestLogContext = {
+    requestId: safeRequestId(request.headers["x-request-id"]),
+  };
+  response.once("finish", () => {
+    runtime.metrics.observeRequest(method, route, response.statusCode);
+    if (!logContext.providerStreamStarted) {
+      logRequest(method, route, response.statusCode, startedAt, logContext);
+    }
+  });
+  try {
+    if (method === "GET" && path === "/health/live") {
+      sendJson(response, 200, {
+        status: "up",
+        service: "provider-gateway",
+        contractVersion: PROVIDER_CONTRACT_VERSION,
+      });
+      return;
+    }
+    if (method === "GET" && (path === "/health/ready" || path === "/health")) {
+      const ready = runtime.isReady();
+      sendJson(response, ready ? 200 : 503, {
+        status: ready ? "ready" : "draining",
+        service: "provider-gateway",
+        contractVersion: PROVIDER_CONTRACT_VERSION,
+        checks: { acceptingRequests: ready },
+      });
+      return;
+    }
+    if (method === "GET" && path === "/metrics") {
+      requireSharedSecret(request, runtime.config.sharedSecret);
+      response.writeHead(200, {
+        "content-type": "text/plain; version=0.0.4; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      response.end(runtime.metrics.render(runtime.isReady()));
+      return;
+    }
+    if (method === "GET" && path === PROVIDER_MODEL_CATALOG_PATH) {
+      requireSharedSecret(request, runtime.config.sharedSecret);
+      const provider = requestUrl(request).searchParams.get("provider") ?? "";
+      sendJson(response, 200, await runtime.modelCatalog.list(provider));
+      return;
+    }
+    if (method === "POST" && (path === PROVIDER_STREAM_PATH || path === "/v1/chat/stream")) {
+      requireSharedSecret(request, runtime.config.sharedSecret);
+      if (!runtime.isReady())
+        throw new GatewayError("gateway_draining", "Provider gateway is draining", 503, true);
+      const body = await readJsonLimited(request, runtime.config.bodyLimitBytes);
+      const parsed = ProviderStreamRequestSchema.parse(body);
+      logContext.requestId = parsed.requestId;
+      logContext.provider = parsed.provider.kind;
+      logContext.providerStreamStarted = true;
+      await handleProviderStream(
+        request,
+        response,
+        parsed,
+        runtime,
+        executor,
+        startedAt,
+        logContext,
+      );
+      return;
+    }
+    sendJson(response, 404, errorPayload("not_found", "Not found"));
+  } catch (error) {
+    logContext.errorCode = gatewayErrorCode(error);
+    sendHttpError(response, error);
+  }
+}
+
+async function handleProviderStream(
+  request: IncomingMessage,
+  response: ServerResponse,
+  providerRequest: ProviderStreamRequest,
+  runtime: ProviderGatewayRuntime,
+  executor: ProviderExecutor,
+  startedAt: number,
+  logContext: RequestLogContext,
+) {
+  const controller = new AbortController();
+  const unregister = runtime.register(controller);
+  const cliDeadlineMs =
+    providerRequest.provider.kind === "codex"
+      ? runtime.config.codexExecTimeoutMs
+      : providerRequest.provider.kind === "grok-cli"
+        ? runtime.config.grokRpcTimeoutMs
+        : runtime.config.maxDeadlineMs;
+  const deadlineMs = Math.min(
+    providerRequest.timeoutMs ?? runtime.config.maxDeadlineMs,
+    runtime.config.maxDeadlineMs,
+    cliDeadlineMs,
+  );
+  const deadline = setTimeout(
+    () =>
+      controller.abort(
+        new GatewayError("provider_timeout", "Provider request exceeded its deadline", 504, true),
+      ),
+    deadlineMs,
+  );
+  deadline.unref?.();
+  let completed = false;
+  const abortForDisconnect = () => {
+    if (!completed)
+      controller.abort(
+        new GatewayError("client_closed", "Provider stream client disconnected", 499),
+      );
+  };
+  request.once("aborted", abortForDisconnect);
+  response.once("close", abortForDisconnect);
+
+  const writer = new ProviderSseWriter(
+    response,
+    providerRequest.requestId,
+    runtime.config.heartbeatIntervalMs,
+    controller.signal,
+  );
+  const streamMetric = runtime.metrics.beginStream(providerRequest.provider.kind);
+  const sink: ProviderSink = {
+    text: (delta) => {
+      streamMetric.observeFirstDelta();
+      return writer.emit({ type: "text_delta", delta });
+    },
+    reasoning: (delta) => {
+      streamMetric.observeFirstDelta();
+      return writer.emit({ type: "reasoning_delta", delta });
+    },
+    toolCall: (toolCallId, toolName, input) => {
+      streamMetric.observeFirstDelta();
+      return writer.emit({ type: "tool_call", toolCallId, toolName, input });
+    },
+    usage: (usage) => writer.emit({ type: "usage", ...usage }),
+  };
+
+  try {
+    writer.start();
+    await writer.emit({
+      type: "provider_started",
+      provider: providerRequest.provider.kind,
+      modelId: providerRequest.modelId,
+    });
+    const result = await executor(
+      providerRequest,
+      sink,
+      controller.signal,
+      runtime.config,
+      runtime.processes,
+    );
+    await writer.emit({ type: "done", finishReason: result.finishReason });
+    completed = true;
+    streamMetric.finish("success");
+  } catch (error) {
+    const gatewayError = asGatewayError(
+      controller.signal.aborted ? (controller.signal.reason ?? error) : error,
+    );
+    logContext.errorCode = gatewayError.code;
+    runtime.metrics.observeProviderError(providerRequest.provider.kind, gatewayError.code);
+    streamMetric.finish(
+      gatewayError.code === "client_closed" || gatewayError.code === "request_aborted"
+        ? "aborted"
+        : "error",
+    );
+    if (!response.destroyed && !response.writableEnded) {
+      await writer
+        .emit({
+          type: "error",
+          code: gatewayError.code,
+          message: gatewayError.message,
+          retryable: gatewayError.retryable,
+        })
+        .catch(() => undefined);
+    }
+  } finally {
+    completed = true;
+    clearTimeout(deadline);
+    request.removeListener("aborted", abortForDisconnect);
+    response.removeListener("close", abortForDisconnect);
+    unregister();
+    await writer.close();
+    logRequest("POST", PROVIDER_STREAM_PATH, response.statusCode, startedAt, logContext);
+  }
+}
 
 export function sendJson(response: ServerResponse, status: number, payload: unknown) {
+  if (response.headersSent || response.writableEnded || response.destroyed) return;
   response.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store'
-  })
-  response.end(JSON.stringify(payload))
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+  });
+  response.end(JSON.stringify(payload));
 }
 
-async function readJson<T>(request: IncomingMessage): Promise<T> {
-  const chunks: Buffer[] = []
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+async function readJsonLimited(request: IncomingMessage, limitBytes: number) {
+  const declaredLength = Number(request.headers["content-length"] ?? 0);
+  if (Number.isFinite(declaredLength) && declaredLength > limitBytes) {
+    throw new GatewayError(
+      "payload_too_large",
+      `Request body exceeds ${limitBytes} bytes`,
+      413,
+      false,
+    );
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T
-}
-
-function writeSseEvent(response: ServerResponse, event: string, payload: unknown) {
-  response.write(`event: ${event}\n`)
-  response.write(`data: ${JSON.stringify(payload)}\n\n`)
-}
-
-function startSse(response: ServerResponse) {
-  response.writeHead(200, {
-    'content-type': 'text/event-stream; charset=utf-8',
-    'cache-control': 'no-cache, no-transform',
-    connection: 'keep-alive'
-  })
-}
-
-function sendMockStream(response: ServerResponse, request: GatewayChatRequest) {
-  startSse(response)
-  writeSseEvent(response, 'message', { type: 'text', content: `mock:${request.modelId}` })
-  writeSseEvent(response, 'done', { type: 'done' })
-  response.end()
-}
-
-function requireText(value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new GatewayRequestError('invalid_request', `${field} must not be blank`)
-  }
-  return value.trim()
-}
-
-function validateMessages(messages: unknown): GatewayMessage[] {
-  if (!Array.isArray(messages) || messages.length === 0) {
-    throw new GatewayRequestError('invalid_request', 'messages must contain at least one item')
-  }
-  return messages.map((message, index) => {
-    if (!message || typeof message !== 'object') {
-      throw new GatewayRequestError('invalid_request', `messages[${index}] must be an object`)
+  const chunks: Buffer[] = [];
+  let received = 0;
+  for await (const rawChunk of request) {
+    const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
+    received += chunk.byteLength;
+    if (received > limitBytes) {
+      request.resume();
+      throw new GatewayError(
+        "payload_too_large",
+        `Request body exceeds ${limitBytes} bytes`,
+        413,
+        false,
+      );
     }
-    const candidate = message as Partial<GatewayMessage>
-    if (!candidate.role || !['system', 'user', 'assistant'].includes(candidate.role)) {
-      throw new GatewayRequestError('invalid_request', `messages[${index}].role is not supported`)
-    }
-    return {
-      role: candidate.role,
-      content: requireText(candidate.content, `messages[${index}].content`)
-    }
-  })
-}
-
-function validateHeaders(headers: unknown): Record<string, string> | undefined {
-  if (headers == null) return undefined
-  if (typeof headers !== 'object' || Array.isArray(headers)) {
-    throw new GatewayRequestError('invalid_request', 'headers must be an object')
+    chunks.push(chunk);
   }
-  const values: Record<string, string> = {}
-  for (const [key, value] of Object.entries(headers)) {
-    if (typeof value === 'string' && value.trim().length > 0) {
-      values[key] = value
-    }
-  }
-  return values
-}
-
-function validateStringRecord(value: unknown, field: string): Record<string, string> | undefined {
-  if (value == null) return undefined
-  if (typeof value !== 'object' || Array.isArray(value)) {
-    throw new GatewayRequestError('invalid_request', `${field} must be an object`)
-  }
-  const values: Record<string, string> = {}
-  for (const [key, item] of Object.entries(value)) {
-    if (typeof item === 'string' && item.trim().length > 0) {
-      values[key] = item
-    }
-  }
-  return values
-}
-
-export function validateOpenAiCompatibleBaseUrl(
-  rawBaseUrl: string | null | undefined,
-  allowPrivate = allowPrivateBaseUrls
-): string {
-  const value = requireText(rawBaseUrl, 'baseUrl')
-  let parsed: URL
   try {
-    parsed = new URL(value)
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
   } catch {
-    throw new GatewayRequestError('invalid_request', 'baseUrl must be a valid URL')
+    throw new GatewayError("invalid_json", "Request body must contain valid JSON", 400, false);
   }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new GatewayRequestError('invalid_request', 'baseUrl must use http or https')
-  }
-  if (parsed.username || parsed.password) {
-    throw new GatewayRequestError('invalid_request', 'baseUrl must not include credentials')
-  }
-  if (parsed.search || parsed.hash) {
-    throw new GatewayRequestError('invalid_request', 'baseUrl must not include query or fragment')
-  }
-  if (!allowPrivate && isPrivateHost(parsed.hostname)) {
-    throw new GatewayRequestError(
-      'local_endpoint_disabled',
-      'Private or local provider endpoints are disabled for this gateway'
-    )
-  }
-  return parsed.toString().replace(/\/$/, '')
 }
 
-function isPrivateHost(hostname: string): boolean {
-  const host = hostname.toLowerCase()
-  if (host === 'localhost' || host.endsWith('.localhost')) return true
-  if (host === '::1' || host === '[::1]') return true
-  if (host.startsWith('127.')) return true
-  if (host.startsWith('10.')) return true
-  if (host.startsWith('192.168.')) return true
-  if (host.startsWith('169.254.')) return true
-  const parts = host.split('.').map(Number)
-  if (parts.length === 4 && parts.every(Number.isInteger)) {
-    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true
+function requireSharedSecret(request: IncomingMessage, expected: string) {
+  const authorization = request.headers.authorization ?? "";
+  const supplied = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  const expectedHash = createHash("sha256").update(expected).digest();
+  const suppliedHash = createHash("sha256").update(supplied).digest();
+  if (!supplied || !timingSafeEqual(expectedHash, suppliedHash)) {
+    throw new GatewayError(
+      "unauthorized",
+      "Valid ProviderGateway bearer authentication is required",
+      401,
+      false,
+    );
   }
-  return false
 }
 
-function normalizeChatRequest(body: GatewayChatRequest): GatewayChatRequest {
-  const providerId = requireText(body.providerId, 'providerId')
-  const modelId = requireText(body.modelId, 'modelId')
+function sendHttpError(response: ServerResponse, error: unknown) {
+  if (response.headersSent || response.destroyed || response.writableEnded) return;
+  if (error instanceof ZodError) {
+    sendJson(response, 400, {
+      ...errorPayload("invalid_contract", "Provider request does not match contract version 1"),
+      details: error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+  const gatewayError = asGatewayError(error);
+  if (gatewayError.status === 401)
+    response.setHeader("www-authenticate", 'Bearer realm="provider-gateway"');
+  sendJson(
+    response,
+    gatewayError.status,
+    errorPayload(gatewayError.code, gatewayError.message, gatewayError.retryable),
+  );
+}
+
+function errorPayload(code: string, message: string, retryable = false) {
   return {
-    ...body,
-    providerId,
-    modelId,
-    messages: validateMessages(body.messages),
-    headers: validateHeaders(body.headers),
-    queryParams: validateStringRecord(body.queryParams, 'queryParams')
-  }
+    contractVersion: PROVIDER_CONTRACT_VERSION,
+    error: { code, message, retryable },
+  };
 }
 
-function runtimeOptions(options: GatewayRuntimeOptions | null | undefined): GatewayRuntimeOptions {
-  if (!options) return {}
-  return {
-    temperature: numberOrUndefined(options.temperature),
-    topP: numberOrUndefined(options.topP),
-    topK: numberOrUndefined(options.topK),
-    maxOutputTokens: numberOrUndefined(options.maxOutputTokens),
-    frequencyPenalty: numberOrUndefined(options.frequencyPenalty),
-    presencePenalty: numberOrUndefined(options.presencePenalty),
-    stopSequences: Array.isArray(options.stopSequences)
-      ? options.stopSequences.filter(item => typeof item === 'string' && item.length > 0)
-      : undefined
-  }
+function requestPath(request: IncomingMessage) {
+  return requestUrl(request).pathname;
 }
 
-function numberOrUndefined(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
-export async function streamOpenAiCompatible(response: ServerResponse, request: GatewayChatRequest) {
-  const baseURL = validateOpenAiCompatibleBaseUrl(request.baseUrl)
-  const provider = createOpenAICompatible({
-    name: request.providerId,
-    baseURL,
-    apiKey: request.apiKey?.trim() || undefined,
-    headers: request.headers,
-    queryParams: request.queryParams,
-    includeUsage: true
-  })
-
-  startSse(response)
-  const result = streamText({
-    model: provider.chatModel(request.modelId),
-    messages: request.messages as ModelMessage[],
-    ...runtimeOptions(request.options)
-  })
-
-  for await (const chunk of result.textStream) {
-    writeSseEvent(response, 'message', { type: 'text', content: chunk })
-  }
-  const usage = await safeUsage(result.usage)
-  writeSseEvent(response, 'done', {
-    type: 'done',
-    promptTokens: usage?.inputTokens,
-    generationTokens: usage?.outputTokens,
-    totalTokens: usage?.totalTokens
-  })
-  response.end()
-}
-
-export async function streamCodexSubscription(response: ServerResponse, request: GatewayChatRequest) {
-  const codexHome = requireText(request.codexHome, 'codexHome')
-  const runDir = await mkdtemp(join(tmpdir(), 'chat-sribiddi-provider-gateway-codex-'))
+function requestUrl(request: IncomingMessage) {
   try {
-    const output = await runCodexExec(codexHome, runDir, request)
-    const parsed = parseCodexExecJsonl(output.stdout)
-    if (parsed.error) {
-      throw new GatewayRequestError('provider_reconnect_required', parsed.error, 403)
-    }
-    if (output.timedOut) {
-      throw new GatewayRequestError('provider_timeout', 'OpenAI Codex subscription request timed out', 504)
-    }
-    if (output.code !== 0) {
-      throw new GatewayRequestError(
-        'provider_reconnect_required',
-        sanitizeErrorMessage(output.stderr || output.stdout || `Codex exited with ${output.code}`),
-        403
-      )
-    }
-    if (!parsed.text.trim()) {
-      throw new GatewayRequestError(
-        'provider_error',
-        'OpenAI Codex subscription returned no assistant message',
-        502
-      )
-    }
-    startSse(response)
-    writeSseEvent(response, 'message', { type: 'text', content: parsed.text })
-    writeSseEvent(response, 'done', {
-      type: 'done',
-      promptTokens: parsed.usage?.inputTokens,
-      generationTokens: parsed.usage?.outputTokens,
-      totalTokens: parsed.usage?.totalTokens
-    })
-    response.end()
-  } finally {
-    await rm(runDir, { recursive: true, force: true })
+    return new URL(request.url ?? "/", "http://provider-gateway.internal");
+  } catch {
+    return new URL("http://provider-gateway.internal/invalid");
   }
 }
 
-async function safeUsage(
-  usage: PromiseLike<{ inputTokens?: number; outputTokens?: number; totalTokens?: number }>
+function metricRoute(path: string) {
+  if (path === PROVIDER_STREAM_PATH || path === "/v1/chat/stream") return PROVIDER_STREAM_PATH;
+  if (path === "/health" || path === "/health/ready") return "/health/ready";
+  if (path === "/health/live" || path === "/metrics") return path;
+  if (path === PROVIDER_MODEL_CATALOG_PATH) return path;
+  return "unmatched";
+}
+
+function gatewayErrorCode(error: unknown) {
+  return error instanceof ZodError ? "invalid_contract" : asGatewayError(error).code;
+}
+
+function safeRequestId(value: string | string[] | undefined) {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return candidate && /^[A-Za-z0-9._:-]{1,128}$/.test(candidate) ? candidate : undefined;
+}
+
+function logRequest(
+  method: string,
+  route: string,
+  status: number,
+  startedAt: number,
+  context: RequestLogContext,
 ) {
-  try {
-    return await usage
-  } catch {
-    return undefined
-  }
+  console.info(
+    JSON.stringify({
+      level: context.errorCode ? "error" : "info",
+      event: "provider_gateway_request_completed",
+      method,
+      route,
+      status,
+      durationMs: Math.round(Math.max(0, performance.now() - startedAt)),
+      ...(context.requestId ? { requestId: context.requestId } : {}),
+      ...(context.provider ? { provider: context.provider } : {}),
+      ...(context.errorCode ? { errorCode: context.errorCode } : {}),
+    }),
+  );
 }
 
-function canUseOpenAiCompatible(request: GatewayChatRequest): boolean {
-  return Boolean(request.baseUrl && request.baseUrl.trim())
-}
-
-function canUseCodexSubscription(request: GatewayChatRequest): boolean {
-  return request.authMethod === 'SUBSCRIPTION_CLI' && Boolean(request.codexHome?.trim())
-}
-
-export function createProviderGatewayServer() {
-  return createServer(async (request, response) => {
-    try {
-      if (request.method === 'GET' && request.url === '/health') {
-        sendJson(response, 200, { status: 'ok', service: 'provider-gateway' })
-        return
-      }
-
-      if (request.method === 'POST' && request.url === '/v1/chat/stream') {
-        const body = normalizeChatRequest(await readJson<GatewayChatRequest>(request))
-        if (body.providerId === 'mock') {
-          sendMockStream(response, body)
-          return
-        }
-        if (canUseCodexSubscription(body)) {
-          await streamCodexSubscription(response, body)
-          return
-        }
-        if (canUseOpenAiCompatible(body)) {
-          await streamOpenAiCompatible(response, body)
-          return
-        }
-        sendJson(response, 501, {
-          error: {
-            type: 'provider_not_enabled',
-            message:
-              'This provider requires an enabled gateway adapter or an OpenAI-compatible baseUrl.'
-          }
-        })
-        return
-      }
-
-      sendJson(response, 404, { error: { type: 'not_found', message: 'Not found' } })
-    } catch (error) {
-      sendGatewayError(response, error)
-    }
-  })
-}
-
-function sendGatewayError(response: ServerResponse, error: unknown) {
-  const payload = errorPayload(error)
-  if (response.headersSent) {
-    writeSseEvent(response, 'error', {
-      type: 'error',
-      errorType: payload.error.type,
-      content: payload.error.message
-    })
-    response.end()
-    return
-  }
-  const status = error instanceof GatewayRequestError ? error.status : 400
-  sendJson(response, status, payload)
-}
-
-function errorPayload(error: unknown): GatewayErrorPayload {
-  if (error instanceof GatewayRequestError) {
-    return { error: { type: error.type, message: error.message } }
-  }
-  return {
-    error: {
-      type: 'provider_error',
-      message: error instanceof Error ? sanitizeErrorMessage(error.message) : 'Provider request failed'
-    }
-  }
-}
-
-function sanitizeErrorMessage(message: string): string {
-  return message
-    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
-    .replace(/\b[A-Z0-9]{4,}-[A-Z0-9-]{4,}\b/g, '[device-code]')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-async function runCodexExec(codexHome: string, runDir: string, request: GatewayChatRequest) {
-  const child = spawn(
-    codexBinary,
-    [
-      'exec',
-      '--json',
-      '--ephemeral',
-      '--ignore-user-config',
-      '--skip-git-repo-check',
-      '--sandbox',
-      'read-only',
-      '-c',
-      'approval_policy="never"',
-      '-m',
-      request.modelId,
-      '-C',
-      runDir,
-      '-'
-    ],
-    {
-      cwd: runDir,
-      env: {
-        ...process.env,
-        CODEX_HOME: codexHome,
-        RUST_LOG: process.env.RUST_LOG || 'error'
-      },
-      stdio: ['pipe', 'pipe', 'pipe']
-    }
-  )
-  child.stdin.end(codexPrompt(request.messages))
-  const stdout: Buffer[] = []
-  const stderr: Buffer[] = []
-  child.stdout.on('data', chunk => stdout.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
-  child.stderr.on('data', chunk => stderr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
-  child.on('error', error => stderr.push(Buffer.from(error.message)))
-  const { code, timedOut } = await waitForCodexClose(child, codexExecTimeoutMs)
-  return {
-    code,
-    timedOut,
-    stdout: Buffer.concat(stdout).toString('utf8'),
-    stderr: Buffer.concat(stderr).toString('utf8')
-  }
-}
-
-function waitForCodexClose(
-  child: ReturnType<typeof spawn>,
-  timeoutMs: number
-): Promise<{ code: number | null; timedOut: boolean }> {
-  return new Promise(resolve => {
-    let settled = false
-    let timedOut = false
-    let timeoutTimer: ReturnType<typeof setTimeout> | null = null
-    let killTimer: ReturnType<typeof setTimeout> | null = null
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null
-
-    const finish = (code: number | null) => {
-      if (settled) return
-      settled = true
-      if (timeoutTimer) clearTimeout(timeoutTimer)
-      if (killTimer) clearTimeout(killTimer)
-      if (fallbackTimer) clearTimeout(fallbackTimer)
-      resolve({ code, timedOut })
-    }
-
-    child.once('close', code => finish(code))
-    timeoutTimer = setTimeout(() => {
-      timedOut = true
-      child.kill('SIGTERM')
-      killTimer = setTimeout(() => {
-        child.kill('SIGKILL')
-        fallbackTimer = setTimeout(() => finish(null), codexExecCloseFallbackMs)
-        fallbackTimer.unref?.()
-      }, codexExecKillGraceMs)
-      killTimer.unref?.()
-    }, timeoutMs)
-    timeoutTimer.unref?.()
-  })
-}
-
-export function parseCodexExecJsonl(output: string) {
-  let text = ''
-  let error: string | null = null
-  let usage: { inputTokens: number | null; outputTokens: number | null; totalTokens: number | null } | null = null
-  for (const line of output.split(/\r?\n/)) {
-    if (!line.trim()) continue
-    let event: Record<string, unknown>
-    try {
-      event = JSON.parse(line) as Record<string, unknown>
-    } catch {
-      continue
-    }
-    if (event.type === 'error') {
-      error = textValue(event.message) || textValue(event.error) || 'Codex request failed'
-      continue
-    }
-    if (event.type === 'turn.failed') {
-      error = textValue(event.message) || 'Codex turn failed'
-      continue
-    }
-    if (event.type === 'turn.completed') {
-      usage = usageFrom(event.usage)
-      continue
-    }
-    if (event.type === 'item.completed') {
-      const item = event.item as Record<string, unknown> | undefined
-      if (item?.type === 'agent_message') {
-        text = textValue(item.text) || text
-      }
-    }
-  }
-  return { text, error: error ? sanitizeErrorMessage(error) : null, usage }
-}
-
-function codexPrompt(messages: GatewayMessage[]) {
-  return messages.map(message => `${message.role.toUpperCase()}:\n${message.content.trim()}`).join('\n\n')
-}
-
-function usageFrom(value: unknown) {
-  if (!value || typeof value !== 'object') return null
-  const source = value as Record<string, unknown>
-  return {
-    inputTokens: numberOrNull(source.input_tokens ?? source.inputTokens),
-    outputTokens: numberOrNull(source.output_tokens ?? source.outputTokens),
-    totalTokens: numberOrNull(source.total_tokens ?? source.totalTokens)
-  }
-}
-
-function numberOrNull(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function textValue(value: unknown) {
-  return typeof value === 'string' && value.trim() ? value.trim() : null
-}
-
-class GatewayRequestError extends Error {
-  constructor(
-    readonly type: string,
-    message: string,
-    readonly status = 400
-  ) {
-    super(message)
-  }
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  createProviderGatewayServer().listen(port, host, () => {
-    console.log(`provider-gateway listening on http://${host}:${port}`)
-  })
+  const { server, runtime } = createProviderGateway();
+  server.listen(runtime.config.port, runtime.config.host, () => {
+    console.info(
+      JSON.stringify({
+        level: "info",
+        event: "provider_gateway_started",
+        host: runtime.config.host,
+        port: runtime.config.port,
+        contractVersion: PROVIDER_CONTRACT_VERSION,
+      }),
+    );
+  });
+  let stopping = false;
+  const shutdown = async (signal: string) => {
+    if (stopping) return;
+    stopping = true;
+    console.info(JSON.stringify({ level: "info", event: "provider_gateway_stopping", signal }));
+    try {
+      await runtime.shutdown(server);
+      process.exitCode = 0;
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          event: "provider_gateway_shutdown_failed",
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      process.exitCode = 1;
+    }
+  };
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
 }

@@ -2,6 +2,8 @@ import { Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
 import { env } from "../config/env.js";
 import type { Database } from "./types.js";
+import { logger, safeError } from "../observability/logger.js";
+import { registerDatabasePoolMetrics } from "../observability/metrics.js";
 
 const int8TypeId = 20;
 pg.types.setTypeParser(int8TypeId, (value) => Number.parseInt(value, 10));
@@ -38,6 +40,10 @@ export function createDb(connectionString = env.databaseUrl) {
     idleTimeoutMillis: env.POSTGRES_IDLE_TIMEOUT_MS,
     connectionTimeoutMillis: env.POSTGRES_CONNECTION_TIMEOUT_MS,
     ...(sessionOptions.length > 0 ? { options: sessionOptions.join(" ") } : {}),
+  });
+  registerDatabasePoolMetrics(pool);
+  pool.on("error", (error) => {
+    logger.error({ error: safeError(error) }, "Unexpected idle PostgreSQL pool error");
   });
   const db = new Kysely<Database>({
     dialect: new PostgresDialect({ pool }),

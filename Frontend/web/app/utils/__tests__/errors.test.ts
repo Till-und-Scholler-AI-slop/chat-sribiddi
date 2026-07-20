@@ -37,6 +37,22 @@ describe('friendlyErrorKey', () => {
     expect(friendlyErrorKey('API key invalid').key).toBe('errors.apiKey')
   })
 
+  it('maps asynchronous document processing errors', () => {
+    expect(friendlyErrorKey(
+      Object.assign(new Error('DOCUMENT_PROCESSING_TIMEOUT'), {
+        code: 'DOCUMENT_PROCESSING_TIMEOUT'
+      })
+    ).key).toBe('errors.documentProcessingTimeout')
+    expect(friendlyErrorKey(
+      Object.assign(new Error('DOCUMENT_EMPTY'), { code: 'DOCUMENT_EMPTY' })
+    ).key).toBe('errors.documentNoText')
+    expect(friendlyErrorKey(
+      Object.assign(new Error('DOCUMENT_EXTRACTION_FAILED'), {
+        code: 'DOCUMENT_EXTRACTION_FAILED'
+      })
+    ).key).toBe('errors.documentProcessingFailed')
+  })
+
   it('returns no key for short unknown messages and exposes the raw text', () => {
     const result = friendlyErrorKey('Etwas passt nicht')
     expect(result.key).toBeNull()

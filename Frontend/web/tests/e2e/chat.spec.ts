@@ -90,3 +90,21 @@ test('anonymous chat persists locally across reloads', async ({ page }) => {
   await expect(page.locator('.msg-user').filter({ hasText: 'Hallo Gast' })).toBeVisible({ timeout: hydrationTimeout })
   await expect(page.getByRole('heading', { name: 'Markstream check' })).toBeVisible()
 })
+
+test('rejects attachments beyond the advertised capability before reading them', async ({ page }) => {
+  await mockBackend(page, { authenticated: true })
+  await page.goto('/chat')
+  await expect(page.getByTestId('chat-page')).toHaveAttribute('data-ready', 'true', {
+    timeout: hydrationTimeout
+  })
+
+  await page.locator('input[type="file"]').setInputFiles(
+    Array.from({ length: 6 }, (_, index) => ({
+      name: `image-${index}.png`,
+      mimeType: 'image/png',
+      buffer: Buffer.from([index])
+    }))
+  )
+
+  await expect(page.getByText('Du kannst höchstens 5 Dateien gleichzeitig anhängen.', { exact: true })).toBeVisible()
+})

@@ -1,0 +1,138 @@
+name: chat_sribiddi_load_test
+
+services:
+  db:
+    image: postgres:18-alpine3.22
+    environment:
+      POSTGRES_DB: chat_sribiddi
+      POSTGRES_USER: load_test
+      POSTGRES_PASSWORD: load_test_password
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - load_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U load_test -d chat_sribiddi"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:8.6.1-alpine
+    command: ["redis-server", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  flyway:
+    image: flyway/flyway:11-alpine
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        flyway
+        -url=jdbc:postgresql://db:5432/chat_sribiddi
+        -user=load_test
+        -password=load_test_password
+        -connectRetries=60
+        migrate
+    volumes:
+      - ../../main/resources/db/migration:/flyway/sql:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  mock-provider:
+    image: node:22-alpine
+    working_dir: /app
+    command: ["node", "mock-provider.mjs"]
+    environment:
+      MOCK_PROVIDER_PORT: 18081
+      BACKEND_METRICS_URL: http://backend:8080/internal/metrics
+      BACKEND_METRICS_TOKEN: load-test-metrics
+    volumes:
+      - ./mock-provider.mjs:/app/mock-provider.mjs:ro
+    ports:
+      - "127.0.0.1:18081:18081"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18081/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  provider-gateway:
+    build:
+      context: ../../../..
+      dockerfile: ProviderGateway/Dockerfile.prod
+      target: build
+    command: ["node", "dist/server.js"]
+    environment:
+      NODE_ENV: production
+      PROVIDER_GATEWAY_HOST: 0.0.0.0
+      PROVIDER_GATEWAY_PORT: 8095
+      PROVIDER_GATEWAY_SHARED_SECRET: load-test-gateway-secret
+      PROVIDER_GATEWAY_MAX_DEADLINE_MS: 1800000
+      OPENROUTER_BASE_URL: http://mock-provider:18081/v1
+      OPENROUTER_MODEL_CATALOG_URL: http://mock-provider:18081/v1/models
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8095/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      mock-provider:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: ../../../..
+      dockerfile: Backend/Dockerfile.prod
+      target: build
+    command: ["node", "dist/index.js"]
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: 8080
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: chat_sribiddi
+      POSTGRES_USER: load_test
+      POSTGRES_PASSWORD: load_test_password
+      POSTGRES_POOL_MAX: 30
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RATE_LIMIT_ENABLED: "true"
+      RATE_LIMIT_BACKEND: redis
+      RATE_LIMIT_AUTHENTICATED_PER_MINUTE: 10000
+      RATE_LIMIT_ANONYMOUS_PER_MINUTE: 10000
+      ENCRYPTION_SECRET: bG9hZC10ZXN0LWVuY3J5cHRpb24tc2VjcmV0LTEyMzQ=
+      SESSION_SECRET: bG9hZC10ZXN0LXNlc3Npb24tc2VjcmV0LTEyMzQ1Njc=
+      PROVIDER_GATEWAY_ENABLED: "true"
+      PROVIDER_GATEWAY_BASE_URL: http://provider-gateway:8095
+      PROVIDER_GATEWAY_SHARED_SECRET: load-test-gateway-secret
+      PROVIDER_GATEWAY_PROVIDERS: openrouter
+      OPENROUTER_API_KEY: load-test-provider-key
+      OPENROUTER_BASE_URL: http://mock-provider:18081/v1
+      OPENROUTER_MODEL_CATALOG_URL: http://mock-provider:18081/v1/models
+      METRICS_TOKEN: load-test-metrics
+      ACCESS_AUTH_PARALLEL_STREAMS: 1
+      CHAT_STREAM_HEARTBEAT_MS: 15000
+      CHAT_STREAM_TIMEOUT_MS: 1800000
+    ports:
+      - "127.0.0.1:18080:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+    depends_on:
+      flyway:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      provider-gateway:
+        condition: service_healthy
+
+volumes:
+  load_postgres:

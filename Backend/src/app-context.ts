@@ -16,6 +16,7 @@ import { CryptoService } from "./services/crypto-service.js";
 import { DocumentService } from "./services/document-service.js";
 import { GrokCliBridgeService } from "./services/grok-cli-bridge-service.js";
 import { GuestQuotaService } from "./services/guest-quota-service.js";
+import { HealthService } from "./services/health-service.js";
 import { ModelCatalogService } from "./services/model-catalog-service.js";
 import { ProviderCatalogService } from "./services/provider-catalog-service.js";
 import { ProviderConnectionService } from "./services/provider-connection-service.js";
@@ -25,6 +26,7 @@ import { UsageService } from "./services/usage-service.js";
 import { UserSettingsService } from "./services/user-settings-service.js";
 import { WebSearchService } from "./services/web-search-service.js";
 import { ModelUseCase } from "./use-cases/model-use-case.js";
+import { RedisService } from "./services/redis-service.js";
 
 export type AppContext = ReturnType<typeof createAppContext>;
 
@@ -42,6 +44,7 @@ export function createAppContext(input?: { db?: Db; shutdown?: () => Promise<voi
   const toolLogs = new ToolCallLogRepository(db);
   const documentsRepository = new DocumentRepository(db);
   const usageRepository = new UsageRepository(db);
+  const redis = new RedisService();
 
   const crypto = new CryptoService();
   const providerCatalog = new ProviderCatalogService();
@@ -62,6 +65,8 @@ export function createAppContext(input?: { db?: Db; shutdown?: () => Promise<voi
   const auth = new AuthService(users);
   const settings = new UserSettingsService(users);
   const account = new AccountService(db, users, chats, messages, apiKeys, providerConnections);
+  const health = new HealthService(db, redis);
+  const guestQuota = new GuestQuotaService(redis);
   const chat = new ChatService(
     chats,
     messages,
@@ -74,14 +79,31 @@ export function createAppContext(input?: { db?: Db; shutdown?: () => Promise<voi
     toolLogs,
     toolService,
     webSearch,
-    new GuestQuotaService(),
+    guestQuota,
     new StreamConcurrencyGate(),
   );
   const models = new ModelUseCase(modelCatalog, apiKeys, credentialAccess, providerCatalog);
 
+  let shutdownPromise: Promise<void> | null = null;
+  const shutdown = async () => {
+    if (shutdownPromise) return shutdownPromise;
+    health.beginShutdown();
+    shutdownPromise = documentService.shutdown().then(async () => {
+      const results = await Promise.allSettled([
+        redis.close(),
+        input?.shutdown?.() ?? created?.pool.end() ?? Promise.resolve(),
+      ]);
+      const rejected = results.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      );
+      if (rejected) throw rejected.reason;
+    });
+    return shutdownPromise;
+  };
+
   return {
     db,
-    shutdown: input?.shutdown ?? (() => created?.pool.end() ?? Promise.resolve()),
+    shutdown,
     repositories: {
       users,
       chats,
@@ -101,12 +123,14 @@ export function createAppContext(input?: { db?: Db; shutdown?: () => Promise<voi
       credentialAccess,
       documents: documentService,
       grokCli,
+      health,
       models,
       providerCatalog,
       providerConnections,
       settings,
       tools: toolService,
       usage,
+      redis,
     },
   };
 }

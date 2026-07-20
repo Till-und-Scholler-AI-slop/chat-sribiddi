@@ -1,11 +1,26 @@
 name: chat_sribiddi_backend
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: postgres:18-alpine3.22
     restart: unless-stopped
+    stop_grace_period: 60s
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-1536m}
+    shm_size: 256m
+    logging: *default-logging
     env_file:
       - ../.env
+    environment:
+      # Keep the pre-PG18 named-volume layout. The deploy workflow performs a
+      # verified pg_basebackup from PG18's anonymous parent volume before this
+      # setting is activated on an existing installation.
+      PGDATA: /var/lib/postgresql/data
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,8 +32,25 @@ services:
   redis:
     image: redis:8.6.1-alpine
     restart: unless-stopped
+    stop_grace_period: 30s
+    mem_limit: ${REDIS_MEMORY_LIMIT:-384m}
+    logging: *default-logging
+    env_file:
+      - ../.env
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        exec redis-server
+        --appendonly yes
+        --appendfsync everysec
+        --maxmemory 256mb
+        --maxmemory-policy noeviction
+        --requirepass "$${REDIS_PASSWORD}"
+    volumes:
+      - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -26,6 +58,8 @@ services:
   flyway:
     image: flyway/flyway:11-alpine
     restart: "no"
+    mem_limit: ${FLYWAY_MEMORY_LIMIT:-256m}
+    logging: *default-logging
     env_file:
       - ../.env
     entrypoint: ["/bin/sh", "-c"]
@@ -44,10 +78,12 @@ services:
         condition: service_healthy
 
   backend:
-    image: ghcr.io/till-und-scholler-ai-slop/chat-sribiddi-backend:${IMAGE_TAG:-main}
+    image: ghcr.io/till-und-scholler-ai-slop/chat-sribiddi-backend:${IMAGE_TAG:?IMAGE_TAG must be an immutable sha-* tag}
     restart: unless-stopped
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
+    init: true
+    stop_grace_period: 70s
+    mem_limit: ${BACKEND_MEMORY_LIMIT:-1024m}
+    logging: *default-logging
     env_file:
       - ../.env
     environment:
@@ -55,59 +91,212 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
       REDIS_HOST: redis
+      PROVIDER_GATEWAY_BASE_URL: http://provider-gateway:8095
+      # Host Caddy reaches the loopback-published port through Docker's bridge
+      # gateway. Trust only that private bridge range before consuming XFF.
+      RATE_LIMIT_TRUSTED_PROXIES: ${RATE_LIMIT_TRUSTED_PROXIES:-127.0.0.1,::1,172.16.0.0/12}
     volumes:
       - codex_connections:/var/lib/chat-sribiddi/codex-connections
       - grok_sessions:/var/lib/chat-sribiddi/grok-sessions
     ports:
       - "127.0.0.1:8080:8080"
-    depends_on:
-      flyway:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-      provider-gateway:
-        condition: service_healthy
-
-  provider-gateway:
-    image: ghcr.io/till-und-scholler-ai-slop/chat-sribiddi-provider-gateway:${IMAGE_TAG:-main}
-    restart: unless-stopped
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
-    environment:
-      NODE_ENV: production
-      PROVIDER_GATEWAY_HOST: 0.0.0.0
-      PROVIDER_GATEWAY_PORT: 8095
-      CODEX_CLI_BINARY: ${CODEX_CLI_BINARY:-codex}
-      CODEX_EXEC_TIMEOUT_MS: ${CODEX_EXEC_TIMEOUT_MS:-300000}
-    expose:
-      - "8095"
-    volumes:
-      - codex_connections:/var/lib/chat-sribiddi/codex-connections
     healthcheck:
       test:
         [
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:8095/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:8080/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    depends_on:
+      flyway:
+        condition: service_completed_successfully
+      redis:
+        # Redis is intentionally non-critical for authenticated BYOK traffic.
+        # The backend reports DEGRADED and fails guest traffic closed while
+        # Redis recovers, so startup must not be gated on a successful ping.
+        condition: service_started
+      provider-gateway:
+        condition: service_healthy
+
+  provider-gateway:
+    image: ghcr.io/till-und-scholler-ai-slop/chat-sribiddi-provider-gateway:${IMAGE_TAG:?IMAGE_TAG must be an immutable sha-* tag}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 70s
+    mem_limit: ${PROVIDER_GATEWAY_MEMORY_LIMIT:-1536m}
+    logging: *default-logging
+    environment:
+      NODE_ENV: production
+      PROVIDER_GATEWAY_HOST: 0.0.0.0
+      PROVIDER_GATEWAY_PORT: 8095
+      PROVIDER_GATEWAY_SHARED_SECRET: ${PROVIDER_GATEWAY_SHARED_SECRET:?PROVIDER_GATEWAY_SHARED_SECRET is required}
+      PROVIDER_GATEWAY_BODY_READ_TIMEOUT_MS: ${PROVIDER_GATEWAY_BODY_READ_TIMEOUT_MS:-60000}
+      PROVIDER_GATEWAY_HEARTBEAT_INTERVAL_MS: 15000
+      PROVIDER_GATEWAY_MAX_DEADLINE_MS: 1800000
+      PROVIDER_GATEWAY_SHUTDOWN_GRACE_MS: 60000
+      PROVIDER_GATEWAY_CLI_KILL_GRACE_MS: ${PROVIDER_GATEWAY_CLI_KILL_GRACE_MS:-5000}
+      PROVIDER_GATEWAY_ALLOW_PRIVATE_BASE_URLS: ${PROVIDER_GATEWAY_ALLOW_PRIVATE_BASE_URLS:-false}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_MODEL_CATALOG_URL: ${OPENROUTER_MODEL_CATALOG_URL:-https://openrouter.ai/api/v1/models}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-germinai.de}
+      OPENROUTER_REFERRER: ${OPENROUTER_REFERRER:-https://germinai.de}
+      GOOGLE_GENERATIVE_AI_BASE_URL: ${GOOGLE_GENERATIVE_AI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
+      CODEX_CLI_BINARY: ${CODEX_CLI_BINARY:-codex}
+      CODEX_EXEC_TIMEOUT_MS: ${CODEX_EXEC_TIMEOUT_MS:-300000}
+      CODEX_EXEC_MAX_OUTPUT_BYTES: ${CODEX_EXEC_MAX_OUTPUT_BYTES:-8388608}
+      GROK_CLI_BIN: ${GROK_CLI_BIN:-grok}
+      GROK_CLI_REQUEST_TIMEOUT_MS: ${GROK_CLI_REQUEST_TIMEOUT_MS:-120000}
+      GROK_CLI_MAX_OUTPUT_BYTES: ${GROK_CLI_MAX_OUTPUT_BYTES:-1048576}
+    expose:
+      - "8095"
+    volumes:
+      - codex_connections:/var/lib/chat-sribiddi/codex-connections
+      - grok_sessions:/var/lib/chat-sribiddi/grok-sessions
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8095/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 15s
 
-  watchtower:
-    image: containrrr/watchtower:latest
+  prometheus:
+    image: prom/prometheus:v3.12.0
     restart: unless-stopped
-    environment:
-      WATCHTOWER_LABEL_ENABLE: "true"
-      WATCHTOWER_CLEANUP: "true"
-      WATCHTOWER_POLL_INTERVAL: "300"
-      DOCKER_CONFIG: /
+    stop_grace_period: 30s
+    mem_limit: ${PROMETHEUS_MEMORY_LIMIT:-768m}
+    logging: *default-logging
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=3GB
+      - --web.enable-lifecycle
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /root/.docker/config.json:/config.json:ro
+      - ../../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    secrets:
+      - metrics_token
+      - gateway_shared_secret
+    expose:
+      - "9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:9090/-/ready >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    depends_on:
+      backend:
+        condition: service_healthy
+      provider-gateway:
+        condition: service_healthy
+      alertmanager:
+        condition: service_healthy
+
+  alertmanager:
+    image: prom/alertmanager:v0.32.1
+    restart: unless-stopped
+    stop_grace_period: 30s
+    mem_limit: ${ALERTMANAGER_MEMORY_LIMIT:-128m}
+    logging: *default-logging
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    configs:
+      - source: alertmanager_config
+        target: /etc/alertmanager/alertmanager.yml
+    secrets:
+      - smtp_password
+    volumes:
+      - alertmanager_data:/alertmanager
+    expose:
+      - "9093"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:9093/-/ready >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 15s
+
+  grafana:
+    image: grafana/grafana:13.0.2
+    restart: unless-stopped
+    stop_grace_period: 30s
+    mem_limit: ${GRAFANA_MEMORY_LIMIT:-512m}
+    logging: *default-logging
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    secrets:
+      - grafana_admin_password
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3001:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:3000/api/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
+configs:
+  alertmanager_config:
+    content: |
+      global:
+        smtp_smarthost: '${SMTP_HOST:?SMTP_HOST is required}:${SMTP_PORT:-587}'
+        smtp_from: '${SMTP_FROM:?SMTP_FROM is required}'
+        smtp_auth_username: '${SMTP_USERNAME:?SMTP_USERNAME is required}'
+        smtp_auth_password_file: /run/secrets/smtp_password
+        smtp_require_tls: true
+      route:
+        receiver: smtp-critical
+        group_by: [alertname, service]
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 4h
+      receivers:
+        - name: smtp-critical
+          email_configs:
+            - to: '${ALERT_EMAIL_TO:?ALERT_EMAIL_TO is required}'
+              send_resolved: true
+
+secrets:
+  metrics_token:
+    environment: METRICS_TOKEN
+  gateway_shared_secret:
+    environment: PROVIDER_GATEWAY_SHARED_SECRET
+  smtp_password:
+    environment: SMTP_PASSWORD
+  grafana_admin_password:
+    environment: GRAFANA_ADMIN_PASSWORD
 
 volumes:
   postgres_data:
+  redis_data:
   codex_connections:
   grok_sessions:
+  prometheus_data:
+  alertmanager_data:
+  grafana_data:

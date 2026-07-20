@@ -7,6 +7,23 @@ import { useKeyApi } from '~/composables/useKeyApi'
 
 const PROVIDER_RANK = new Map(PROVIDERS.map((provider, index) => [provider, index]))
 
+type ModelLoadCoordinator = {
+  generation: number
+  key: string | null
+  promise: Promise<ModelOption[]> | null
+}
+
+const modelLoadCoordinators = new WeakMap<object, ModelLoadCoordinator>()
+
+function modelCoordinatorFor(key: object): ModelLoadCoordinator {
+  let coordinator = modelLoadCoordinators.get(key)
+  if (!coordinator) {
+    coordinator = { generation: 0, key: null, promise: null }
+    modelLoadCoordinators.set(key, coordinator)
+  }
+  return coordinator
+}
+
 const sameModel = (left: ModelOption, right: Pick<ModelOption, 'provider' | 'value'>) =>
   left.provider === right.provider && left.value === right.value
 
@@ -97,6 +114,8 @@ export function useModelStore() {
   const { getProviders } = useKeyApi()
   const { settings } = useUserSettings()
   const { t } = useI18n()
+  const coordinatorKey = typeof useNuxtApp === 'function' ? useNuxtApp() : settings
+  const loadCoordinator = modelCoordinatorFor(coordinatorKey)
 
   const models = useState<ModelOption[]>('chat-models', () => [])
   const modelsLoading = useState<boolean>('chat-models-loading', () => false)
@@ -139,28 +158,52 @@ export function useModelStore() {
       return models.value
     }
 
-    modelsLoading.value = true
-    try {
-      const { models: loaded, errors } = await fetchAllProviderModels(
-        fetchModels,
-        settings.value.expertMode
-      )
-
-      const gatewayModels = await loadGatewayModels(getProviders, t)
-      models.value = [...loaded, ...gatewayModels]
-      loadedExpertMode.value = settings.value.expertMode
-      modelsError.value = loaded.length === 0 && errors.length > 0
-        ? errors[0]
-        : null
-    } catch (err) {
-      console.error(err)
-      modelsError.value =
-        err instanceof Error ? err.message : 'Unable to load models from backend.'
-    } finally {
-      modelsLoading.value = false
+    const requestedExpertMode = settings.value.expertMode
+    const requestKey = `${settings.value.backendBaseUrl.trim()}|${requestedExpertMode}`
+    if (loadCoordinator.promise && loadCoordinator.key === requestKey) {
+      return loadCoordinator.promise
     }
 
-    return models.value
+    const generation = ++loadCoordinator.generation
+    loadCoordinator.key = requestKey
+    modelsLoading.value = true
+    const promise = (async () => {
+      try {
+        const [{ models: loaded, errors }, gatewayModels] = await Promise.all([
+          fetchAllProviderModels(fetchModels, requestedExpertMode),
+          loadGatewayModels(getProviders, t)
+        ])
+        if (
+          generation === loadCoordinator.generation
+          && loadCoordinator.key === requestKey
+          && settings.value.expertMode === requestedExpertMode
+        ) {
+          models.value = [...loaded, ...gatewayModels]
+          loadedExpertMode.value = requestedExpertMode
+          modelsError.value = loaded.length === 0 && errors.length > 0
+            ? errors[0]
+            : null
+        }
+      } catch (err) {
+        if (generation === loadCoordinator.generation && loadCoordinator.key === requestKey) {
+          console.error(err)
+          modelsError.value =
+            err instanceof Error ? err.message : 'Unable to load models from backend.'
+        }
+      } finally {
+        if (generation === loadCoordinator.generation && loadCoordinator.key === requestKey) {
+          modelsLoading.value = false
+        }
+      }
+      return models.value
+    })()
+
+    loadCoordinator.promise = promise
+    try {
+      return await promise
+    } finally {
+      if (loadCoordinator.promise === promise) loadCoordinator.promise = null
+    }
   }
 
   const saveLastUsedModel = (model: ModelOption) => {
@@ -171,6 +214,9 @@ export function useModelStore() {
     resolveModelOption(model, models.value)
 
   const resetModels = () => {
+    loadCoordinator.generation++
+    loadCoordinator.key = null
+    loadCoordinator.promise = null
     models.value = []
     loadedExpertMode.value = null
     modelsError.value = null
