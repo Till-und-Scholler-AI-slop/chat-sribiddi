@@ -7,18 +7,20 @@ on:
     paths:
       - 'Backend/**'
       - 'ProviderGateway/**'
+      - 'packages/provider-contract/**'
+      - 'monitoring/**'
       - 'infra/caddy/**'
       - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
 
 concurrency:
   group: deploy-backend
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   BACKEND_IMAGE: ghcr.io/till-und-scholler-ai-slop/chat-sribiddi-backend
   PROVIDER_GATEWAY_IMAGE: ghcr.io/till-und-scholler-ai-slop/chat-sribiddi-provider-gateway
-  IMAGE_TAG: main
+  IMAGE_TAG: sha-${{ github.sha }}
 
 jobs:
   validate-backend:
@@ -54,6 +56,12 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Install and test provider contract
+        working-directory: packages/provider-contract
+        run: |
+          npm ci
+          npm test
+
   validate-provider-gateway:
     name: Validate ProviderGateway Build
     runs-on: ubuntu-latest
@@ -77,6 +85,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Run lint
+        run: npm run lint
 
       - name: Build
         run: npm run build
@@ -112,22 +123,20 @@ jobs:
       - name: Build and push backend image
         uses: docker/build-push-action@v6
         with:
-          context: Backend
+          context: .
           file: Backend/Dockerfile.prod
           push: true
           tags: |
             ${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
-            ${{ env.BACKEND_IMAGE }}:sha-${{ github.sha }}
 
       - name: Build and push ProviderGateway image
         uses: docker/build-push-action@v6
         with:
-          context: ProviderGateway
+          context: .
           file: ProviderGateway/Dockerfile.prod
           push: true
           tags: |
             ${{ env.PROVIDER_GATEWAY_IMAGE }}:${{ env.IMAGE_TAG }}
-            ${{ env.PROVIDER_GATEWAY_IMAGE }}:sha-${{ github.sha }}
 
   deploy-backend:
     needs: build-images
@@ -145,7 +154,7 @@ jobs:
         run: |
           set -eu
           mkdir -p dist
-          tar -czf dist/backend-deploy.tar.gz Backend/deploy Backend/src/main/resources/db/migration
+          tar -czf dist/backend-deploy.tar.gz Backend/deploy Backend/src/main/resources/db/migration monitoring
           tar -czf dist/caddy.tar.gz -C infra/caddy .
 
       - name: Prepare remote staging directory
@@ -185,17 +194,23 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.actor }}
           GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN || github.token }}
+          DEPLOY_IMAGE_TAG: sha-${{ github.sha }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
           script_stop: true
           command_timeout: 40m
-          envs: BACKEND_ENV_FILE,OPENROUTER_API_KEY,GHCR_USERNAME,GHCR_READ_TOKEN
+          envs: BACKEND_ENV_FILE,OPENROUTER_API_KEY,GHCR_USERNAME,GHCR_READ_TOKEN,DEPLOY_IMAGE_TAG
           script: |
             set -eu
             APP_DIR=/opt/chat-sribiddi
+            RELEASES_DIR="$APP_DIR/releases"
+            CURRENT_LINK="$APP_DIR/current"
             STAGE_DIR=/tmp/chat-sribiddi-deploy-backend
+            RELEASE_ID="$DEPLOY_IMAGE_TAG-$(date -u +%Y%m%dT%H%M%SZ)"
+            NEW_RELEASE="$RELEASES_DIR/$RELEASE_ID"
+            PGDATA_COMPAT=/var/lib/postgresql/data
 
             if [ -z "${GHCR_USERNAME:-}" ] || [ -z "${GHCR_READ_TOKEN:-}" ]; then
               echo "GHCR_USERNAME and GHCR_READ_TOKEN secrets are required for private GHCR pulls"
@@ -210,54 +225,309 @@ jobs:
               exit 1
             fi
 
-            mkdir -p "$APP_DIR"
-            rm -rf "$APP_DIR/Backend"
-            tar -xzf "$BACKEND_ARCHIVE" -C "$APP_DIR"
+            case "$DEPLOY_IMAGE_TAG" in
+              sha-*) ;;
+              *) echo "Refusing mutable image tag: $DEPLOY_IMAGE_TAG"; exit 1 ;;
+            esac
 
-            if [ -n "$CADDY_ARCHIVE" ]; then
-              mkdir -p "$APP_DIR/infra/caddy"
-              tar -xzf "$CADDY_ARCHIVE" -C "$APP_DIR/infra/caddy"
-            fi
-
-            printf '%s\n' "$BACKEND_ENV_FILE" > "$APP_DIR/Backend/.env"
             set_env_var() {
-              key="$1"
-              value="$2"
+              env_file="$1"
+              key="$2"
+              value="$3"
               tmp_file=$(mktemp)
-              grep -v "^${key}=" "$APP_DIR/Backend/.env" > "$tmp_file" || true
+              grep -v "^${key}=" "$env_file" > "$tmp_file" || true
               printf '%s=%s\n' "$key" "$value" >> "$tmp_file"
-              mv "$tmp_file" "$APP_DIR/Backend/.env"
+              mv "$tmp_file" "$env_file"
             }
             set_env_var_if_present() {
-              key="$1"
-              value="$2"
+              env_file="$1"
+              key="$2"
+              value="$3"
               if [ -z "$value" ]; then
                 return 0
               fi
-              set_env_var "$key" "$value"
+              set_env_var "$env_file" "$key" "$value"
             }
-            set_env_var_if_present OPENROUTER_API_KEY "$OPENROUTER_API_KEY"
-            set_env_var IMAGE_TAG "main"
-            set_env_var PROVIDER_GATEWAY_ENABLED "true"
-            set_env_var PROVIDER_GATEWAY_BASE_URL "http://provider-gateway:8095"
-            set_env_var OPENAI_CODEX_SUBSCRIPTION_ENABLED "true"
-            set_env_var CODEX_CLI_BINARY "codex"
-            set_env_var CODEX_CONNECTIONS_ROOT "/var/lib/chat-sribiddi/codex-connections"
-            set_env_var GROK_CLI_ENABLED "true"
-            set_env_var GROK_CLI_BIN "grok"
-            set_env_var GROK_CLI_SESSIONS_DIR "/var/lib/chat-sribiddi/grok-sessions"
-            chmod 600 "$APP_DIR/Backend/.env"
-
-            printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-
-            cd "$APP_DIR/Backend"
-            docker compose --env-file .env -f deploy/docker-compose.prod.yml pull
-            docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --remove-orphans
-
-            if [ -n "$CADDY_ARCHIVE" ] && [ -f "$APP_DIR/infra/caddy/Caddyfile" ]; then
-              caddy validate --config "$APP_DIR/infra/caddy/Caddyfile"
-              cp "$APP_DIR/infra/caddy/Caddyfile" /etc/caddy/Caddyfile
+            compose_for() {
+              release="$1"
+              shift
+              docker compose \
+                --env-file "$release/Backend/.env" \
+                -f "$release/Backend/deploy/docker-compose.prod.yml" \
+                "$@"
+            }
+            activate_pointer() {
+              release="$1"
+              next_link="$APP_DIR/.current-$RELEASE_ID-$$"
+              ln -s "$release" "$next_link"
+              mv -Tf "$next_link" "$CURRENT_LINK"
+            }
+            activate_caddy() {
+              release="$1"
+              source_file="$release/infra/caddy/Caddyfile"
+              if [ ! -f "$source_file" ]; then
+                echo "Caddyfile missing from release $release"
+                return 1
+              fi
+              candidate="/etc/caddy/Caddyfile.$RELEASE_ID.$$"
+              cp "$source_file" "$candidate"
+              if ! caddy validate --config "$candidate"; then
+                rm -f "$candidate"
+                return 1
+              fi
+              mv "$candidate" /etc/caddy/Caddyfile
               systemctl reload caddy || systemctl restart caddy
+            }
+            smoke_release() {
+              release="$1"
+              curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8080/health/ready >/dev/null || return 1
+              curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8080/actuator/health >/dev/null || return 1
+              services=$(compose_for "$release" config --services) || return 1
+              if printf '%s\n' "$services" | grep -Fxq prometheus; then
+                compose_for "$release" exec -T prometheus wget -q -O- http://127.0.0.1:9090/-/ready >/dev/null || return 1
+              fi
+              if printf '%s\n' "$services" | grep -Fxq alertmanager; then
+                compose_for "$release" exec -T alertmanager wget -q -O- http://127.0.0.1:9093/-/ready >/dev/null || return 1
+              fi
+              if printf '%s\n' "$services" | grep -Fxq grafana; then
+                compose_for "$release" exec -T grafana wget -q -O- http://127.0.0.1:3000/api/health >/dev/null || return 1
+              fi
+            }
+            migrate_pg18_parent_volume() {
+              running_db=$(docker ps -q \
+                --filter label=com.docker.compose.project=chat_sribiddi_backend \
+                --filter label=com.docker.compose.service=db | head -n 1)
+              known_db=$(docker ps -aq \
+                --filter label=com.docker.compose.project=chat_sribiddi_backend \
+                --filter label=com.docker.compose.service=db | head -n 1)
+
+              if [ -z "$running_db" ]; then
+                if [ -n "$known_db" ] || [ -n "$PREVIOUS_RELEASE" ]; then
+                  echo "Existing PostgreSQL installation is not running; refusing an unverified PG18 volume migration"
+                  return 1
+                fi
+                echo "No existing PostgreSQL installation detected; a fresh named volume will be initialized"
+                return 0
+              fi
+
+              current_pgdata=$(docker exec "$running_db" sh -ec 'printf %s "${PGDATA:-}"')
+              if [ -z "$current_pgdata" ]; then
+                echo "Unable to determine PGDATA in the running PostgreSQL container"
+                return 1
+              fi
+              if ! docker exec "$running_db" test -s "$current_pgdata/PG_VERSION"; then
+                echo "Running PostgreSQL PGDATA has no PG_VERSION: $current_pgdata"
+                return 1
+              fi
+
+              target_mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' "$running_db")
+              if [ -z "$target_mount" ]; then
+                echo "The compatibility target $PGDATA_COMPAT is not a named Docker volume"
+                return 1
+              fi
+              if [ "$current_pgdata" = "$PGDATA_COMPAT" ]; then
+                echo "PostgreSQL already uses the rollback-compatible named-volume path"
+                return 0
+              fi
+
+              source_system_id=$(docker exec "$running_db" sh -ec \
+                'pg_controldata "$PGDATA" | sed -n "s/^Database system identifier:[[:space:]]*//p"')
+              if [ -z "$source_system_id" ]; then
+                echo "Unable to read the source PostgreSQL system identifier"
+                return 1
+              fi
+
+              if docker exec "$running_db" test -s "$PGDATA_COMPAT/PG_VERSION"; then
+                target_system_id=$(docker exec "$running_db" sh -ec \
+                  'pg_controldata /var/lib/postgresql/data | sed -n "s/^Database system identifier:[[:space:]]*//p"')
+                if [ "$source_system_id" != "$target_system_id" ]; then
+                  echo "Named PGDATA belongs to a different cluster; refusing to overwrite it"
+                  return 1
+                fi
+                echo "A previous migration copy exists while PostgreSQL still runs from the parent volume"
+                echo "Refusing to use a potentially stale copy; verify it manually before retrying"
+                return 1
+              fi
+
+              if ! docker exec "$running_db" sh -ec \
+                'test -z "$(find /var/lib/postgresql/data -mindepth 1 -maxdepth 1 -print -quit)"'; then
+                echo "Named PGDATA is non-empty but not initialized; refusing to overwrite it"
+                return 1
+              fi
+
+              echo "Migrating live PG18 cluster $source_system_id into named volume $target_mount"
+              docker exec "$running_db" chown postgres:postgres "$PGDATA_COMPAT"
+              writer=$(docker ps -q \
+                --filter label=com.docker.compose.project=chat_sribiddi_backend \
+                --filter label=com.docker.compose.service=backend | head -n 1)
+              if [ -z "$writer" ]; then
+                echo "The current backend writer is not running; refusing an unverified migration"
+                return 1
+              fi
+              echo "Draining the current backend before taking the final consistent base backup"
+              docker stop --time 70 "$writer"
+              if ! docker exec -u postgres "$running_db" sh -ec '
+                  export PGPASSWORD="$POSTGRES_PASSWORD"
+                  pg_basebackup \
+                    -h 127.0.0.1 \
+                    -U "$POSTGRES_USER" \
+                    -D /var/lib/postgresql/data \
+                    -Fp -Xs --checkpoint=fast --no-password
+                  pg_verifybackup /var/lib/postgresql/data
+                '; then
+                docker start "$writer" || true
+                return 1
+              fi
+              target_system_id=$(docker exec "$running_db" sh -ec \
+                'pg_controldata /var/lib/postgresql/data | sed -n "s/^Database system identifier:[[:space:]]*//p"')
+              if [ "$source_system_id" != "$target_system_id" ]; then
+                echo "PostgreSQL migration verification failed"
+                docker start "$writer" || true
+                return 1
+              fi
+              QUIESCED_BACKEND="$writer"
+              echo "PostgreSQL named-volume migration verified for cluster $target_system_id"
+            }
+
+            mkdir -p "$RELEASES_DIR" "$NEW_RELEASE"
+            tar -xzf "$BACKEND_ARCHIVE" -C "$NEW_RELEASE"
+            if [ -z "$CADDY_ARCHIVE" ]; then
+              echo "Caddy deploy bundle missing in $STAGE_DIR"
+              exit 1
+            fi
+            mkdir -p "$NEW_RELEASE/infra/caddy"
+            tar -xzf "$CADDY_ARCHIVE" -C "$NEW_RELEASE/infra/caddy"
+
+            PREVIOUS_RELEASE=""
+            if [ -L "$CURRENT_LINK" ]; then
+              PREVIOUS_RELEASE=$(readlink -f "$CURRENT_LINK")
+            elif [ -d "$APP_DIR/Backend/deploy" ]; then
+              PREVIOUS_RELEASE="$RELEASES_DIR/legacy-$(date -u +%Y%m%dT%H%M%SZ)"
+              mkdir -p "$PREVIOUS_RELEASE"
+              cp -a "$APP_DIR/Backend" "$PREVIOUS_RELEASE/Backend"
+              if [ -d "$APP_DIR/monitoring" ]; then
+                cp -a "$APP_DIR/monitoring" "$PREVIOUS_RELEASE/monitoring"
+              fi
+              mkdir -p "$PREVIOUS_RELEASE/infra/caddy"
+              if [ -f "$APP_DIR/infra/caddy/Caddyfile" ]; then
+                cp "$APP_DIR/infra/caddy/Caddyfile" "$PREVIOUS_RELEASE/infra/caddy/Caddyfile"
+              else
+                cp /etc/caddy/Caddyfile "$PREVIOUS_RELEASE/infra/caddy/Caddyfile"
+              fi
+            fi
+            if [ -n "$PREVIOUS_RELEASE" ] && [ ! -f "$PREVIOUS_RELEASE/Backend/deploy/docker-compose.prod.yml" ]; then
+              echo "Previous release is incomplete: $PREVIOUS_RELEASE"
+              exit 1
             fi
 
+            PREVIOUS_IMAGE_TAG=""
+            if [ -n "$PREVIOUS_RELEASE" ] && [ -f "$PREVIOUS_RELEASE/Backend/.env" ]; then
+              PREVIOUS_IMAGE_TAG=$(sed -n 's/^IMAGE_TAG=//p' "$PREVIOUS_RELEASE/Backend/.env" | tail -n 1)
+            fi
+            case "$PREVIOUS_IMAGE_TAG" in
+              sha-*) ;;
+              *)
+                if [ -n "$PREVIOUS_RELEASE" ]; then
+                  previous_backend=$(docker ps -q \
+                    --filter label=com.docker.compose.project=chat_sribiddi_backend \
+                    --filter label=com.docker.compose.service=backend | head -n 1)
+                  previous_gateway=$(docker ps -q \
+                    --filter label=com.docker.compose.project=chat_sribiddi_backend \
+                    --filter label=com.docker.compose.service=provider-gateway | head -n 1)
+                  if [ -z "$previous_backend" ] || [ -z "$previous_gateway" ]; then
+                    echo "Previous release has no immutable tag and its app containers are not both running"
+                    exit 1
+                  fi
+                  PREVIOUS_IMAGE_TAG="sha-local-$(date -u +%Y%m%dT%H%M%SZ)"
+                  backend_image_id=$(docker inspect --format '{{.Image}}' "$previous_backend")
+                  backend_image_repo=$(docker inspect --format '{{.Config.Image}}' "$previous_backend" | sed 's/:[^/:]*$//')
+                  gateway_image_id=$(docker inspect --format '{{.Image}}' "$previous_gateway")
+                  gateway_image_repo=$(docker inspect --format '{{.Config.Image}}' "$previous_gateway" | sed 's/:[^/:]*$//')
+                  docker tag "$backend_image_id" "$backend_image_repo:$PREVIOUS_IMAGE_TAG"
+                  docker tag "$gateway_image_id" "$gateway_image_repo:$PREVIOUS_IMAGE_TAG"
+                  set_env_var "$PREVIOUS_RELEASE/Backend/.env" IMAGE_TAG "$PREVIOUS_IMAGE_TAG"
+                  echo "Captured running app images as immutable local rollback tag $PREVIOUS_IMAGE_TAG"
+                fi
+                ;;
+            esac
+
+            printf '%s\n' "$BACKEND_ENV_FILE" > "$NEW_RELEASE/Backend/.env"
+            NEW_ENV="$NEW_RELEASE/Backend/.env"
+            set_env_var_if_present "$NEW_ENV" OPENROUTER_API_KEY "$OPENROUTER_API_KEY"
+            set_env_var "$NEW_ENV" IMAGE_TAG "$DEPLOY_IMAGE_TAG"
+            set_env_var "$NEW_ENV" PGDATA "$PGDATA_COMPAT"
+            set_env_var "$NEW_ENV" PROVIDER_GATEWAY_ENABLED "true"
+            set_env_var "$NEW_ENV" PROVIDER_GATEWAY_BASE_URL "http://provider-gateway:8095"
+            set_env_var "$NEW_ENV" OPENAI_CODEX_SUBSCRIPTION_ENABLED "true"
+            set_env_var "$NEW_ENV" CODEX_CLI_BINARY "codex"
+            set_env_var "$NEW_ENV" CODEX_CONNECTIONS_ROOT "/var/lib/chat-sribiddi/codex-connections"
+            set_env_var "$NEW_ENV" GROK_CLI_ENABLED "true"
+            set_env_var "$NEW_ENV" GROK_CLI_BIN "grok"
+            set_env_var "$NEW_ENV" GROK_CLI_SESSIONS_DIR "/var/lib/chat-sribiddi/grok-sessions"
+            chmod 600 "$NEW_ENV"
+
+            QUIESCED_BACKEND=""
+            resume_quiesced_backend_on_exit() {
+              status=$?
+              trap - EXIT
+              if [ "$status" -ne 0 ] && [ -n "$QUIESCED_BACKEND" ]; then
+                docker start "$QUIESCED_BACKEND" >/dev/null 2>&1 || true
+              fi
+              exit "$status"
+            }
+            trap resume_quiesced_backend_on_exit EXIT
+
+            printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+            compose_for "$NEW_RELEASE" pull
+            migrate_pg18_parent_volume
+            if [ -n "$PREVIOUS_RELEASE" ]; then
+              # Older compose files inherit this through env_file. That keeps
+              # rollback on the migrated named volume instead of creating a
+              # fresh anonymous PG18 parent volume.
+              set_env_var "$PREVIOUS_RELEASE/Backend/.env" PGDATA "$PGDATA_COMPAT"
+              chmod 600 "$PREVIOUS_RELEASE/Backend/.env"
+            fi
+
+            rollback_release() {
+              case "$PREVIOUS_IMAGE_TAG" in
+                sha-*) ;;
+                *)
+                  echo "No complete immutable previous release is available for rollback"
+                  return 1
+                  ;;
+              esac
+              echo "Rolling back complete release to $PREVIOUS_RELEASE ($PREVIOUS_IMAGE_TAG)"
+              # Do not depend on registry availability while recovering. The
+              # exact previous images are still local (or were captured above).
+              compose_for "$PREVIOUS_RELEASE" up -d --remove-orphans --wait --wait-timeout 180 || return 1
+              QUIESCED_BACKEND=""
+              smoke_release "$PREVIOUS_RELEASE" || return 1
+              activate_caddy "$PREVIOUS_RELEASE" || return 1
+              activate_pointer "$PREVIOUS_RELEASE"
+            }
+
+            fail_and_rollback() {
+              message="$1"
+              echo "$message"
+              rollback_release || echo "Automatic complete-release rollback failed; manual intervention is required"
+              exit 1
+            }
+
+            if ! compose_for "$NEW_RELEASE" up -d --remove-orphans --wait --wait-timeout 180; then
+              fail_and_rollback "New backend stack failed to become healthy"
+            fi
+            QUIESCED_BACKEND=""
+            if ! smoke_release "$NEW_RELEASE"; then
+              fail_and_rollback "New backend stack failed local smoke checks"
+            fi
+            if ! activate_caddy "$NEW_RELEASE"; then
+              fail_and_rollback "New Caddy configuration failed validation or activation"
+            fi
+            if ! curl --fail --silent --show-error --max-time 15 https://germinai.de/api/actuator/health >/dev/null; then
+              fail_and_rollback "New release failed the public smoke check"
+            fi
+
+            if ! activate_pointer "$NEW_RELEASE"; then
+              fail_and_rollback "New release pointer could not be activated"
+            fi
             rm -rf "$STAGE_DIR"

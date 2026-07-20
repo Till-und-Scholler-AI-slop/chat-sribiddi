@@ -1,8 +1,103 @@
-import type { ChatDocument, DocumentAttachment, MediaAttachment } from '~/composables/useChatApi'
+import type {
+  ChatCapabilities,
+  ChatDocument,
+  DocumentAttachment,
+  MediaAttachment
+} from '~/composables/useChatApi'
 
 type FileAttachmentOptions = {
   fileReadFailedMessage: (name: string) => string
   onUploadFailed: (reason: unknown, documentName?: string) => void
+  limits: () => ChatCapabilities
+  attachmentLimitMessage: (limit: number) => string
+  attachmentTooLargeMessage: (name: string, limit: number) => string
+  attachmentTotalTooLargeMessage: (limit: number) => string
+  documentTooLargeMessage: (name: string, limit: number) => string
+}
+
+const MAX_CONCURRENT_FILE_READS = 2
+export const DOCUMENT_PROCESSING_POLL_INTERVAL_MS = 1_000
+export const DOCUMENT_PROCESSING_TIMEOUT_MS = 60_000
+
+type DocumentPollingOptions = {
+  pollIntervalMs?: number
+  timeoutMs?: number
+  maxConsecutivePollErrors?: number
+  now?: () => number
+  sleep?: (delayMs: number) => Promise<void>
+}
+
+export class DocumentUploadError extends Error {
+  readonly code: string
+  readonly documentName: string | null
+
+  constructor(code: string, documentName?: string | null) {
+    super(code)
+    this.name = 'DocumentUploadError'
+    this.code = code
+    this.documentName = documentName?.trim() || null
+  }
+}
+
+const defaultSleep = (delayMs: number) => new Promise<void>(resolve => {
+  setTimeout(resolve, delayMs)
+})
+
+/**
+ * Waits for every document returned by the asynchronous upload endpoint to
+ * become usable by RAG. The list endpoint is polled once for the whole batch,
+ * so attaching multiple documents does not multiply request volume.
+ */
+export async function waitForDocumentsReady(
+  chatId: string,
+  uploadedDocuments: ChatDocument[],
+  fetchDocuments: (chatId: string) => Promise<ChatDocument[]>,
+  options: DocumentPollingOptions = {}
+): Promise<ChatDocument[]> {
+  if (uploadedDocuments.length === 0) return []
+
+  const pollIntervalMs = Math.max(
+    1,
+    options.pollIntervalMs ?? DOCUMENT_PROCESSING_POLL_INTERVAL_MS
+  )
+  const timeoutMs = Math.max(1, options.timeoutMs ?? DOCUMENT_PROCESSING_TIMEOUT_MS)
+  const maxConsecutivePollErrors = Math.max(1, options.maxConsecutivePollErrors ?? 3)
+  const now = options.now ?? Date.now
+  const sleep = options.sleep ?? defaultSleep
+  const deadline = now() + timeoutMs
+  let currentDocuments = uploadedDocuments
+  let consecutivePollErrors = 0
+
+  while (true) {
+    const failed = currentDocuments.find(document => document.status.toUpperCase() === 'FAILED')
+    if (failed) {
+      throw new DocumentUploadError(
+        failed.errorCode?.trim() || 'DOCUMENT_PROCESSING_FAILED',
+        failed.filename
+      )
+    }
+    if (currentDocuments.every(document => document.status.toUpperCase() === 'READY')) {
+      return currentDocuments
+    }
+
+    const remainingMs = deadline - now()
+    if (remainingMs <= 0) {
+      throw new DocumentUploadError('DOCUMENT_PROCESSING_TIMEOUT')
+    }
+    await sleep(Math.min(pollIntervalMs, remainingMs))
+
+    try {
+      const refreshed = await fetchDocuments(chatId)
+      const refreshedById = new Map(refreshed.map(document => [document.id, document]))
+      currentDocuments = currentDocuments.map(
+        document => refreshedById.get(document.id) ?? document
+      )
+      consecutivePollErrors = 0
+    } catch (error) {
+      consecutivePollErrors++
+      if (consecutivePollErrors >= maxConsecutivePollErrors) throw error
+    }
+  }
 }
 
 export function useFileAttachments(options: FileAttachmentOptions) {
@@ -10,6 +105,8 @@ export function useFileAttachments(options: FileAttachmentOptions) {
   const documentAttachments = ref<DocumentAttachment[]>([])
   const fileInput = ref<HTMLInputElement | null>(null)
   const isDragOver = ref(false)
+  let attachmentGeneration = 0
+  let processingChain: Promise<void> = Promise.resolve()
 
   const toDataUrl = (file: File) =>
     new Promise<string>((resolve, reject) => {
@@ -20,6 +117,7 @@ export function useFileAttachments(options: FileAttachmentOptions) {
     })
 
   const clearAttachments = () => {
+    attachmentGeneration++
     attachments.value = []
     documentAttachments.value = []
     if (fileInput.value) {
@@ -57,31 +155,106 @@ export function useFileAttachments(options: FileAttachmentOptions) {
       name.endsWith('.csv')
   }
 
-  const processFileList = async (files: File[]) => {
+  const processFileListNow = async (files: File[], generation: number) => {
     if (files.length === 0) return
-    const documentFiles = files.filter(isDocumentFile)
-    documentAttachments.value.push(
-      ...documentFiles.map(file => ({
-        name: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        file
-      }))
+    if (generation !== attachmentGeneration) return
+    const limits = options.limits()
+    const availableSlots = Math.max(
+      0,
+      limits.maxAttachments - attachments.value.length - documentAttachments.value.length
     )
-    const inlineFiles = files.filter(file => !isDocumentFile(file))
-    const results = await Promise.allSettled(
-      inlineFiles.map(async file => ({
-        name: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        data: await toDataUrl(file)
-      }))
+    if (files.length > availableSlots) {
+      options.onUploadFailed(new Error(options.attachmentLimitMessage(limits.maxAttachments)))
+    }
+    const candidates = files.slice(0, availableSlots)
+    const acceptedDocuments: File[] = []
+    const acceptedInline: File[] = []
+    let totalInlineBytes = attachments.value.reduce(
+      (total, attachment) => total + (attachment.byteSize || 0),
+      0
     )
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        attachments.value.push(result.value)
-      } else {
-        options.onUploadFailed(result.reason)
+
+    for (const file of candidates) {
+      if (isDocumentFile(file)) {
+        if (file.size > limits.maxDocumentBytes) {
+          options.onUploadFailed(
+            new Error(options.documentTooLargeMessage(file.name, limits.maxDocumentBytes)),
+            file.name
+          )
+        } else {
+          acceptedDocuments.push(file)
+        }
+        continue
+      }
+
+      if (file.size > limits.maxAttachmentBytes) {
+        options.onUploadFailed(
+          new Error(options.attachmentTooLargeMessage(file.name, limits.maxAttachmentBytes)),
+          file.name
+        )
+        continue
+      }
+      if (totalInlineBytes + file.size > limits.maxTotalAttachmentBytes) {
+        options.onUploadFailed(
+          new Error(options.attachmentTotalTooLargeMessage(limits.maxTotalAttachmentBytes)),
+          file.name
+        )
+        continue
+      }
+      totalInlineBytes += file.size
+      acceptedInline.push(file)
+    }
+
+    if (generation === attachmentGeneration) {
+      documentAttachments.value.push(
+        ...acceptedDocuments.map(file => ({
+          name: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          file
+        }))
+      )
+    }
+
+    const loaded: Array<MediaAttachment | null> = Array.from(
+      { length: acceptedInline.length },
+      () => null
+    )
+    let cursor = 0
+    const readNext = async () => {
+      while (cursor < acceptedInline.length) {
+        const index = cursor++
+        const file = acceptedInline[index]!
+        try {
+          loaded[index] = {
+            name: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            data: await toDataUrl(file),
+            byteSize: file.size
+          }
+        } catch (error) {
+          options.onUploadFailed(error, file.name)
+        }
       }
     }
+    await Promise.all(
+      Array.from(
+        { length: Math.min(MAX_CONCURRENT_FILE_READS, acceptedInline.length) },
+        () => readNext()
+      )
+    )
+    if (generation === attachmentGeneration) {
+      attachments.value.push(...loaded.filter((item): item is MediaAttachment => item !== null))
+    }
+  }
+
+  const processFileList = (files: File[]) => {
+    const generation = attachmentGeneration
+    const pending = processingChain.then(
+      () => processFileListNow(files, generation),
+      () => processFileListNow(files, generation)
+    )
+    processingChain = pending.catch(() => undefined)
+    return pending
   }
 
   const handleFiles = async (event: Event) => {
@@ -151,21 +324,31 @@ export function useFileAttachments(options: FileAttachmentOptions) {
     handleFiles,
     async uploadDocuments(
       chatId: string,
-      uploadDocument: (chatId: string, file: File) => Promise<ChatDocument | null>
+      uploadDocument: (chatId: string, file: File) => Promise<ChatDocument | null>,
+      fetchDocuments: (chatId: string) => Promise<ChatDocument[]>
     ): Promise<Array<{ mimeType: string; name?: string }>> {
-      const result: Array<{ mimeType: string; name?: string }> = []
+      const uploadedDocuments: ChatDocument[] = []
       for (const document of documentAttachments.value) {
         try {
           const uploaded = await uploadDocument(chatId, document.file)
-          result.push({
-            mimeType: uploaded?.mimeType || document.mimeType,
-            name: uploaded?.filename || document.name
-          })
+          if (!uploaded) {
+            throw new DocumentUploadError('DOCUMENT_UPLOAD_EMPTY_RESPONSE', document.name)
+          }
+          uploadedDocuments.push(uploaded)
         } catch (err) {
           options.onUploadFailed(err, document.name)
         }
       }
-      return result
+
+      const readyDocuments = await waitForDocumentsReady(
+        chatId,
+        uploadedDocuments,
+        fetchDocuments
+      )
+      return readyDocuments.map(document => ({
+        mimeType: document.mimeType,
+        name: document.filename
+      }))
     }
   }
 }

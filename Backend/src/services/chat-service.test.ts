@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { normalizedBase64Data, userContent } from "./chat-service.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  consumeGuestQuotaAtProviderStart,
+  normalizedBase64Data,
+  userContent,
+} from "./chat-service.js";
 
 describe("chat prompt media content", () => {
   it("converts image and file attachments to AI SDK user content parts", () => {
@@ -23,5 +27,32 @@ describe("chat prompt media content", () => {
 
   it("rejects invalid base64 media payloads", () => {
     expect(() => normalizedBase64Data("not-valid-base64")).toThrow("valid base64");
+  });
+});
+
+describe("guest quota provider start boundary", () => {
+  it("commits only after provider_started resolves", async () => {
+    let startProvider!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      startProvider = resolve;
+    });
+    const commit = vi.fn();
+
+    const consuming = consumeGuestQuotaAtProviderStart(providerStarted, commit);
+    expect(commit).not.toHaveBeenCalled();
+    startProvider();
+
+    await expect(consuming).resolves.toBe(true);
+    expect(commit).toHaveBeenCalledOnce();
+  });
+
+  it("does not commit when the gateway fails before provider_started", async () => {
+    const commit = vi.fn();
+    const failure = new Error("gateway unavailable");
+
+    await expect(consumeGuestQuotaAtProviderStart(Promise.reject(failure), commit)).rejects.toBe(
+      failure,
+    );
+    expect(commit).not.toHaveBeenCalled();
   });
 });

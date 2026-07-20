@@ -1,0 +1,90 @@
+groups:
+  - name: germinai-critical
+    rules:
+      - alert: BackendUnavailable
+        expr: up{job="backend"} == 0
+        for: 2m
+        labels: { severity: critical, service: backend }
+        annotations:
+          summary: Backend is unavailable
+          description: Prometheus could not scrape the backend for two minutes.
+
+      - alert: ProviderGatewayUnavailable
+        expr: up{job="provider-gateway"} == 0 or provider_gateway_ready == 0
+        for: 2m
+        labels: { severity: critical, service: provider-gateway }
+        annotations:
+          summary: ProviderGateway is unavailable or draining
+          description: New inference requests cannot be accepted.
+
+      - alert: ElevatedBackendErrorRate
+        expr: sum(rate(chat_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(chat_http_requests_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels: { severity: critical, service: backend }
+        annotations:
+          summary: Backend 5xx rate exceeds five percent
+          description: The five-minute backend error ratio has remained elevated for ten minutes.
+
+      - alert: LongProviderTimeToFirstToken
+        expr: histogram_quantile(0.95, sum by (le) (rate(chat_stream_ttft_seconds_bucket[10m]))) > 10
+        for: 10m
+        labels: { severity: critical, service: provider-gateway }
+        annotations:
+          summary: Provider p95 time to first token exceeds ten seconds
+          description: Provider latency is delaying the first streamed content.
+
+      - alert: ElevatedStreamAbortRate
+        expr: sum(rate(chat_stream_duration_seconds_count{status=~"aborted|error|failed|incomplete"}[10m])) / clamp_min(sum(rate(chat_stream_duration_seconds_count[10m])), 0.001) > 0.05
+        for: 10m
+        labels: { severity: critical, service: backend }
+        annotations:
+          summary: More than five percent of chat streams abort
+          description: Stream termination is elevated relative to completed streams.
+
+      - alert: PostgreSqlPoolWaiting
+        expr: chat_db_pool_connections{state="waiting"} > 0
+        for: 5m
+        labels: { severity: critical, service: postgresql }
+        annotations:
+          summary: PostgreSQL pool has waiting requests
+          description: At least one request has waited for a pool connection for five minutes.
+
+      - alert: NodeEventLoopLagHigh
+        expr: chat_sribiddi_nodejs_eventloop_lag_p99_seconds > 0.25
+        for: 5m
+        labels: { severity: critical, service: backend }
+        annotations:
+          summary: Backend event-loop lag is high
+          description: p99 event-loop lag has exceeded 250 ms for five minutes.
+
+      - alert: RedisUnavailable
+        expr: chat_redis_available == 0
+        for: 2m
+        labels: { severity: critical, service: redis }
+        annotations:
+          summary: Redis is unavailable
+          description: Guest chat is disabled and authenticated rate limiting is using its local fallback.
+
+      - alert: AlertmanagerUnavailable
+        expr: up{job="alertmanager"} == 0
+        for: 2m
+        labels: { severity: critical, service: alertmanager }
+        annotations:
+          summary: Alertmanager is unavailable
+          description: Prometheus cannot deliver critical SMTP notifications while Alertmanager is down.
+
+      - alert: GrafanaUnavailable
+        expr: up{job="grafana"} == 0
+        for: 5m
+        labels: { severity: critical, service: grafana }
+        annotations:
+          summary: Grafana is unavailable
+          description: The local operations dashboard is unavailable.
+
+      - alert: DocumentJobsStuck
+        expr: chat_document_jobs{status="processing"} > 0 and changes(chat_document_jobs{status="processing"}[15m]) == 0
+        for: 15m
+        labels: { severity: critical, service: documents }
+        annotations:
+          summary: Document jobs appear stuck
+          description: Processing jobs have made no progress for at least fifteen minutes.

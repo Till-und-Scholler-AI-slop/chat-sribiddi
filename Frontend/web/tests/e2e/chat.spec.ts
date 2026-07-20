@@ -26,10 +26,10 @@ test('creates a chat, sends a prompt, and renders the mocked streamed response',
   await expect(page.getByText('Alpha item')).toBeVisible()
   await expect(page.getByText('Beta item')).toBeVisible()
   await expect(page.getByText('const ok = true')).toBeVisible()
-  const highlightedCode = page.locator('.msg-assistant .code-block-render .shiki:not(.shiki-fallback)').first()
-  await expect(highlightedCode).toBeVisible()
-  await expect(highlightedCode).toHaveClass(/github-(light|dark-dimmed)/)
-  await expect(highlightedCode.locator('span[style*="color"]').first()).toBeVisible()
+  const highlightedCode = page.locator('.msg-assistant [data-markstream-code-block="1"]').first()
+  await expect(highlightedCode).toHaveAttribute('data-markstream-enhanced', 'true')
+  await expect(highlightedCode.locator('diffs-container')).toBeVisible()
+  await expect(highlightedCode.locator('diffs-container span[style*="--diffs-token-light"]').first()).toBeVisible()
   await expect(page.locator('.msg-user').filter({ hasText: 'Hallo E2E' })).toHaveCSS('user-select', 'none')
   await expect(page.locator('.msg-assistant')).toHaveCSS('user-select', 'none')
   await expect(page.locator('.msg-assistant .code-block-container')).toHaveCSS('user-select', 'text')
@@ -89,4 +89,22 @@ test('anonymous chat persists locally across reloads', async ({ page }) => {
 
   await expect(page.locator('.msg-user').filter({ hasText: 'Hallo Gast' })).toBeVisible({ timeout: hydrationTimeout })
   await expect(page.getByRole('heading', { name: 'Markstream check' })).toBeVisible()
+})
+
+test('rejects attachments beyond the advertised capability before reading them', async ({ page }) => {
+  await mockBackend(page, { authenticated: true })
+  await page.goto('/chat')
+  await expect(page.getByTestId('chat-page')).toHaveAttribute('data-ready', 'true', {
+    timeout: hydrationTimeout
+  })
+
+  await page.locator('input[type="file"]').setInputFiles(
+    Array.from({ length: 6 }, (_, index) => ({
+      name: `image-${index}.png`,
+      mimeType: 'image/png',
+      buffer: Buffer.from([index])
+    }))
+  )
+
+  await expect(page.getByText('Du kannst höchstens 5 Dateien gleichzeitig anhängen.', { exact: true })).toBeVisible()
 })

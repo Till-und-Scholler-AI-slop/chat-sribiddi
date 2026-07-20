@@ -5,6 +5,7 @@ import { env } from "../config/env.js";
 import type { MessageRow, NewMessage, Provider, Role } from "../db/types.js";
 import { badRequest, HttpError, notFound } from "../errors/http-error.js";
 import {
+  type AssistantToolLogInput,
   type ChatRepository,
   chatDto,
   type MessageRepository,
@@ -53,6 +54,8 @@ type ImportedChat = {
 };
 
 export class ChatService {
+  private readonly streamingRecovery: Promise<void>;
+
   constructor(
     private readonly chats: ChatRepository,
     private readonly messages: MessageRepository,
@@ -61,13 +64,21 @@ export class ChatService {
     private readonly providerConnections: ProviderConnectionService,
     private readonly apiKeys: ApiKeyService,
     private readonly documents: DocumentService,
-    private readonly usage: UsageService,
+    _usage: UsageService,
     private readonly toolLogs: ToolCallLogRepository,
     private readonly tools: ToolService,
     private readonly webSearch: WebSearchService,
     private readonly guestQuota: GuestQuotaService,
     private readonly concurrency: StreamConcurrencyGate,
-  ) {}
+  ) {
+    // Start recovery immediately. The guarded promise prevents a temporary
+    // startup DB outage from becoming an unhandled rejection; normal DB health
+    // handling still rejects the request that follows.
+    this.streamingRecovery = this.messages
+      .recoverOrphanedStreaming()
+      .then(() => undefined)
+      .catch(() => undefined);
+  }
 
   async createChat(userId: string, title?: string | null) {
     return chatDto(await this.chats.create(userId, title));
@@ -82,21 +93,24 @@ export class ChatService {
     if (!chats?.length) return [];
     const imported = [];
     for (const item of chats.filter(Boolean).slice(0, 30)) {
-      const chat = await this.chats.create(userId, item.title, item.createdAt ?? undefined);
       const messages = (item.messages ?? []).slice(0, 100);
-      if (messages.length > 0) {
-        const newMessages: NewMessage[] = messages.map((message) => ({
-          chat_id: chat.chat_id,
-          message: message.message,
-          context: null,
-          role: importRole(message.role),
-          created_at: message.createdAt ?? new Date(),
-          prompt_tokens: null,
-          generation_tokens: null,
-          total_tokens: null,
-        }));
-        await this.messages.createMany(newMessages);
-      }
+      const newMessages: Array<Omit<NewMessage, "chat_id">> = messages.map((message) => ({
+        message: message.message,
+        context: null,
+        role: importRole(message.role),
+        created_at: message.createdAt ?? new Date(),
+        prompt_tokens: null,
+        generation_tokens: null,
+        total_tokens: null,
+        status: "COMPLETE",
+        error_code: null,
+      }));
+      const chat = await this.chats.createWithMessages(
+        userId,
+        item.title,
+        item.createdAt ?? undefined,
+        newMessages,
+      );
       imported.push(chatDto(chat));
     }
     return imported;
@@ -108,6 +122,7 @@ export class ChatService {
     limit?: number | null,
     offset?: number | null,
   ) {
+    await this.streamingRecovery;
     await this.requireChat(chatId, userId);
     const rows = await this.messages.listResponsesByChat(
       chatId,
@@ -149,64 +164,101 @@ export class ChatService {
   }
 
   async sendMessage(chatId: string, userId: string, request: ChatRequest) {
-    const prepared = await this.prepareAuthenticatedCall(chatId, userId, request);
-    const result = await this.ai.generate({
-      provider: prepared.executionProvider,
-      userId,
-      modelId: request.modelId,
-      credential: prepared.credential,
-      messages: prepared.promptMessages,
-      options: request.options ?? null,
-      tools: prepared.aiTools,
-    });
-    const text = result.text ?? "";
-    const usage = tokenUsage(result.usage);
-    const assistant = await this.persistAssistant(chatId, text, prepared, usage);
-    await this.recordUsage(
-      userId,
-      prepared.provider,
-      request.modelId,
-      assistant.id,
-      usage,
-      prepared.credential,
-    );
-    const hasToolCalls = await this.recordToolLogs(
-      assistant.id,
-      prepared.toolRecords,
-      prepared.webResults,
-    );
-    return {
-      message: text,
-      promptTokens: usage.promptTokens,
-      generationTokens: usage.generationTokens,
-      totalTokens: usage.totalTokens,
-      chatTitle: prepared.updatedTitle,
-      hasToolCalls,
-    };
+    await this.streamingRecovery;
+    const resolved = await this.resolveCredential(userId, request);
+    this.concurrency.acquire(userId, resolved.credential.limits.parallelStreams);
+    let placeholder: MessageRow | undefined;
+    try {
+      const prepared = await this.prepareAuthenticatedCall(
+        chatId,
+        userId,
+        request,
+        undefined,
+        resolved,
+      );
+      placeholder = await this.createAssistantPlaceholder(chatId, prepared);
+      const result = await this.ai.generate({
+        provider: prepared.executionProvider,
+        userId,
+        modelId: request.modelId,
+        credential: prepared.credential,
+        messages: prepared.promptMessages,
+        options: request.options ?? null,
+        tools: prepared.aiTools,
+      });
+      const text = result.text ?? "";
+      const usage = tokenUsage(result.usage);
+      const finalized = await this.finalizeAssistant(
+        placeholder.id,
+        chatId,
+        userId,
+        request.modelId,
+        text,
+        prepared,
+        usage,
+      );
+      return {
+        message: text,
+        promptTokens: usage.promptTokens,
+        generationTokens: usage.generationTokens,
+        totalTokens: usage.totalTokens,
+        chatTitle: prepared.updatedTitle,
+        messageId: finalized.assistant.id,
+        messageStatus: "COMPLETE" as const,
+        hasToolCalls: finalized.hasToolCalls,
+      };
+    } catch (error) {
+      if (placeholder) {
+        await this.messages
+          .markAssistantFailed(placeholder.id, "", streamErrorType(error))
+          .catch(() => undefined);
+      }
+      throw error;
+    } finally {
+      this.concurrency.release(userId);
+    }
   }
 
   async streamMessage(c: Context, chatId: string, userId: string, request: ChatRequest) {
+    await this.streamingRecovery;
+    const resolved = await this.resolveCredential(userId, request);
+    this.concurrency.acquire(userId, resolved.credential.limits.parallelStreams);
     const sink = createToolEventSinkRef();
-    const prepared = await this.prepareAuthenticatedCall(chatId, userId, request, sink.dispatcher);
-    this.concurrency.acquire(userId, prepared.credential.limits.parallelStreams);
-    return streamSSE(c, async (stream) => {
-      sink.attach((event) =>
-        writeStreamEvent(stream, toolStreamEventName(event), toolStreamPayload(event)),
+    try {
+      const prepared = await this.prepareAuthenticatedCall(
+        chatId,
+        userId,
+        request,
+        sink.dispatcher,
+        resolved,
       );
-      try {
-        await this.runAuthenticatedStream({
-          stream,
-          chatId,
-          userId,
-          request,
-          prepared,
-          includeChatTitle: true,
-        });
-      } finally {
-        sink.detach();
-        this.concurrency.release(userId);
-      }
-    });
+      return streamSSE(c, async (stream) => {
+        const writer = createSerializedStreamWriter(stream);
+        const stopHeartbeat = startHeartbeat(writer);
+        sink.attach((event) =>
+          writeStreamEvent(writer, toolStreamEventName(event), toolStreamPayload(event)),
+        );
+        try {
+          await this.runAuthenticatedStream({
+            stream: writer,
+            chatId,
+            userId,
+            request,
+            prepared,
+            includeChatTitle: true,
+            abortSignal: c.req.raw.signal,
+          });
+        } finally {
+          stopHeartbeat();
+          sink.detach();
+          this.concurrency.release(userId);
+          await writer.flush();
+        }
+      });
+    } catch (error) {
+      this.concurrency.release(userId);
+      throw error;
+    }
   }
 
   async editAndStreamMessage(
@@ -216,43 +268,59 @@ export class ChatService {
     messageId: number,
     request: ChatRequest,
   ) {
+    await this.streamingRecovery;
     const chat = await this.requireChat(chatId, userId);
     const message = await this.messages.findByIdAndChat(messageId, chatId);
     if (!message) throw notFound(`Message ${messageId} not found`);
     if (message.role !== "USER") throw badRequest("Only user messages can be edited.");
     const resolved = await this.resolveCredential(userId, request);
     const mediaContext = this.mediaContext(request.media, resolved.credential.limits);
-    await this.messages.updateMessage(messageId, chatId, request.content, mediaContext);
-    await this.messages.deleteAfter(chatId, messageId);
-    const sink = createToolEventSinkRef();
-    const prepared = await this.preparePrompt(
-      chat,
-      userId,
-      request,
-      resolved,
-      null,
-      messageId,
-      sink.dispatcher,
-    );
     this.concurrency.acquire(userId, resolved.credential.limits.parallelStreams);
-    return streamSSE(c, async (stream) => {
-      sink.attach((event) =>
-        writeStreamEvent(stream, toolStreamEventName(event), toolStreamPayload(event)),
+    const sink = createToolEventSinkRef();
+    try {
+      const updated = await this.messages.editAndDeleteAfter(
+        messageId,
+        chatId,
+        request.content,
+        mediaContext,
       );
-      try {
-        await this.runAuthenticatedStream({
-          stream,
-          chatId,
-          userId,
-          request,
-          prepared,
-          includeChatTitle: false,
-        });
-      } finally {
-        sink.detach();
-        this.concurrency.release(userId);
-      }
-    });
+      if (!updated) throw notFound(`Message ${messageId} not found`);
+      const prepared = await this.preparePrompt(
+        chat,
+        userId,
+        request,
+        resolved,
+        null,
+        messageId,
+        sink.dispatcher,
+      );
+      return streamSSE(c, async (stream) => {
+        const writer = createSerializedStreamWriter(stream);
+        const stopHeartbeat = startHeartbeat(writer);
+        sink.attach((event) =>
+          writeStreamEvent(writer, toolStreamEventName(event), toolStreamPayload(event)),
+        );
+        try {
+          await this.runAuthenticatedStream({
+            stream: writer,
+            chatId,
+            userId,
+            request,
+            prepared,
+            includeChatTitle: false,
+            abortSignal: c.req.raw.signal,
+          });
+        } finally {
+          stopHeartbeat();
+          sink.detach();
+          this.concurrency.release(userId);
+          await writer.flush();
+        }
+      });
+    } catch (error) {
+      this.concurrency.release(userId);
+      throw error;
+    }
   }
 
   private async runAuthenticatedStream(args: {
@@ -271,9 +339,13 @@ export class ChatService {
       toolRecords: ExecutedToolRecord[];
     };
     includeChatTitle: boolean;
+    abortSignal: AbortSignal;
   }) {
-    const { stream, chatId, userId, request, prepared, includeChatTitle } = args;
+    const { stream, chatId, userId, request, prepared, includeChatTitle, abortSignal } = args;
+    let assistant: MessageRow | undefined;
+    let content = "";
     try {
+      assistant = await this.createAssistantPlaceholder(chatId, prepared);
       const result = this.ai.stream({
         provider: prepared.executionProvider,
         userId,
@@ -282,26 +354,26 @@ export class ChatService {
         messages: prepared.promptMessages,
         options: request.options ?? null,
         tools: prepared.aiTools,
+        abortSignal,
       });
-      let content = "";
+      let lastCheckpointAt = Date.now();
       for await (const chunk of result.textStream) {
         content += chunk;
         await writeStreamEvent(stream, "message", { type: "text", content: chunk });
+        if (Date.now() - lastCheckpointAt >= 2_000) {
+          await this.messages.checkpointAssistant(assistant.id, content);
+          lastCheckpointAt = Date.now();
+        }
       }
       const usage = tokenUsage(await result.usage);
-      const assistant = await this.persistAssistant(chatId, content, prepared, usage);
-      await this.recordUsage(
+      const finalized = await this.finalizeAssistant(
+        assistant.id,
+        chatId,
         userId,
-        prepared.provider,
         request.modelId,
-        assistant.id,
+        content,
+        prepared,
         usage,
-        prepared.credential,
-      );
-      const hasToolCalls = await this.recordToolLogs(
-        assistant.id,
-        prepared.toolRecords,
-        prepared.webResults,
       );
       await writeStreamEvent(stream, "done", {
         type: "done",
@@ -309,17 +381,27 @@ export class ChatService {
         generationTokens: usage.generationTokens,
         totalTokens: usage.totalTokens,
         ...(includeChatTitle && prepared.updatedTitle ? { chatTitle: prepared.updatedTitle } : {}),
-        messageId: assistant.id,
-        hasToolCalls,
+        messageId: finalized.assistant.id,
+        messageStatus: "COMPLETE",
+        hasToolCalls: finalized.hasToolCalls,
       });
     } catch (error) {
+      const errorCode = streamErrorType(error);
+      const messageStatus = content.trim() ? "INCOMPLETE" : "FAILED";
+      if (assistant) {
+        await this.messages
+          .markAssistantFailed(assistant.id, content, errorCode)
+          .catch(() => undefined);
+      }
       await writeStreamEvent(stream, "error", {
         type: "error",
         content: error instanceof Error ? error.message : "Streaming error",
         provider: prepared.provider,
         modelId: request.modelId,
-        errorType: streamErrorType(error),
+        errorType: errorCode,
         incomplete: true,
+        messageStatus,
+        ...(assistant ? { messageId: assistant.id } : {}),
       });
     }
   }
@@ -333,10 +415,13 @@ export class ChatService {
     const quotaReservation = await this.guestQuota.reserve(
       c.req.raw,
       c.req.header("X-Chat-User-Id") ?? null,
+      c.get("clientIp"),
     );
     const promptMessages = this.anonymousMessages(request);
     return streamSSE(c, async (stream) => {
-      let quotaCommitted = false;
+      const writer = createSerializedStreamWriter(stream);
+      const stopHeartbeat = startHeartbeat(writer);
+      let providerStarted = false;
       try {
         const result = this.ai.stream({
           provider: "OPENROUTER",
@@ -345,32 +430,41 @@ export class ChatService {
           credential,
           messages: promptMessages,
           options: request.options ?? null,
+          abortSignal: c.req.raw.signal,
         });
+        // Only the explicit provider_started event consumes guest quota. HTTP,
+        // authentication, contract, and readiness failures before that event
+        // remain rollback-safe.
+        providerStarted = await consumeGuestQuotaAtProviderStart(result.providerStarted, () =>
+          quotaReservation.commit(),
+        );
         for await (const chunk of result.textStream) {
-          await writeStreamEvent(stream, "message", { type: "text", content: chunk });
+          await writeStreamEvent(writer, "message", { type: "text", content: chunk });
         }
         const usage = tokenUsage(await result.usage);
-        await writeStreamEvent(stream, "done", {
+        await writeStreamEvent(writer, "done", {
           type: "done",
           promptTokens: usage.promptTokens,
           generationTokens: usage.generationTokens,
           totalTokens: usage.totalTokens,
+          messageStatus: "COMPLETE",
         });
-        quotaReservation.commit();
-        quotaCommitted = true;
       } catch (error) {
-        await writeStreamEvent(stream, "error", {
+        await writeStreamEvent(writer, "error", {
           type: "error",
           content: error instanceof Error ? error.message : "Streaming error",
           provider: "OPENROUTER",
           modelId: request.modelId,
           errorType: streamErrorType(error),
           incomplete: true,
+          messageStatus: "INCOMPLETE",
         });
       } finally {
-        if (!quotaCommitted) {
+        stopHeartbeat();
+        if (!providerStarted) {
           await quotaReservation.rollback();
         }
+        await writer.flush();
       }
     });
   }
@@ -408,28 +502,25 @@ export class ChatService {
     userId: string,
     request: ChatRequest,
     toolEventSink?: ToolEventSink,
+    preResolved?: Awaited<ReturnType<ChatService["resolveCredential"]>>,
   ) {
-    const chat = await this.requireChat(chatId, userId);
-    const resolved = await this.resolveCredential(userId, request);
+    const resolved = preResolved ?? (await this.resolveCredential(userId, request));
     const mediaContext = this.mediaContext(request.media, resolved.credential.limits);
-    const userMessage = await this.messages.create({
-      chat_id: chatId,
+    const appended = await this.chats.appendUserMessage({
+      chatId,
+      userId,
       message: request.content,
       context: mediaContext,
-      role: "USER",
-      created_at: new Date(),
-      prompt_tokens: null,
-      generation_tokens: null,
-      total_tokens: null,
+      titleCandidate: titleForContent(request.content),
     });
-    const updatedTitle = await this.maybeUpdateTitle(chat, request.content);
+    if (!appended) throw notFound(`Chat ${chatId} not found`);
     return this.preparePrompt(
-      chat,
+      appended.chat,
       userId,
       request,
       resolved,
-      updatedTitle,
-      userMessage.id,
+      appended.updatedTitle,
+      appended.message.id,
       toolEventSink,
     );
   }
@@ -586,61 +677,52 @@ export class ChatService {
     return messages;
   }
 
-  private async maybeUpdateTitle(
-    chat: { chat_id: string; user_id: string; title: string | null },
-    content: string,
+  private createAssistantPlaceholder(
+    chatId: string,
+    prepared: { provider: Provider; credential: ResolvedCredential },
   ) {
-    if (chat.title && chat.title !== "New chat") return null;
-    const count = await this.messages.countRole(chat.chat_id, "USER");
-    if (Number(count?.count ?? 0) !== 1) return null;
-    const title = content.length > 72 ? `${content.slice(0, 72).trim()}...` : content.trim();
-    await this.chats.updateTitle(chat.chat_id, chat.user_id, title);
-    return title;
+    return this.messages.createAssistantPlaceholder({
+      chatId,
+      context: `provider:${prepared.provider};source:${prepared.credential.credentialSource}`,
+    });
   }
 
-  private persistAssistant(
+  private async finalizeAssistant(
+    messageId: number,
     chatId: string,
+    userId: string,
+    modelId: string,
     content: string,
-    prepared: { provider: Provider; credential: ResolvedCredential },
+    prepared: {
+      provider: Provider;
+      credential: ResolvedCredential;
+      toolRecords: ExecutedToolRecord[];
+      webResults: WebSearchResult[];
+    },
     usage: TokenUsage,
   ) {
-    return this.messages.create({
-      chat_id: chatId,
-      message: content,
-      context: `provider:${prepared.provider};source:${prepared.credential.credentialSource}`,
-      role: "ASSISTANT",
-      created_at: new Date(),
-      prompt_tokens: usage.promptTokens,
-      generation_tokens: usage.generationTokens,
-      total_tokens: usage.totalTokens,
-    });
-  }
-
-  private recordUsage(
-    userId: string,
-    provider: Provider,
-    modelId: string,
-    messageId: number | null,
-    tokenUsageValue: TokenUsage,
-    credential: ResolvedCredential,
-  ) {
-    return this.usage.record({
-      userId,
-      provider,
-      modelId,
+    const toolLogs = this.assistantToolLogs(prepared.toolRecords, prepared.webResults);
+    const assistant = await this.messages.finalizeAssistant({
       messageId,
-      tokenUsage: tokenUsageValue,
-      credentialSource: credential.credentialSource,
+      chatId,
+      content,
+      promptTokens: usage.promptTokens,
+      generationTokens: usage.generationTokens,
+      totalTokens: usage.totalTokens,
+      userId,
+      provider: prepared.provider,
+      modelId,
+      credentialSource: prepared.credential.credentialSource,
+      toolLogs,
     });
+    return { assistant, hasToolCalls: toolLogs.length > 0 };
   }
 
-  private async recordToolLogs(
-    messageId: number,
+  private assistantToolLogs(
     records: ExecutedToolRecord[],
     webResults: WebSearchResult[],
-  ) {
-    const toolInserts = records.map((record) => ({
-      messageId,
+  ): AssistantToolLogInput[] {
+    const toolInserts: AssistantToolLogInput[] = records.map((record) => ({
       clientId: record.clientId,
       toolName: record.toolName,
       inputPayload: record.inputPayload,
@@ -652,11 +734,10 @@ export class ChatService {
       errorMessage: record.errorMessage,
       displayType: record.displayType,
     }));
-    const webInsert =
+    const webInsert: AssistantToolLogInput[] =
       webResults.length > 0
         ? [
             {
-              messageId,
               toolName: "brave-search",
               inputPayload: JSON.stringify({}),
               outputPayload: JSON.stringify(webResults),
@@ -670,9 +751,12 @@ export class ChatService {
             },
           ]
         : [];
-    await this.toolLogs.createMany([...toolInserts, ...webInsert]);
-    return records.length > 0 || webResults.length > 0;
+    return [...toolInserts, ...webInsert];
   }
+}
+
+function titleForContent(content: string) {
+  return content.length > 72 ? `${content.slice(0, 72).trim()}...` : content.trim();
 }
 
 function validateRequest(request: ChatRequest) {
@@ -742,6 +826,8 @@ function messageDto(row: MessageRow & { hasToolCalls?: boolean }) {
     promptTokens: row.prompt_tokens,
     generationTokens: row.generation_tokens,
     totalTokens: row.total_tokens,
+    status: row.status,
+    ...(row.error_code ? { errorCode: row.error_code } : {}),
     hasToolCalls: row.hasToolCalls === true,
   };
 }
@@ -771,6 +857,44 @@ async function writeStreamEvent(
   payload: unknown,
 ) {
   await stream.writeSSE({ event, data: JSON.stringify(payload) });
+}
+
+function createSerializedStreamWriter(stream: {
+  writeSSE: (message: { event?: string; data: string }) => Promise<void>;
+}) {
+  let queue = Promise.resolve();
+  return {
+    writeSSE(message: { event?: string; data: string }) {
+      const pending = queue.catch(() => undefined).then(() => stream.writeSSE(message));
+      queue = pending;
+      return pending;
+    },
+    flush() {
+      return queue.catch(() => undefined);
+    },
+  };
+}
+
+export async function consumeGuestQuotaAtProviderStart(
+  providerStarted: Promise<void>,
+  commit: () => void,
+) {
+  await providerStarted;
+  commit();
+  return true;
+}
+
+function startHeartbeat(stream: {
+  writeSSE: (message: { event?: string; data: string }) => Promise<void>;
+}) {
+  const timer = setInterval(() => {
+    void writeStreamEvent(stream, "heartbeat", {
+      type: "heartbeat",
+      timestamp: new Date().toISOString(),
+    }).catch(() => undefined);
+  }, env.CHAT_STREAM_HEARTBEAT_MS);
+  timer.unref?.();
+  return () => clearInterval(timer);
 }
 
 function toolStreamEventName(event: ToolExecutionEvent) {

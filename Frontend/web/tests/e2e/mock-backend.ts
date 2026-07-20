@@ -121,6 +121,23 @@ export async function mockBackend(page: Page, options: MockBackendOptions = {}) 
       return
     }
 
+    if (path === '/chat/capabilities') {
+      await fulfillJson(route, authenticated
+        ? {
+            maxAttachments: 5,
+            maxAttachmentBytes: 5 * 1024 * 1024,
+            maxTotalAttachmentBytes: 20 * 1024 * 1024,
+            maxDocumentBytes: 5 * 1024 * 1024
+          }
+        : {
+            maxAttachments: 2,
+            maxAttachmentBytes: 2 * 1024 * 1024,
+            maxTotalAttachmentBytes: 4 * 1024 * 1024,
+            maxDocumentBytes: 5 * 1024 * 1024
+          })
+      return
+    }
+
     if (path === '/logout') {
       authenticated = false
       await route.fulfill({ status: 204, headers: corsHeaders(route) })

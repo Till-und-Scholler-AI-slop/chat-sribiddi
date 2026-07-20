@@ -1,0 +1,26 @@
+{
+  "name": "@chat-sribiddi/provider-contract",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Versioned internal wire contract between chat-sribiddi and ProviderGateway",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "zod": "^4.1.13"
+  }
+}

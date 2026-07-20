@@ -222,6 +222,7 @@ describe('useChatApi.logout', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -330,6 +331,42 @@ describe('useChatApi.logout', () => {
     expect(JSON.parse(init.body as string)).toMatchObject({
       chats: [{ title: 'Guest', messages: [{ role: 'USER', message: 'hello' }] }]
     })
+  })
+
+  it('classifies a timed-out JSON request without hanging forever', async () => {
+    vi.useFakeTimers()
+    fetchMock.mockImplementationOnce((_url, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+    }))
+
+    const { requestJson } = useChatApi()
+    const pending = requestJson('/slow', { method: 'GET' }, 25)
+    const assertion = expect(pending).rejects.toMatchObject({
+      name: 'ApiRequestError',
+      kind: 'timeout'
+    })
+    await vi.advanceTimersByTimeAsync(25)
+    await assertion
+  })
+
+  it('keeps the timeout active while the response body is being read', async () => {
+    vi.useFakeTimers()
+    fetchMock.mockImplementationOnce((_url, init: RequestInit) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+      })
+    } as Response))
+
+    const { requestJson } = useChatApi()
+    const pending = requestJson('/slow-body', { method: 'GET' }, 25)
+    const assertion = expect(pending).rejects.toMatchObject({
+      name: 'ApiRequestError',
+      kind: 'timeout'
+    })
+    await vi.advanceTimersByTimeAsync(25)
+    await assertion
   })
 })
 

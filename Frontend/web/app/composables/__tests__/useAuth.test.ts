@@ -4,6 +4,8 @@ import { ref } from 'vue'
 describe('useAuth', () => {
   beforeEach(() => {
     vi.resetModules()
+    const app = {}
+    vi.stubGlobal('useNuxtApp', () => app)
     const states = new Map<string, ReturnType<typeof ref>>()
     vi.stubGlobal('useState', (key: string, init: () => unknown) => {
       if (!states.has(key)) {
@@ -35,5 +37,23 @@ describe('useAuth', () => {
     await expect(first).resolves.toBe('authenticated')
     await expect(second).resolves.toBe('authenticated')
     expect(firstAuth.status.value).toBe('authenticated')
+  })
+
+  it('does not let a stale auth probe undo logout', async () => {
+    let resolveSession!: (value: boolean) => void
+    const checkSession = vi.fn(() => new Promise<boolean>(resolve => {
+      resolveSession = resolve
+    }))
+    const logout = vi.fn().mockResolvedValue(true)
+    vi.stubGlobal('useChatApi', () => ({ checkSession, logout }))
+    const { useAuth } = await import('../useAuth')
+
+    const auth = useAuth()
+    const pendingCheck = auth.checkAuth()
+    await auth.logout()
+    resolveSession(true)
+    await pendingCheck
+
+    expect(auth.status.value).toBe('unauthenticated')
   })
 })

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { SseEventParser } from '../chat-stream'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createFrameBatchedStreamDispatcher, SseEventParser } from '../chat-stream'
 
 describe('SseEventParser', () => {
   it('emits a complete event from a single chunk', () => {
@@ -60,5 +60,27 @@ describe('SseEventParser', () => {
     expect(parser.push('event: text\ndata: {"type":"text","content":"fresh"}\n\n')).toEqual([
       { type: 'text', content: 'fresh' }
     ])
+  })
+})
+
+describe('createFrameBatchedStreamDispatcher', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('coalesces adjacent deltas and flushes before terminal events', async () => {
+    vi.useFakeTimers()
+    const received: Array<{ type: string; content?: string | null }> = []
+    const dispatcher = createFrameBatchedStreamDispatcher(event => received.push(event))
+
+    dispatcher.push({ type: 'text', content: 'Hello' })
+    dispatcher.push({ type: 'text', content: ' world' })
+    expect(received).toEqual([])
+
+    dispatcher.push({ type: 'done' })
+    expect(received).toEqual([
+      { type: 'text', content: 'Hello world' },
+      { type: 'done' }
+    ])
+    await vi.runAllTimersAsync()
+    expect(received).toHaveLength(2)
   })
 })

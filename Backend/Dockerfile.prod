@@ -1,16 +1,17 @@
 FROM node:22-bookworm-slim AS deps
-WORKDIR /app
+WORKDIR /workspace/Backend
 
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY packages/provider-contract/package.json packages/provider-contract/package-lock.json packages/provider-contract/index.js packages/provider-contract/index.d.ts /workspace/packages/provider-contract/
+COPY Backend/package.json Backend/package-lock.json ./
+RUN npm ci --omit=dev --prefix /workspace/packages/provider-contract && npm ci
 
 FROM deps AS build
-COPY tsconfig.json vitest.config.ts biome.json ./
-COPY src ./src
+COPY Backend/tsconfig.json Backend/vitest.config.ts Backend/biome.json ./
+COPY Backend/src ./src
 RUN npm run build
 
 FROM node:22-bookworm-slim AS runtime
-WORKDIR /app
+WORKDIR /workspace/Backend
 
 ENV NODE_ENV=production
 ENV HOME=/home/appuser
@@ -26,26 +27,29 @@ RUN apt-get update \
 RUN groupadd --gid "${APP_GID}" appuser \
   && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --home-dir /home/appuser --shell /usr/sbin/nologin appuser
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+COPY packages/provider-contract/package.json packages/provider-contract/package-lock.json packages/provider-contract/index.js packages/provider-contract/index.d.ts /workspace/packages/provider-contract/
+COPY Backend/package.json Backend/package-lock.json ./
+RUN npm ci --omit=dev --prefix /workspace/packages/provider-contract \
+  && npm ci --omit=dev \
+  && npm cache clean --force
 
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" "@xai-official/grok@${GROK_CLI_VERSION}" \
   && npm cache clean --force
 
-COPY --from=build /app/dist ./dist
-COPY src/config/model-catalog.yaml ./src/config/model-catalog.yaml
-COPY src/main/resources ./src/main/resources
-COPY deploy/docker-entrypoint.sh /usr/local/bin/chat-sribiddi-backend-entrypoint
+COPY --from=build /workspace/Backend/dist ./dist
+COPY Backend/src/config/model-catalog.yaml ./src/config/model-catalog.yaml
+COPY Backend/src/main/resources ./src/main/resources
+COPY Backend/deploy/docker-entrypoint.sh /usr/local/bin/chat-sribiddi-backend-entrypoint
 
 RUN chmod +x /usr/local/bin/chat-sribiddi-backend-entrypoint \
   && mkdir -p /var/lib/chat-sribiddi/codex-connections /var/lib/chat-sribiddi/grok-sessions \
-  && chown -R appuser:appuser /app /home/appuser /var/lib/chat-sribiddi \
+  && chown -R appuser:appuser /workspace /home/appuser /var/lib/chat-sribiddi \
   && chmod 700 /var/lib/chat-sribiddi/codex-connections /var/lib/chat-sribiddi/grok-sessions
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:8080/actuator/health || exit 1
+  CMD curl -f http://localhost:8080/health/ready || exit 1
 
 ENTRYPOINT ["chat-sribiddi-backend-entrypoint"]
 CMD ["node", "dist/index.js"]

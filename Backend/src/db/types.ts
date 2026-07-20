@@ -6,9 +6,12 @@ export type NullableTimestamp = ColumnType<
   Date | string | null | undefined,
   Date | string | null
 >;
+export type NullableColumn<T> = ColumnType<T | null, T | null | undefined, T | null>;
 
 export type Provider = "OPENAI" | "GOOGLE" | "CLAUDE" | "OPENROUTER" | "BRAVE_SEARCH";
 export type Role = "USER" | "ASSISTANT" | "SYSTEM";
+export type MessageStatus = "STREAMING" | "COMPLETE" | "INCOMPLETE" | "FAILED";
+export type DocumentStatus = "PROCESSING" | "READY" | "FAILED";
 
 export interface UsersTable {
   id: Generated<number>;
@@ -34,6 +37,8 @@ export interface MessagesTable {
   prompt_tokens: number | null;
   generation_tokens: number | null;
   total_tokens: number | null;
+  status: ColumnType<MessageStatus, MessageStatus | undefined, MessageStatus>;
+  error_code: NullableColumn<string>;
 }
 
 export interface ApiKeysTable {
@@ -92,7 +97,13 @@ export interface ChatDocumentsTable {
   mime_type: string;
   byte_size: number;
   sha256: string;
-  status: string;
+  status: DocumentStatus;
+  error_code: NullableColumn<string>;
+  payload: NullableColumn<Buffer>;
+  attempts: ColumnType<number, number | undefined, number>;
+  next_attempt_at: Timestamp;
+  claimed_at: NullableTimestamp;
+  updated_at: Timestamp;
   created_at: Timestamp;
 }
 
@@ -160,3 +171,4 @@ export type MessageRow = Selectable<MessagesTable>;
 export type NewMessage = Insertable<MessagesTable>;
 export type MessageUpdate = Updateable<MessagesTable>;
 export type ProviderConnectionRow = Selectable<ProviderConnectionsTable>;
+export type ChatDocumentRow = Selectable<ChatDocumentsTable>;

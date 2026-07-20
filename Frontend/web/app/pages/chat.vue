@@ -45,12 +45,15 @@ const {
 const { toolCallAvailabilityMap } = useToolCallStore()
 const { checkAuth } = useAuth()
 const { settings } = useUserSettings()
-const { exportRunbook, uploadDocument } = useChatApi()
+const { exportRunbook, fetchDocuments, uploadDocument } = useChatApi()
+const { capabilities, ensureCapabilities } = useAccessCapabilities()
 
 const input = ref('')
 const initializing = ref(true)
 const exportingRunbook = ref(false)
+const submittingPrompt = ref(false)
 const toast = useToast()
+const limitInMiB = (bytes: number) => Math.max(1, Math.ceil(bytes / (1024 * 1024)))
 const {
   attachments,
   documentAttachments,
@@ -67,10 +70,23 @@ const {
     const desc = tt(reason, 'chat.attachmentReadFallback')
     toast.add({
       title: t('chat.uploadFailedTitle'),
-      description: documentName ? `${documentName}: ${desc}` : desc,
+      description: documentName && !desc.includes(documentName) ? `${documentName}: ${desc}` : desc,
       color: 'error'
     })
-  }
+  },
+  limits: () => capabilities.value,
+  attachmentLimitMessage: limit => t('chat.attachmentLimitExceeded', { limit }),
+  attachmentTooLargeMessage: (name, limit) => t('chat.attachmentTooLarge', {
+    name,
+    limit: limitInMiB(limit)
+  }),
+  attachmentTotalTooLargeMessage: limit => t('chat.attachmentTotalTooLarge', {
+    limit: limitInMiB(limit)
+  }),
+  documentTooLargeMessage: (name, limit) => t('chat.documentTooLarge', {
+    name,
+    limit: limitInMiB(limit)
+  })
 })
 const {
   messagesContainer,
@@ -244,15 +260,21 @@ const preSendCompletionRateLabel = computed(() =>
 
 const hasPendingPrompt = computed(() => input.value.trim().length > 0 || pendingAttachmentCount.value > 0)
 const canSubmitPrompt = computed(() =>
-  status.value === 'ready' && !!selectedModel.value && hasPendingPrompt.value
+  status.value === 'ready'
+  && !submittingPrompt.value
+  && !!selectedModel.value
+  && hasPendingPrompt.value
 )
 const chatReady = computed(() => !initializing.value && !!activeConversation.value)
 
 onMounted(async () => {
   try {
     await checkAuth()
-    await ensureModels()
-    await loadChatsFromBackend()
+    await Promise.all([
+      ensureCapabilities(),
+      ensureModels(),
+      loadChatsFromBackend()
+    ])
     if (conversations.value.length === 0) {
       await startChat()
     }
@@ -350,7 +372,7 @@ const applyAndSubmit = (prompt: string) => {
 }
 
 async function handleSubmit() {
-  if (status.value !== 'ready') return
+  if (status.value !== 'ready' || submittingPrompt.value) return
   if (!input.value.trim() && pendingAttachmentCount.value === 0) return
   if (!activeConversation.value) {
     await startChat()
@@ -372,8 +394,13 @@ async function handleSubmit() {
   const savedMedia = [...attachments.value]
   const savedDocuments = [...documentAttachments.value]
 
+  submittingPrompt.value = true
   try {
-    const uploadedDocuments = await uploadDocuments(conversation.session.chatId, uploadDocument)
+    const uploadedDocuments = await uploadDocuments(
+      conversation.session.chatId,
+      uploadDocument,
+      fetchDocuments
+    )
 
     const hasAnyAttachment = savedMedia.length > 0 || uploadedDocuments.length > 0
     if (!savedInput.trim() && !hasAnyAttachment) {
@@ -401,6 +428,8 @@ async function handleSubmit() {
       description: tt(err),
       color: 'error'
     })
+  } finally {
+    submittingPrompt.value = false
   }
 }
 
@@ -801,6 +830,7 @@ const handleReload = async () => {
                 icon="i-lucide-arrow-up"
                 color="primary"
                 :disabled="!canSubmitPrompt"
+                :loading="submittingPrompt"
                 :aria-label="t('chat.sendMessage')"
                 data-testid="chat-submit"
                 @click="handleSubmit"

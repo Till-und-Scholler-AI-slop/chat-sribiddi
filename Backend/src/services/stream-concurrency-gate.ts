@@ -1,9 +1,13 @@
 import { HttpError } from "../errors/http-error.js";
+import { activeStreams } from "../observability/metrics.js";
 
 export class StreamConcurrencyGate {
   private readonly active = new Map<string, number>();
   private readonly acquiredAt = new Map<string, number>();
-  private static readonly DEFAULT_ENTRY_TTL_MS = 10 * 60_000;
+  // Longer than the 30-minute provider deadline and the 31-minute browser
+  // deadline. A live long-running stream must never be mistaken for a leaked
+  // slot while it is still producing output.
+  private static readonly DEFAULT_ENTRY_TTL_MS = 32 * 60_000;
   private lastPrunedAt = Date.now();
 
   acquire(userId: string, limit: number) {
@@ -15,6 +19,7 @@ export class StreamConcurrencyGate {
     }
     this.active.set(userId, current + 1);
     this.acquiredAt.set(userId, Date.now());
+    activeStreams.inc();
   }
 
   release(userId: string) {
@@ -25,6 +30,7 @@ export class StreamConcurrencyGate {
     } else {
       this.active.set(userId, current - 1);
     }
+    if (current > 0) activeStreams.dec();
   }
 
   /**
@@ -39,8 +45,10 @@ export class StreamConcurrencyGate {
     const cutoff = now - StreamConcurrencyGate.DEFAULT_ENTRY_TTL_MS;
     for (const [userId, acquiredAt] of this.acquiredAt) {
       if (acquiredAt < cutoff) {
+        const count = this.active.get(userId) ?? 0;
         this.active.delete(userId);
         this.acquiredAt.delete(userId);
+        if (count > 0) activeStreams.dec(count);
       }
     }
   }

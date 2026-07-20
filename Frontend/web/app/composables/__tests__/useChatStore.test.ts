@@ -4,6 +4,22 @@ import type { ModelOption, ToolCallLog } from '../useChatApi'
 import { favoriteModelKey } from '../../utils/model-utils'
 import { formatRatePerMillion } from '../../utils/format'
 import { appendTextToMessage, calculateMessageCost, estimateAssistantOutputTokens, estimateConversationTokens, estimatePreSendCost, estimateTextTokens, extractAssistantText, extractTokenUsage, filterToolCallLogs, formatCost, parseAttachmentContext, parsePersistedMessageId, resolveStreamOutcome } from '../chat-helpers'
+import { isCurrentConversationRequest } from '../useChatStore'
+
+describe('stream request generations', () => {
+  it('rejects a stale controller after cancel and restart', () => {
+    const first = new AbortController()
+    const second = new AbortController()
+    const conversation = { activeRequest: first, requestGeneration: 1 }
+
+    expect(isCurrentConversationRequest(conversation, first, 1)).toBe(true)
+    conversation.activeRequest = second
+    conversation.requestGeneration = 2
+
+    expect(isCurrentConversationRequest(conversation, first, 1)).toBe(false)
+    expect(isCurrentConversationRequest(conversation, second, 2)).toBe(true)
+  })
+})
 
 describe('extractAssistantText', () => {
   it('extracts text from a plain string response', () => {

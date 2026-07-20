@@ -222,11 +222,13 @@ Backend deploy:
 2. The workflow validates `ProviderGateway` with `npm run build` and
    `npm test`.
 3. The workflow builds and pushes GHCR images for Backend and ProviderGateway,
-   tagged as `main` and `sha-<commit>`.
+   tagged with the immutable `sha-<commit>` release tag.
 4. The workflow uploads only `Backend/deploy`,
-   `Backend/src/main/resources/db/migration`, and `infra/caddy`.
-5. On the VPS it writes `Backend/.env` from `BACKEND_ENV_FILE`, then forces
-   `IMAGE_TAG=main`, `PROVIDER_GATEWAY_ENABLED=true`,
+   `Backend/src/main/resources/db/migration`, `monitoring`, and `infra/caddy`.
+5. On the VPS it prepares a new immutable directory under
+   `/opt/chat-sribiddi/releases/`, writes that release's `Backend/.env` from
+   `BACKEND_ENV_FILE`, then forces `IMAGE_TAG=sha-<commit>`,
+   `PGDATA=/var/lib/postgresql/data`, `PROVIDER_GATEWAY_ENABLED=true`,
    `OPENAI_CODEX_SUBSCRIPTION_ENABLED=true`, `GROK_CLI_ENABLED=true`,
    `PROVIDER_GATEWAY_BASE_URL=http://provider-gateway:8095`,
    `CODEX_CONNECTIONS_ROOT=/var/lib/chat-sribiddi/codex-connections`, and
@@ -234,18 +236,26 @@ Backend deploy:
 6. Optional single GitHub secret `OPENROUTER_API_KEY` overrides the matching
    key in `Backend/.env` when it is set, so rotating the guest OpenRouter Free
    key does not require editing the whole multiline `BACKEND_ENV_FILE` secret.
-7. It logs in to GHCR on the VPS with `GHCR_USERNAME`/`GHCR_READ_TOKEN`, then
-   runs:
-   `docker compose --env-file .env -f deploy/docker-compose.prod.yml pull`
-   followed by
-   `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --remove-orphans`.
+7. Before the first PG18 release switches paths, the workflow detects a live
+   cluster in PG18's anonymous `/var/lib/postgresql` parent volume and copies it
+   into the existing `postgres_data` child mount with `pg_basebackup`. Images
+   are pulled first, then the old backend is drained before the final backup so
+   no acknowledged chat write can fall between the copy and container switch.
+   It verifies the backup manifest and database system identifier. A stopped,
+   ambiguous, non-empty, or mismatched target aborts deployment before any
+   container is replaced. Never bypass this guard by deleting volumes.
+8. It logs in to GHCR on the VPS with `GHCR_USERNAME`/`GHCR_READ_TOKEN`, then
+   runs `docker compose pull` and `docker compose up --wait` against the new
+   release directory.
    The production compose file runs Flyway against
-   `src/main/resources/db/migration`, starts ProviderGateway internally, starts
-   the Node/Hono backend, and starts Watchtower for labeled app containers.
-8. It validates and installs the Caddyfile:
-   - `caddy validate --config "$APP_DIR/infra/caddy/Caddyfile"`
-   - `cp "$APP_DIR/infra/caddy/Caddyfile" /etc/caddy/Caddyfile`
-   - `systemctl reload caddy || systemctl restart caddy`
+   `src/main/resources/db/migration`, starts ProviderGateway internally, and
+   starts the Node/Hono backend. Watchtower does not update app containers.
+9. After local health checks it validates and atomically installs the new
+   Caddyfile, runs the public smoke check, then atomically changes
+   `/opt/chat-sribiddi/current` to the new release. Any failure re-applies the
+   previous Compose, monitoring and Caddy configuration with its immutable
+   image tag. The first transition from a legacy mutable tag captures the
+   exact running image IDs under an immutable local rollback tag.
 
 Frontend deploy:
 
@@ -314,9 +324,10 @@ docker inspect --format '{{.State.Status}} {{.State.Health.Status}} {{.RestartCo
 docker inspect --format '{{.State.Status}} {{.State.Health.Status}} {{.RestartCount}}' chat_sribiddi_backend-provider-gateway-1
 docker logs --tail=160 chat_sribiddi_backend-backend-1
 docker logs --tail=160 chat_sribiddi_backend-provider-gateway-1
-docker logs --tail=160 chat_sribiddi_backend-watchtower-1
+docker logs --tail=160 chat_sribiddi_backend-prometheus-1
+docker logs --tail=160 chat_sribiddi_backend-alertmanager-1
 docker logs --tail=160 chat_sribiddi_frontend-frontend-1
-cmp -s /etc/caddy/Caddyfile /opt/chat-sribiddi/infra/caddy/Caddyfile
+cmp -s /etc/caddy/Caddyfile /opt/chat-sribiddi/current/infra/caddy/Caddyfile
 caddy validate --config /etc/caddy/Caddyfile
 systemctl is-active caddy
 ```

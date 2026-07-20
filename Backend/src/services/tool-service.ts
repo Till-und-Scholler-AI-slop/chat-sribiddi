@@ -7,6 +7,7 @@ import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { badRequest, notFound } from "../errors/http-error.js";
+import { toolStepDuration, toolStepsTotal } from "../observability/metrics.js";
 import type { ChatRepository } from "../repositories/chat-repository.js";
 import type { ChatToolRepository } from "../repositories/tool-repository.js";
 import type { ApiKeyService } from "./api-key-service.js";
@@ -353,6 +354,8 @@ async function executeRecorded(
       displayType,
     } satisfies ExecutedToolRecord;
     records.push(record);
+    toolStepsTotal.labels(toolName, "success").inc();
+    toolStepDuration.labels(toolName, "success").observe(record.durationMs / 1_000);
     await emitToolEvent(eventSink, record);
     return output;
   } catch (error) {
@@ -370,6 +373,8 @@ async function executeRecorded(
       displayType,
     } satisfies ExecutedToolRecord;
     records.push(record);
+    toolStepsTotal.labels(toolName, "error").inc();
+    toolStepDuration.labels(toolName, "error").observe(record.durationMs / 1_000);
     await emitToolEvent(eventSink, record);
     return message;
   }

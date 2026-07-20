@@ -15,8 +15,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "targets": [
         {
-          "expr": "sum by (provider, status) (rate(chat_requests_total[1m]) * 60)",
-          "legendFormat": "{{provider}} {{status}}"
+          "expr": "sum by (route, status) (rate(chat_http_requests_total[1m]) * 60)",
+          "legendFormat": "{{route}} {{status}}"
         }
       ]
     },
@@ -51,7 +51,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "targets": [
         {
-          "expr": "sum(rate(chat_requests_total{status=\"error\"}[5m])) / clamp_min(sum(rate(chat_requests_total[5m])), 1)",
+          "expr": "sum(rate(chat_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(chat_http_requests_total[5m])), 0.001)",
           "legendFormat": "error ratio"
         }
       ]
@@ -63,7 +63,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "targets": [
         {
-          "expr": "sum by (provider) (increase(chat_requests_total[1h]))",
+          "expr": "sum by (provider, status) (increase(chat_provider_requests_total[1h]))",
           "legendFormat": "{{provider}}"
         }
       ]
@@ -77,6 +77,66 @@
         {
           "expr": "sum by (provider) (rate(chat_stream_duration_seconds_sum[5m])) / clamp_min(sum by (provider) (rate(chat_stream_duration_seconds_count[5m])), 1)",
           "legendFormat": "{{provider}} avg"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "p95 time to first token",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, provider) (rate(chat_stream_ttft_seconds_bucket[10m])))",
+          "legendFormat": "{{provider}} p95"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "PostgreSQL pool",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "expr": "chat_db_pool_connections",
+          "legendFormat": "{{state}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Event-loop lag p99",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "targets": [
+        {
+          "expr": "chat_sribiddi_nodejs_eventloop_lag_p99_seconds",
+          "legendFormat": "backend"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Redis available",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 40 },
+      "targets": [
+        {
+          "expr": "chat_redis_available",
+          "legendFormat": "redis"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Gateway streams",
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 40 },
+      "targets": [
+        {
+          "expr": "sum by (provider, outcome) (rate(provider_gateway_streams_total[5m]))",
+          "legendFormat": "{{provider}} {{outcome}}"
         }
       ]
     }

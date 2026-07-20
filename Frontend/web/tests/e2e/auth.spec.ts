@@ -25,11 +25,16 @@ test('login page and logout flow use the mocked session backend', async ({ page 
   await expect(page.getByTestId('chat-page')).toHaveAttribute('data-ready', 'true', { timeout: hydrationTimeout })
   await expect(page.getByRole('button', { name: 'Abmelden' })).toBeEnabled({ timeout: hydrationTimeout })
 
-  const logoutRequest = page.waitForRequest(request => {
-    const pathname = new URL(request.url()).pathname
+  const logoutResponse = page.waitForResponse(response => {
+    const pathname = new URL(response.url()).pathname
     return pathname === '/logout' || pathname === '/api/logout'
   })
   await page.getByRole('button', { name: 'Abmelden' }).click({ force: true })
-  await logoutRequest
+  await logoutResponse
   await expect(page).toHaveURL(/\/chat$/, { timeout: hydrationTimeout })
+  await expect(page.getByRole('button', { name: /Google/i })).toBeVisible({ timeout: hydrationTimeout })
+
+  // Stop mocked background requests before Playwright tears down Edge's context.
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+  await page.close()
 })

@@ -2,34 +2,57 @@ import { AuthCheckError } from '~/composables/useChatApi'
 
 type AuthState = 'unknown' | 'authenticated' | 'unauthenticated'
 
-let authCheckPromise: Promise<AuthState> | null = null
+type AuthCoordinator = {
+  promise: Promise<AuthState> | null
+  generation: number
+}
+
+const coordinators = new WeakMap<object, AuthCoordinator>()
+
+function coordinatorFor(app: object) {
+  let coordinator = coordinators.get(app)
+  if (!coordinator) {
+    coordinator = { promise: null, generation: 0 }
+    coordinators.set(app, coordinator)
+  }
+  return coordinator
+}
 
 export function useAuth() {
+  const coordinator = coordinatorFor(useNuxtApp())
   const status = useState<AuthState>('auth-status', () => 'unknown')
   const checking = useState<boolean>('auth-checking', () => false)
 
   const checkAuth = async () => {
-    if (authCheckPromise) return authCheckPromise
+    if (coordinator.promise) return coordinator.promise
     checking.value = true
-    authCheckPromise = (async () => {
+    const generation = ++coordinator.generation
+    const promise = (async () => {
       const { checkSession } = useChatApi()
       try {
         const ok = await checkSession()
-        status.value = ok ? 'authenticated' : 'unauthenticated'
+        if (generation === coordinator.generation) {
+          status.value = ok ? 'authenticated' : 'unauthenticated'
+        }
       } catch (err) {
-        if (err instanceof AuthCheckError && err.code === 'network') {
-          status.value = 'unknown'
-        } else {
-          status.value = 'unauthenticated'
+        if (generation === coordinator.generation) {
+          if (err instanceof AuthCheckError && err.code === 'network') {
+            status.value = 'unknown'
+          } else {
+            status.value = 'unauthenticated'
+          }
         }
       }
       return status.value
     })()
+    coordinator.promise = promise
     try {
-      return await authCheckPromise
+      return await promise
     } finally {
-      checking.value = false
-      authCheckPromise = null
+      if (coordinator.promise === promise) {
+        checking.value = false
+        coordinator.promise = null
+      }
     }
   }
 
@@ -47,14 +70,14 @@ export function useAuth() {
    */
   const logout = async (): Promise<boolean> => {
     const { logout: apiLogout } = useChatApi()
-    let ok = false
     try {
-      ok = await apiLogout()
+      return await apiLogout()
     } finally {
-      authCheckPromise = null
+      coordinator.generation++
+      coordinator.promise = null
+      checking.value = false
       status.value = 'unauthenticated'
     }
-    return ok
   }
 
   return {

@@ -6,10 +6,22 @@ import { generateText, type ModelMessage, stepCountIs, streamText, type ToolSet 
 import { env } from "../config/env.js";
 import type { Provider } from "../db/types.js";
 import { upstreamError } from "../errors/http-error.js";
+import {
+  providerRequestsTotal,
+  providerTokensTotal,
+  streamDuration,
+  streamTimeToFirstToken,
+} from "../observability/metrics.js";
 import { fetchWithTimeout } from "../utils/fetch.js";
 import { generateCodexExec, streamCodexExec } from "./codex-exec-runtime.js";
 import type { ResolvedCredential } from "./credential-access-service.js";
 import type { GrokCliBridge, GrokCliSession } from "./grok-cli-bridge-service.js";
+import {
+  gatewayRouteKey,
+  ProviderGatewayClient,
+  type ProviderGatewayStreamResult,
+  shouldUseProviderGateway,
+} from "./provider-gateway-client.js";
 
 const GOOGLE_GENERATE_TIMEOUT_MS = 60_000;
 
@@ -31,45 +43,228 @@ export type ChatExecutionRequest = {
   messages: ModelMessage[];
   options?: RuntimeOptions | null;
   tools?: ToolSet | undefined;
+  abortSignal?: AbortSignal | undefined;
 };
 
-export class AiChatService {
-  constructor(private readonly grokCli?: GrokCliBridge | undefined) {}
+export type ChatStreamResult = ProviderGatewayStreamResult;
 
-  stream(input: ChatExecutionRequest) {
-    if (isOpenAiCodexSubscription(input)) {
-      return streamCodexExec(input);
+export class AiChatService {
+  constructor(
+    private readonly grokCli?: GrokCliBridge | undefined,
+    private readonly gateway: Pick<ProviderGatewayClient, "stream"> = new ProviderGatewayClient(),
+    private readonly gatewayProviders: ReadonlySet<string> = env.providerGatewayProviders,
+  ) {}
+
+  stream(input: ChatExecutionRequest): ChatStreamResult {
+    if (shouldUseProviderGateway(input, this.gatewayProviders)) {
+      return this.gateway.stream(input);
     }
-    if (isGrokCliSubscription(input)) {
-      return streamGrokCliSubscription(input, this.grokCli);
+    const abortScope = directAbortScope(input.abortSignal);
+    const directInput = { ...input, abortSignal: abortScope.signal };
+    try {
+      if (isOpenAiCodexSubscription(directInput)) {
+        return instrumentDirectStream(
+          directInput,
+          streamCodexExec(directInput),
+          abortScope.cleanup,
+        );
+      }
+      if (isGrokCliSubscription(directInput)) {
+        return instrumentDirectStream(
+          directInput,
+          streamGrokCliSubscription(directInput, this.grokCli),
+          abortScope.cleanup,
+        );
+      }
+      if (isGoogleOAuth(directInput)) {
+        return instrumentDirectStream(
+          directInput,
+          streamGoogleOAuth(directInput),
+          abortScope.cleanup,
+        );
+      }
+      return instrumentDirectStream(
+        directInput,
+        streamText({
+          model: languageModel(directInput),
+          messages: directInput.messages,
+          abortSignal: abortScope.signal,
+          maxRetries: 0,
+          ...toolSettings(directInput.tools),
+          ...settings(directInput.options),
+        }),
+        abortScope.cleanup,
+      );
+    } catch (error) {
+      abortScope.cleanup();
+      throw error;
     }
-    if (isGoogleOAuth(input)) {
-      return streamGoogleOAuth(input);
-    }
-    return streamText({
-      model: languageModel(input),
-      messages: input.messages,
-      ...toolSettings(input.tools),
-      ...settings(input.options),
-    });
   }
 
   async generate(input: ChatExecutionRequest) {
-    if (isOpenAiCodexSubscription(input)) {
-      return generateCodexExec(input);
+    if (shouldUseProviderGateway(input, this.gatewayProviders)) {
+      const result = this.gateway.stream(input);
+      await result.providerStarted;
+      let text = "";
+      for await (const chunk of result.textStream) text += chunk;
+      return { text, usage: await result.usage };
     }
-    if (isGrokCliSubscription(input)) {
-      return generateGrokCliSubscription(input, this.grokCli);
+    const abortScope = directAbortScope(input.abortSignal);
+    const directInput = { ...input, abortSignal: abortScope.signal };
+    const provider = gatewayRouteKey(directInput);
+    try {
+      const operation: Promise<{ text: string; usage: unknown }> = (async () => {
+        if (isOpenAiCodexSubscription(directInput)) return generateCodexExec(directInput);
+        if (isGrokCliSubscription(directInput)) {
+          return generateGrokCliSubscription(directInput, this.grokCli);
+        }
+        if (isGoogleOAuth(directInput)) return generateGoogleOAuth(directInput);
+        return generateText({
+          model: languageModel(directInput),
+          messages: directInput.messages,
+          maxRetries: 0,
+          abortSignal: abortScope.signal,
+          ...toolSettings(directInput.tools),
+          ...settings(directInput.options),
+        });
+      })();
+      const result = await abortable(operation, abortScope.signal);
+      providerRequestsTotal.labels(provider, "success").inc();
+      recordDirectTokenMetrics(provider, result.usage);
+      return result;
+    } catch (error) {
+      providerRequestsTotal.labels(provider, abortScope.signal.aborted ? "aborted" : "error").inc();
+      throw error;
+    } finally {
+      abortScope.cleanup();
     }
-    if (isGoogleOAuth(input)) {
-      return generateGoogleOAuth(input);
+  }
+}
+
+function instrumentDirectStream(
+  input: ChatExecutionRequest,
+  result: { textStream: AsyncIterable<string>; usage: PromiseLike<unknown> },
+  cleanup: () => void,
+): ChatStreamResult {
+  const provider = gatewayRouteKey(input);
+  const startedAt = performance.now();
+  let firstToken = false;
+  const usage = abortable(Promise.resolve(result.usage), input.abortSignal).then((value) => {
+    recordDirectTokenMetrics(provider, value);
+    return normalizeDirectUsage(value);
+  });
+  void usage.catch(() => undefined);
+  const textStream = (async function* () {
+    let status = "success";
+    const iterator = result.textStream[Symbol.asyncIterator]();
+    try {
+      while (true) {
+        const next = await abortable(iterator.next(), input.abortSignal);
+        if (next.done) break;
+        const chunk = next.value;
+        if (!firstToken) {
+          firstToken = true;
+          streamTimeToFirstToken.labels(provider).observe((performance.now() - startedAt) / 1_000);
+        }
+        yield chunk;
+      }
+    } catch (error) {
+      status = input.abortSignal?.aborted ? "aborted" : "error";
+      throw error;
+    } finally {
+      providerRequestsTotal.labels(provider, status).inc();
+      streamDuration.labels(provider, status).observe((performance.now() - startedAt) / 1_000);
+      cleanup();
+      void Promise.resolve(iterator.return?.()).catch(() => undefined);
     }
-    return generateText({
-      model: languageModel(input),
-      messages: input.messages,
-      ...toolSettings(input.tools),
-      ...settings(input.options),
-    });
+  })();
+  return { textStream, usage, providerStarted: Promise.resolve() };
+}
+
+function directAbortScope(source: AbortSignal | undefined) {
+  const controller = new AbortController();
+  const abortFromSource = () => controller.abort(source?.reason ?? directAbortError());
+  if (source?.aborted) abortFromSource();
+  else source?.addEventListener("abort", abortFromSource, { once: true });
+  const timeoutMs = Math.min(env.CHAT_STREAM_TIMEOUT_MS, 30 * 60_000);
+  const timer = setTimeout(() => {
+    controller.abort(new Error("Direct provider request exceeded its configured deadline"));
+  }, timeoutMs);
+  timer.unref?.();
+  return {
+    signal: controller.signal,
+    cleanup() {
+      clearTimeout(timer);
+      source?.removeEventListener("abort", abortFromSource);
+    },
+  };
+}
+
+function abortable<T>(operation: PromiseLike<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return Promise.resolve(operation);
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(abortReason(signal));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(operation).then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function abortReason(signal: AbortSignal) {
+  return signal.reason instanceof Error ? signal.reason : directAbortError();
+}
+
+function directAbortError() {
+  return new Error("Direct provider request was aborted");
+}
+
+function normalizeDirectUsage(value: unknown) {
+  const usage = (value ?? {}) as {
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    totalTokens?: number | null;
+    promptTokens?: number | null;
+    completionTokens?: number | null;
+    reasoningTokens?: number | null;
+    cachedInputTokens?: number | null;
+  };
+  const inputTokens = usage.inputTokens ?? usage.promptTokens ?? null;
+  const outputTokens = usage.outputTokens ?? usage.completionTokens ?? null;
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens:
+      usage.totalTokens ??
+      (inputTokens != null || outputTokens != null
+        ? (inputTokens ?? 0) + (outputTokens ?? 0)
+        : null),
+    reasoningTokens: usage.reasoningTokens ?? null,
+    cachedInputTokens: usage.cachedInputTokens ?? null,
+  };
+}
+
+function recordDirectTokenMetrics(provider: string, value: unknown) {
+  const usage = normalizeDirectUsage(value);
+  const values = [
+    ["input", usage.inputTokens],
+    ["output", usage.outputTokens],
+    ["reasoning", usage.reasoningTokens],
+    ["cached_input", usage.cachedInputTokens],
+  ] as const;
+  for (const [type, tokens] of values) {
+    if (tokens != null && tokens > 0) providerTokensTotal.labels(provider, type).inc(tokens);
   }
 }
 
@@ -216,6 +411,7 @@ async function postGoogleGenerateContent(input: ChatExecutionRequest) {
       },
       body: JSON.stringify(googleRequestBody(input.messages, input.options)),
       timeoutMs: GOOGLE_GENERATE_TIMEOUT_MS,
+      ...defined("signal", input.abortSignal),
     },
   );
   if (!response.ok) {

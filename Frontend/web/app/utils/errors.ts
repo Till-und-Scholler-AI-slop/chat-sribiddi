@@ -22,6 +22,34 @@ export function friendlyErrorKey(err: unknown): FriendlyErrorResult {
 
   const raw = err instanceof Error ? err.message : String(err)
   const lower = raw.toLowerCase()
+  const apiKind = typeof err === 'object' && err !== null && 'kind' in err
+    ? String((err as { kind?: unknown }).kind)
+    : null
+  const apiCode = typeof err === 'object' && err !== null && 'code' in err
+    ? String((err as { code?: unknown }).code || '').toUpperCase()
+    : ''
+
+  if (apiCode === 'DOCUMENT_PROCESSING_TIMEOUT') {
+    return { key: 'errors.documentProcessingTimeout', raw }
+  }
+  if (apiCode === 'DOCUMENT_EMPTY') {
+    return { key: 'errors.documentNoText', raw }
+  }
+  if (apiCode === 'DOCUMENT_TYPE_UNSUPPORTED') {
+    return { key: 'errors.unsupportedDocumentType', raw }
+  }
+  if (
+    apiCode === 'DOCUMENT_PROCESSING_FAILED'
+    || apiCode === 'DOCUMENT_UPLOAD_EMPTY_RESPONSE'
+    || apiCode === 'DOCUMENT_PAYLOAD_MISSING'
+    || apiCode === 'DOCUMENT_EXTRACTION_FAILED'
+  ) {
+    return { key: 'errors.documentProcessingFailed', raw }
+  }
+
+  if (apiKind === 'timeout' || lower.includes('timed out') || lower.includes('idle for too long')) {
+    return { key: 'errors.timeout', raw }
+  }
 
   if (
     lower.includes('failed to fetch') ||

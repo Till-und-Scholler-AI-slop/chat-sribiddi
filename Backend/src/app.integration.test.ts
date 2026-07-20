@@ -12,7 +12,7 @@ describe("Hono backend integration", () => {
   let fetch: (request: Request) => Response | Promise<Response>;
 
   beforeAll(async () => {
-    postgres = await new PostgreSqlContainer("postgres:17-alpine")
+    postgres = await new PostgreSqlContainer("postgres:18-alpine3.22")
       .withDatabase("chat_sribiddi")
       .withUsername("chat")
       .withPassword("chat")

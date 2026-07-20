@@ -1,9 +1,4 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
-import { fileURLToPath } from 'node:url'
-
-const markstreamCodeRenderer = fileURLToPath(
-    new URL('./app/utils/markstreamCodeRenderer.ts', import.meta.url)
-)
 
 const knownSourcemapWarningPlugins = [
     'nuxt:module-preload-polyfill',
@@ -98,15 +93,18 @@ export default defineNuxtConfig({
     modules: ['@nuxt/ui', '@nuxt/eslint', '@nuxtjs/i18n'],
     css: ['~/assets/css/main.css'],
     sourcemap: false,
+    routeRules: {
+        '/chat': { ssr: false },
+        '/compare': { ssr: false },
+        '/models': { ssr: false },
+        '/settings': { ssr: false },
+        '/usage': { ssr: false },
+        '/billing': { ssr: false }
+    },
     vite: {
         optimizeDeps: {
             include: markdownHighlightOptimizeDeps,
             exclude: ['markstream-vue', 'stream-markdown']
-        },
-        resolve: {
-            alias: {
-                'stream-markdown': markstreamCodeRenderer
-            }
         },
         build: {
             sourcemap: false,

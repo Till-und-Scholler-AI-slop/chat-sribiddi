@@ -2,8 +2,12 @@ import crypto from "node:crypto";
 import { PDFParse } from "pdf-parse";
 import { env } from "../config/env.js";
 import { badRequest, notFound } from "../errors/http-error.js";
+import { documentJobAttempts, documentJobs } from "../observability/metrics.js";
 import type { ChatRepository } from "../repositories/chat-repository.js";
-import type { DocumentRepository } from "../repositories/document-repository.js";
+import type {
+  ClaimedDocumentJob,
+  DocumentRepository,
+} from "../repositories/document-repository.js";
 import { toIso } from "../utils/time.js";
 
 type ExtractedDocument = {
@@ -19,10 +23,22 @@ type DocumentChunk = {
 };
 
 export class DocumentService {
+  private static readonly WORKER_COUNT = 2;
+  private static readonly MAX_ATTEMPTS = 3;
+  private static readonly CLAIM_LEASE_MS = 5 * 60_000;
+  private static readonly IDLE_POLL_MS = 5_000;
+  private processingPromise: Promise<void> | undefined;
+  private wakeTimer: ReturnType<typeof setTimeout> | undefined;
+  private stopping = false;
+
   constructor(
     private readonly chats: ChatRepository,
     private readonly documents: DocumentRepository,
-  ) {}
+  ) {
+    // An unref'ed startup wake resumes jobs left PROCESSING by a previous
+    // process without keeping command-line/test processes alive.
+    this.scheduleProcessing(0);
+  }
 
   async upload(chatId: string, userId: string, file: File) {
     const chat = await this.chats.findByIdAndUser(chatId, userId);
@@ -30,15 +46,13 @@ export class DocumentService {
     if (!file) throw badRequest("file is required");
     const bytes = Buffer.from(await file.arrayBuffer());
     if (bytes.byteLength === 0) throw badRequest("Document file is required");
-    if (bytes.byteLength > env.CHAT_MAX_MEDIA_ATTACHMENT_BYTES) {
-      throw badRequest(`Document exceeds ${env.CHAT_MAX_MEDIA_ATTACHMENT_BYTES} bytes`);
+    if (bytes.byteLength > env.CHAT_MAX_DOCUMENT_BYTES) {
+      throw badRequest(`Document exceeds ${env.CHAT_MAX_DOCUMENT_BYTES} bytes`);
     }
     const filename = safeFilename(file.name);
     const mimeType = resolveMimeType(file.type, filename);
     if (!supportsDocument(mimeType)) throw badRequest("Unsupported document type");
     const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
-    const chunks = chunkDocuments(await extractDocuments(bytes, mimeType));
-    if (chunks.length === 0) throw badRequest("Document contains no extractable text");
     const document = await this.documents.createDocument({
       chatId,
       userId,
@@ -46,20 +60,10 @@ export class DocumentService {
       mimeType,
       byteSize: bytes.byteLength,
       sha256,
-      status: "READY",
+      status: "PROCESSING",
+      payload: bytes,
     });
-    if (chunks.length > 0) {
-      await this.documents.createChunks(
-        chunks.map((chunk, i) => ({
-          documentId: document.id,
-          chunkIndex: i,
-          text: chunk?.text ?? "",
-          pageStart: chunk?.pageStart ?? null,
-          pageEnd: chunk?.pageEnd ?? null,
-          tokenEstimate: chunk?.tokenEstimate ?? 0,
-        })),
-      );
-    }
+    this.scheduleProcessing(0);
     return documentDto(document);
   }
 
@@ -77,6 +81,92 @@ export class DocumentService {
 
   relevantContext(chatId: string, query: string, limit = 5) {
     return this.documents.listRelevantChunks(chatId, query, limit);
+  }
+
+  /** Drain all currently claimable jobs. Exposed for deterministic tests and
+   * operational recovery; normal operation is driven by the two background
+   * workers scheduled by the constructor/upload path. */
+  async processPendingJobs() {
+    if (this.stopping) return;
+    if (!this.processingPromise) {
+      this.processingPromise = this.runWorkers().finally(() => {
+        this.processingPromise = undefined;
+      });
+    }
+    return this.processingPromise;
+  }
+
+  private runWorkers() {
+    return Promise.all(
+      Array.from({ length: DocumentService.WORKER_COUNT }, () => this.runWorker()),
+    ).then(() => undefined);
+  }
+
+  private async runWorker() {
+    for (;;) {
+      if (this.stopping) return;
+      const staleBefore = new Date(Date.now() - DocumentService.CLAIM_LEASE_MS);
+      const job = await this.documents.claimNextProcessing(staleBefore);
+      if (!job) return;
+      await this.processJob(job);
+    }
+  }
+
+  private async processJob(job: ClaimedDocumentJob) {
+    documentJobs.labels("processing").inc();
+    try {
+      if (!job.payload) throw new DocumentProcessingError("DOCUMENT_PAYLOAD_MISSING");
+      const chunks = chunkDocuments(await extractDocuments(job.payload, job.mime_type));
+      if (chunks.length === 0) throw new DocumentProcessingError("DOCUMENT_EMPTY");
+      await this.documents.completeProcessing(
+        job.id,
+        job.attempts,
+        chunks.map((chunk, index) => ({
+          chunkIndex: index,
+          text: chunk.text,
+          pageStart: chunk.pageStart,
+          pageEnd: chunk.pageEnd,
+          tokenEstimate: chunk.tokenEstimate,
+        })),
+      );
+      documentJobAttempts.labels("ready").inc();
+    } catch (error) {
+      const retryDelay = Math.min(30_000, 1_000 * 2 ** Math.max(0, job.attempts - 1));
+      await this.documents.markProcessingFailure(
+        job.id,
+        Math.min(job.attempts, DocumentService.MAX_ATTEMPTS),
+        documentErrorCode(error),
+        new Date(Date.now() + retryDelay),
+      );
+      documentJobAttempts.labels("failed").inc();
+    } finally {
+      documentJobs.labels("processing").dec();
+    }
+  }
+
+  private scheduleProcessing(delayMs: number) {
+    if (this.stopping) return;
+    if (this.wakeTimer) {
+      if (delayMs > 0) return;
+      clearTimeout(this.wakeTimer);
+    }
+    const timer = setTimeout(() => {
+      if (this.wakeTimer === timer) this.wakeTimer = undefined;
+      void this.processPendingJobs()
+        .catch(() => undefined)
+        .finally(() => this.scheduleProcessing(DocumentService.IDLE_POLL_MS));
+    }, delayMs);
+    timer.unref();
+    this.wakeTimer = timer;
+  }
+
+  async shutdown() {
+    this.stopping = true;
+    if (this.wakeTimer) {
+      clearTimeout(this.wakeTimer);
+      this.wakeTimer = undefined;
+    }
+    await this.processingPromise;
   }
 }
 
@@ -185,12 +275,27 @@ function estimateTokens(text: string) {
   return Math.max(1, Math.ceil(text.trim().length / 4));
 }
 
+class DocumentProcessingError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+
+function documentErrorCode(error: unknown) {
+  if (error instanceof DocumentProcessingError) return error.code;
+  if (error instanceof Error && error.message === "Unsupported document type") {
+    return "DOCUMENT_TYPE_UNSUPPORTED";
+  }
+  return "DOCUMENT_EXTRACTION_FAILED";
+}
+
 function documentDto(row: {
   id: number;
   filename: string;
   mime_type: string;
   byte_size: number;
   status: string;
+  error_code: string | null;
   created_at: Date | string;
 }) {
   return {
@@ -199,6 +304,7 @@ function documentDto(row: {
     mimeType: row.mime_type,
     byteSize: row.byte_size,
     status: row.status,
+    ...(row.error_code ? { errorCode: row.error_code } : {}),
     createdAt: toIso(row.created_at),
   };
 }
