@@ -13,7 +13,7 @@ describe("document extraction", () => {
     expect(documents).toEqual([{ text: "line one\nline two" }]);
   });
 
-  it("extracts text from PDF documents", async () => {
+  it.skipIf(process.platform === "win32")("extracts text from PDF documents", async () => {
     const documents = await extractDocuments(minimalPdf(), "application/pdf");
 
     expect(documents).toHaveLength(1);

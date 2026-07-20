@@ -1,9 +1,9 @@
 import { Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
 import { env } from "../config/env.js";
-import type { Database } from "./types.js";
 import { logger, safeError } from "../observability/logger.js";
 import { registerDatabasePoolMetrics } from "../observability/metrics.js";
+import type { Database } from "./types.js";
 
 const int8TypeId = 20;
 pg.types.setTypeParser(int8TypeId, (value) => Number.parseInt(value, 10));

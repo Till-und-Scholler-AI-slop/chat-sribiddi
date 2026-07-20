@@ -5,10 +5,11 @@ import type { AppContext } from "./app-context.js";
 import { createAppContext } from "./app-context.js";
 import { env } from "./config/env.js";
 import { handleError } from "./errors/handler.js";
-import { csrfMiddleware } from "./middleware/csrf.js";
 import { requestBodyLimitMiddleware } from "./middleware/body-limit.js";
+import { csrfMiddleware } from "./middleware/csrf.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { type AppVariables, requestContextMiddleware } from "./middleware/request-context.js";
+import { metricsRegistry } from "./observability/metrics.js";
 import { accountRoutes } from "./routes/account-routes.js";
 import { apiKeyRoutes } from "./routes/api-key-routes.js";
 import { authRoutes } from "./routes/auth-routes.js";
@@ -17,7 +18,6 @@ import { modelRoutes } from "./routes/model-routes.js";
 import { providerConnectionRoutes } from "./routes/provider-connection-routes.js";
 import { providerRoutes } from "./routes/provider-routes.js";
 import { usageRoutes } from "./routes/usage-routes.js";
-import { metricsRegistry } from "./observability/metrics.js";
 
 export function createApp(appContext: AppContext = createAppContext()) {
   const app = new OpenAPIHono<{ Variables: AppVariables }>();
@@ -65,7 +65,10 @@ export function createApp(appContext: AppContext = createAppContext()) {
   });
   app.get("/internal/metrics", async (c) => {
     const configured = env.METRICS_TOKEN?.trim();
-    const supplied = c.req.header("authorization")?.replace(/^Bearer\s+/i, "").trim();
+    const supplied = c.req
+      .header("authorization")
+      ?.replace(/^Bearer\s+/i, "")
+      .trim();
     if (!configured || !supplied || !safeEqual(configured, supplied)) return c.notFound();
     return c.text(await metricsRegistry.metrics(), 200, {
       "Content-Type": metricsRegistry.contentType,
@@ -114,5 +117,7 @@ export function createApp(appContext: AppContext = createAppContext()) {
 function safeEqual(left: string, right: string) {
   const leftBuffer = Buffer.from(left);
   const rightBuffer = Buffer.from(right);
-  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+  return (
+    leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer)
+  );
 }

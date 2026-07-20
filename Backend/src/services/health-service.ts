@@ -1,5 +1,5 @@
-import type { Db } from "../db/database.js";
 import { env } from "../config/env.js";
+import type { Db } from "../db/database.js";
 import { logger, safeError } from "../observability/logger.js";
 import type { RedisService } from "./redis-service.js";
 
@@ -42,7 +42,11 @@ export class HealthService {
     return {
       httpStatus: criticalDown ? (503 as const) : (200 as const),
       body: {
-        status: criticalDown ? ("DOWN" as const) : degraded ? ("DEGRADED" as const) : ("UP" as const),
+        status: criticalDown
+          ? ("DOWN" as const)
+          : degraded
+            ? ("DEGRADED" as const)
+            : ("UP" as const),
         components: {
           database,
           redis,
@@ -78,12 +82,15 @@ export class HealthService {
     const timer = setTimeout(() => controller.abort(), 2_000);
     timer.unref?.();
     try {
-      const response = await fetch(`${env.PROVIDER_GATEWAY_BASE_URL.replace(/\/$/, "")}/health/ready`, {
-        headers: {
-          authorization: `Bearer ${env.PROVIDER_GATEWAY_SHARED_SECRET ?? ""}`,
+      const response = await fetch(
+        `${env.PROVIDER_GATEWAY_BASE_URL.replace(/\/$/, "")}/health/ready`,
+        {
+          headers: {
+            authorization: `Bearer ${env.PROVIDER_GATEWAY_SHARED_SECRET ?? ""}`,
+          },
+          signal: controller.signal,
         },
-        signal: controller.signal,
-      });
+      );
       if (!response.ok) return "DOWN";
       const payload = (await response.json()) as { status?: string };
       return payload.status === "DEGRADED" ? "DEGRADED" : "UP";

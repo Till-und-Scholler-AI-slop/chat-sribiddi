@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { env } from "../config/env.js";
 import type { Db } from "../db/database.js";
-import type { RedisService } from "./redis-service.js";
 import { HealthService } from "./health-service.js";
+import type { RedisService } from "./redis-service.js";
 
 const originalGatewaySecret = env.PROVIDER_GATEWAY_SHARED_SECRET;
 
@@ -17,7 +17,10 @@ afterEach(() => {
 
 describe("HealthService", () => {
   it("reports Redis failure as DEGRADED while keeping BYOK ready", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ status: "ready" })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ status: "ready" })),
+    );
     const health = new HealthService(database(true), redis(false));
 
     const result = await health.readiness();
@@ -31,7 +34,10 @@ describe("HealthService", () => {
   });
 
   it("fails readiness when PostgreSQL is unavailable", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ status: "ready" })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ status: "ready" })),
+    );
     const health = new HealthService(database(false), redis(true));
 
     const result = await health.readiness();

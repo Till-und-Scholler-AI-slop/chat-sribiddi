@@ -20,13 +20,13 @@ import { HealthService } from "./services/health-service.js";
 import { ModelCatalogService } from "./services/model-catalog-service.js";
 import { ProviderCatalogService } from "./services/provider-catalog-service.js";
 import { ProviderConnectionService } from "./services/provider-connection-service.js";
+import { RedisService } from "./services/redis-service.js";
 import { StreamConcurrencyGate } from "./services/stream-concurrency-gate.js";
 import { ToolService } from "./services/tool-service.js";
 import { UsageService } from "./services/usage-service.js";
 import { UserSettingsService } from "./services/user-settings-service.js";
 import { WebSearchService } from "./services/web-search-service.js";
 import { ModelUseCase } from "./use-cases/model-use-case.js";
-import { RedisService } from "./services/redis-service.js";
 
 export type AppContext = ReturnType<typeof createAppContext>;
 

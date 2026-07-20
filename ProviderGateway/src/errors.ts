@@ -1,3 +1,4 @@
+// biome-ignore lint/complexity/useRegexLiterals: Keep the ANSI escape byte out of a regex literal.
 const ANSI_ESCAPE_PATTERN = new RegExp("\\x1B\\[[0-?]*[ -/]*[@-~]", "g");
 
 export class GatewayError extends Error {

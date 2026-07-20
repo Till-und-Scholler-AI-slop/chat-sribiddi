@@ -16,32 +16,36 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@ai-sdk/vue": "^3.0.185",
-    "@nuxt/ui": "4.7.1",
-    "@nuxtjs/i18n": "^10.3.0",
-    "@tailwindcss/typography": "^0.5.19",
-    "markstream-vue": "^1.0.0",
-    "nuxt": "^4.4.6",
-    "shiki": "^4.1.0",
+    "@ai-sdk/vue": "^4.0.31",
+    "@nuxt/ui": "4.10.0",
+    "@nuxtjs/i18n": "^10.4.1",
+    "@tailwindcss/typography": "^0.5.20",
+    "markstream-vue": "^1.0.7-beta.4",
+    "nuxt": "4.4.8",
+    "shiki": "^4.3.1",
     "typescript": "^6.0.3",
-    "vue": "^3.5.34",
-    "vue-router": "^5.0.7"
+    "vue": "^3.5.40",
+    "vue-router": "^5.2.0"
   },
   "devDependencies": {
     "@iconify-json/heroicons": "^1.2.3",
-    "@iconify-json/lucide": "^1.2.108",
-    "@iconify-json/simple-icons": "^1.2.85",
-    "@nuxt/eslint": "^1.15.2",
-    "@playwright/test": "^1.60.0",
-    "eslint": "^10.4.0",
-    "vitest": "^4.1.6"
+    "@iconify-json/lucide": "^1.2.118",
+    "@iconify-json/simple-icons": "^1.2.91",
+    "@nuxt/eslint": "^1.16.0",
+    "@playwright/test": "^1.61.1",
+    "eslint": "^10.7.0",
+    "vitest": "^4.1.10"
   },
   "overrides": {
+    "@babel/core": "7.29.7",
     "@isaacs/brace-expansion": "5.0.1",
     "brace-expansion": "5.0.6",
     "defu": "6.1.7",
     "devalue": "5.8.1",
+    "esbuild": "0.28.1",
     "h3": "1.15.11",
+    "js-yaml": "4.3.0",
+    "launch-editor": "2.14.1",
     "lodash": "4.18.1",
     "minimatch": "10.2.5",
     "node-forge": "1.4.0",
@@ -50,9 +54,9 @@
     "rollup": "4.60.3",
     "serialize-javascript": "7.0.5",
     "shell-quote": "1.8.4",
-    "tar": "7.5.15",
-    "vite": "8.0.12",
-    "ws": "8.20.1",
+    "tar": "7.5.20",
+    "vite": "8.1.5",
+    "ws": "8.21.1",
     "yaml": "2.9.0"
   }
 }

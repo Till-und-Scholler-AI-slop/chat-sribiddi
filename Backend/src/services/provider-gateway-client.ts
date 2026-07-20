@@ -608,12 +608,16 @@ async function gatewayTools(tools: ToolSet | undefined): Promise<GatewayTool[] |
   for (const [name, definition] of Object.entries(tools)) {
     const schema = asSchema(definition.inputSchema);
     const inputSchema = await schema.jsonSchema;
+    const description =
+      typeof definition.description === "function"
+        ? definition.description({ context: undefined })
+        : definition.description;
     if (!inputSchema || typeof inputSchema !== "object" || Array.isArray(inputSchema)) {
       throw contractError(`Tool ${name} does not expose an object JSON schema`);
     }
     result.push({
       name,
-      ...defined("description", definition.description?.trim() || undefined),
+      ...defined("description", description?.trim() || undefined),
       inputSchema: inputSchema as Record<string, unknown>,
     });
   }
@@ -651,6 +655,7 @@ async function executeBackendTool(
   const executionOptions = {
     toolCallId: call.toolCallId,
     messages,
+    context: undefined,
     abortSignal: signal,
   };
   const needsApproval =

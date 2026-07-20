@@ -1,11 +1,5 @@
 import type { Pool } from "pg";
-import {
-  collectDefaultMetrics,
-  Counter,
-  Gauge,
-  Histogram,
-  Registry,
-} from "prom-client";
+import { Counter, collectDefaultMetrics, Gauge, Histogram, Registry } from "prom-client";
 
 export const metricsRegistry = new Registry();
 
@@ -103,7 +97,7 @@ export const redisAvailable = new Gauge({
 
 let registeredPool: Pool | null = null;
 
-const dbPoolTotal = new Gauge({
+const _dbPoolTotal = new Gauge({
   name: "chat_db_pool_connections",
   help: "PostgreSQL pool connections by state",
   labelNames: ["state"] as const,

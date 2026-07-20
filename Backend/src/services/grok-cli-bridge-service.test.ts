@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { env } from "../config/env.js";
 import { GrokCliBridgeService, type GrokCliSpawn } from "./grok-cli-bridge-service.js";
 
+const posixIt = process.platform === "win32" ? it.skip : it;
+
 describe("GrokCliBridgeService", () => {
   const previous = {
     enabled: env.GROK_CLI_ENABLED,
@@ -94,7 +96,7 @@ describe("GrokCliBridgeService", () => {
     });
   });
 
-  it("enforces private permissions for existing Grok session directories", async () => {
+  posixIt("enforces private permissions for existing Grok session directories", async () => {
     env.GROK_CLI_ENABLED = true;
     env.GROK_CLI_BIN = "grok-test";
     env.GROK_CLI_LOGIN_PROMPT_TIMEOUT_MS = 2_000;

@@ -70,16 +70,14 @@ export function useAuth() {
    */
   const logout = async (): Promise<boolean> => {
     const { logout: apiLogout } = useChatApi()
-    let ok = false
     try {
-      ok = await apiLogout()
+      return await apiLogout()
     } finally {
       coordinator.generation++
       coordinator.promise = null
       checking.value = false
       status.value = 'unauthenticated'
     }
-    return ok
   }
 
   return {

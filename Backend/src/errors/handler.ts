@@ -1,8 +1,8 @@
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { ZodError } from "zod";
-import { HttpError } from "./http-error.js";
 import { logger, safeError } from "../observability/logger.js";
+import { HttpError } from "./http-error.js";
 
 export function handleError(err: Error, c: Context) {
   const requestId = c.get("requestId") as string | undefined;
