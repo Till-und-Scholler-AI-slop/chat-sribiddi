@@ -85,8 +85,8 @@ function consumeMemoryBucket(key: string, cost: number, resetAt: number) {
 
 function clientIp(c: Context) {
   const remoteAddress = (
-    c.env as { incoming?: { socket?: { remoteAddress?: string | undefined } } }
-  ).incoming?.socket?.remoteAddress;
+    c.env as { incoming?: { socket?: { remoteAddress?: string | undefined } } } | undefined
+  )?.incoming?.socket?.remoteAddress;
   const trusted = remoteAddress ? isTrustedProxy(remoteAddress, env.trustedProxies) : false;
   if (trusted) {
     return (
